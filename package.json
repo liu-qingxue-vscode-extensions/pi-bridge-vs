@@ -1,0 +1,81 @@
+{
+  "name": "pi-bridge-vs",
+  "displayName": "pi-bridge-vs",
+  "description": "让 VS Code 作为 Pi 的前端",
+  "version": "1.0.0",
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "coding agent",
+    "pi",
+    "liu-qingxue"
+  ],
+  "publisher": "liu-qingxue",
+  "license": "ISC",
+  "author": {
+    "name": "liu-qingxue",
+    "email": "liu-qingxue@proton.me",
+    "url": "https://github.com/liu-qingxue"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/liu-qingxue-vscode-extensions/pi-bridge-VS"
+  },
+  "main": "./dist/main.js",
+  "type": "module",
+  "contributes": {
+    "commands": [
+      {
+        "command": "pi-bridge.test",
+        "title": "测试桥",
+        "category": "pi-bridge"
+      },
+      {
+        "command": "pi-bridge.showDebug",
+        "title": "打开调试板",
+        "category": "pi-bridge"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "pi-bridge.showDebug",
+        "key": "ctrl+alt+d"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "pi-bridge-activitybar",
+          "title": "pi-bridge-vs",
+          "icon": "svg/pi.svg"
+        }
+      ]
+    },
+    "views": {
+      "pi-bridge-activitybar": [
+        {
+          "type": "webview",
+          "id": "pi-bridge.chatView",
+          "name": "Pi 会话"
+        }
+      ]
+    }
+  },
+  "activationEvents": [],
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc --watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "engines": {
+    "vscode": "^1.135.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "@types/vscode": "^1.135.0",
+    "typescript": "^7.0.2"
+  }
+}
