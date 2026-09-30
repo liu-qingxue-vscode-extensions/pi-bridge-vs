@@ -47,6 +47,9 @@ export class PiClient {
     private readonly client: RpcClient;
     private started = false;
 
+    /** 启动中的 Promise（用于幂等：并发调用复用同一个） */
+    private starting: Promise<void> | null = null;
+
     /** 我们自己维护的订阅者集合（官方 onEvent 的回调会转发到这里） */
     private readonly handlers = new Set<PiEventHandler>();
 
@@ -57,7 +60,17 @@ export class PiClient {
     constructor(cwd: string, cliPath?: string) {
         const resolvedCli = cliPath ?? resolvePiCliPath();
         logDebug(`[PiClient] cliPath = ${resolvedCli}`);
-        this.client = new RpcClient({ cwd, cliPath: resolvedCli });
+        this.client = new RpcClient({
+            cwd,
+            cliPath: resolvedCli,
+            // --no-session：不写会话文件
+            //
+            // 【为什么？】
+            // 1. 开发阶段不需要持久化（会话管理将来由我们自己实现）
+            // 2. 避免污染用户的 TUI 会话列表（~/.pi/agent/sessions/）
+            // 3. 避免被外部工具破坏（如 pi-web 会往会话文件追加无 id 的条目，导致链断）
+            args: ["--no-session"],
+        });
 
         // 构造时就注册官方事件回调 —— 这样无论何时 start，事件都不会漏
         this.client.onEvent((event) => {
@@ -68,12 +81,39 @@ export class PiClient {
     }
 
     /** 启动 pi 子进程（官方内部会等待就绪） */
-    async start(): Promise<void> {
+    /**
+     * 确保 pi 已启动并就绪 —— 懒启动 + 幂等
+     *
+     * 三重保证：
+     *   1. 已就绪    → 直接返回
+     *   2. 启动中    → 复用同一个 Promise（并发调用不会重复 spawn）
+     *   3. 首次调用  → 真正启动 + 就绪探针
+     */
+    async ensureStarted(): Promise<void> {
         if (this.started) return;
-        logInfo("[PiClient] 正在启动 pi --mode rpc ...");
+        if (this.starting) return this.starting;
+
+        this.starting = this.doStart().finally(() => {
+            // 无论成功/失败都清空：失败后允许下一次重试
+            this.starting = null;
+        });
+        return this.starting;
+    }
+
+    /** 真正的启动流程（只被 ensureStarted 调用一次） */
+    private async doStart(): Promise<void> {
+        logInfo("[PiClient] 启动 pi --mode rpc ...");
+
+        // ① 官方 start() 只等 100ms + 检查进程没立即崩溃，不等于协议层就绪
         await this.client.start();
+
+        // ② 就绪探针：发一条 get_state 并等回执
+        //    能拿到回执，说明 pi 的 stdin/stdout 都通了、协议层真的活了
+        //    （等价于 s-pi 里的 waitReady 探针）
+        await this.client.getState();
+
         this.started = true;
-        logInfo("[PiClient] pi 已启动");
+        logInfo("[PiClient] pi 就绪");
     }
 
     /** 停止 pi 子进程 */
@@ -105,6 +145,8 @@ export class PiClient {
      * 第一步只实现 prompt / abort，后续迭代逐个补充。
      */
     async send(cmd: RpcCommand): Promise<void> {
+        await this.ensureStarted(); // 懒启动：发命令前确保 pi 已就绪
+
         switch (cmd.type) {
             case "prompt":
                 return this.client.prompt(cmd.message, cmd.images);
@@ -121,6 +163,7 @@ export class PiClient {
 
     /** 便捷方法：直接发一条 prompt（等价于 send({type:"prompt", message})） */
     async prompt(text: string): Promise<void> {
+        await this.ensureStarted();
         logDebug(`[PiClient] prompt: ${text.slice(0, 80)}`);
         return this.client.prompt(text);
     }

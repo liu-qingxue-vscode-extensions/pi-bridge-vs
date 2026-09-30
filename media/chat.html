@@ -1,13 +1,16 @@
-/**
- * 聊天视图的 HTML 骨架（第一步：空 UI）
- *
- * 现状：只有"消息区占位 + 输入框"，不做任何渲染逻辑。
- * 迭代方向：调试板里看清数据后，把每一类数据逐个渲染成 UI 气泡。
- */
-export const chatHtml = `<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<!--
+  CSP（内容安全策略）：
+    default-src 'none'       —— 默认禁止一切外部资源
+    style-src {{cspSource}} 'unsafe-inline'  —— 允许 VS Code 注入的样式 + 内联 <style>
+    script-src 'nonce-{{nonce}}'             —— 只允许带本次 nonce 的脚本执行
+  {{nonce}} / {{cspSource}} 由扩展在加载时注入（html-loader.ts）
+-->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}';">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -17,8 +20,9 @@ export const chatHtml = `<!DOCTYPE html>
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size);
     color: var(--vscode-editor-foreground);
-    background: var(--vscode-editor-background);
+    background: var(--vscode-sideBar-background);
   }
+  /* 消息区：第一步先空着，数据在调试板里看 */
   #messages {
     flex: 1;
     overflow-y: auto;
@@ -43,6 +47,7 @@ export const chatHtml = `<!DOCTYPE html>
     resize: none;
     outline: none;
   }
+  #input:focus { border-color: var(--vscode-focusBorder); }
   #send {
     padding: 6px 16px;
     background: var(--vscode-button-background);
@@ -50,11 +55,13 @@ export const chatHtml = `<!DOCTYPE html>
     border: none;
     border-radius: 4px;
     cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
   }
+  #send:hover { background: var(--vscode-button-hoverBackground); }
 </style>
 </head>
 <body>
-  <!-- 消息区：第一步先空着，数据在调试板里看 -->
   <div id="messages"></div>
 
   <div id="input-area">
@@ -62,7 +69,7 @@ export const chatHtml = `<!DOCTYPE html>
     <button id="send">发送</button>
   </div>
 
-  <script>
+  <script nonce="{{nonce}}">
     const vscode = acquireVsCodeApi();
     const inputEl = document.getElementById("input");
     const sendBtn = document.getElementById("send");
@@ -71,11 +78,7 @@ export const chatHtml = `<!DOCTYPE html>
     function send() {
       const text = inputEl.value.trim();
       if (!text) return;
-
-      // TODO(你): 这里现在往调试板里塞一条，方便确认"发出了什么"
-      // 例：postMessage({ kind: "prompt", text })
       vscode.postMessage({ kind: "prompt", text });
-
       inputEl.value = "";
     }
 
@@ -88,15 +91,12 @@ export const chatHtml = `<!DOCTYPE html>
     });
 
     // ===== 接收：扩展宿主 -> 前端 =====
+    // 第一步先不做渲染（数据在调试板看）；
+    // 第二步开始按 msg.kind 逐个长出 UI：
+    //   case "pi": ...    case "system": ...    case "error": ...
     window.addEventListener("message", (event) => {
-      const msg = event.data;
-      // TODO(你): 第一步先什么都不渲染（数据看调试板）
-      // 第二步开始，按 msg.kind 逐个加 UI：
-      //   case "pi": ...
-      //   case "system": ...
-      //   case "error": ...
-      console.log("[chat] 收到:", msg);
+      console.log("[chat] 收到:", event.data);
     });
   </script>
 </body>
-</html>`;
+</html>

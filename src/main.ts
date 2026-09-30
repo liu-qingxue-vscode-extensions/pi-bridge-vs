@@ -8,63 +8,68 @@
  *      pi 事件 → toFrontendPayload(透传) → DebugPanel.log → （未来）ChatView.post
  *
  *   ② 前端 → 后端：
- *      ChatView 的 prompt → toRpcCommand(表驱动) → PiClient.send → pi
+ *      ChatView 的消息 → toRpcCommand(表驱动) → PiClient.send → pi
  *
- * 对 pi 的运行方式：RpcClient 会 spawn 一个 `pi --mode rpc` 子进程，
- * 子进程的工作目录 = 当前 VS Code 打开的工作区。
+ * 【pi 的启动时机】
+ * 懒启动：扩展激活【不】启动 pi，只在收到第一条前端消息时才启动
+ * （见 PiClient.ensureStarted —— 幂等 + 就绪探针）。
+ * 好处：用户只打开视图、不发消息 → 零资源消耗。
+ *
+ * 【数据分发模型】
+ * 扇出：一个事件源 → 多个独立订阅者（调试板 / 未来的聊天渲染 / …）。
+ * 订阅者之间互不依赖，调试板不是中转站。
+ *
+ * 【日志】
+ * 本地日志走 LogOutputChannel（输出面板，VS Code 自动落盘）；
+ * 调试板只接收 pi 的真数据 —— 两者不混，避免污染后端数据的类型空间。
  */
 import * as vscode from "vscode";
-import { initLogger, logInfo, logError } from "./logger.js";
+import os from "node:os";
+import { initLogger, logInfo, logError, logDebug } from "./logger.js";
 import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
 import { ChatView } from "./view/chat-view.js";
-import { toRpcCommand } from "./bridge/format-frontend.js";
+import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
 import { toFrontendPayload } from "./bridge/format-backend.js";
+import { toErrorMessage } from "./utils.js";
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
-    // 0. 日志
+export function activate(context: vscode.ExtensionContext): void {
+    // 0. 日志（LogOutputChannel：VS Code 自动落盘 + 分级 + 轮转）
     context.subscriptions.push(initLogger());
     logInfo("pi-bridge-vs 激活");
 
-    // 1. 确定 pi 的工作目录 = 用户打开的文件夹
-    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!cwd) {
-        logError("没有打开的工作区，pi 将以当前目录启动");
+    // 1. 确定 pi 的工作目录
+    //    没有打开工作区时用 HOME（而不是 process.cwd()，后者不可靠）
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const cwd = workspaceFolder ?? os.homedir();
+    if (!workspaceFolder) {
+        logInfo(`未打开工作区，pi 将以 HOME 目录作为工作目录：${cwd}`);
+    } else {
+        logInfo(`pi 工作目录：${cwd}`);
     }
 
     // 2. 创建零件
-    const debugPanel = new DebugPanel();
-    const pi = new PiClient(cwd ?? process.cwd());
+    const debugPanel = new DebugPanel(context.extensionUri);
+    const pi = new PiClient(cwd);
 
     // 3. 数据流 ①：pi 事件 → 透传格式层 → 调试板
+    //    注意：这里【只】放 pi 的真数据，本地日志不掺进来
     pi.onEvent((event) => {
         debugPanel.log(toFrontendPayload(event));
     });
 
-    // 4. 启动 pi（失败也要能让用户从调试板看到原因）
-    try {
-        await pi.start();
-        debugPanel.log({ type: "local", message: "pi 已启动，等待输入" });
-    } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logError(`pi 启动失败: ${message}`);
-        debugPanel.log({ type: "local-error", message: `pi 启动失败: ${message}` });
-    }
-
-    // 5. 数据流 ②：聊天视图的 prompt → format → pi
-    const chatView = new ChatView(async (text) => {
-        debugPanel.log({ type: "local", direction: "frontend→pi", payload: { kind: "prompt", text } });
+    // 4. 数据流 ②：聊天视图的消息 → format 表（白名单）→ pi
+    const chatView = new ChatView(context.extensionUri, async (msg: FrontendMessage) => {
+        logDebug(`前端消息: ${JSON.stringify(msg)}`);
         try {
-            const cmd = toRpcCommand({ kind: "prompt", text });
-            await pi.send(cmd);
+            const cmd = toRpcCommand(msg); // 表驱动：前端消息 → RpcCommand
+            await pi.send(cmd);            // send 内部 ensureStarted()：懒启动 + 幂等
         } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            logError(`发送 prompt 失败: ${message}`);
-            debugPanel.log({ type: "local-error", message });
+            logError(`处理前端消息失败: ${toErrorMessage(err)}`);
         }
     });
 
-    // 6. 注册 VS Code 的贡献点（命令 / 视图）
+    // 5. 注册 VS Code 的贡献点（命令 / 视图）
     context.subscriptions.push(
         // 侧边栏聊天视图
         vscode.window.registerWebviewViewProvider(ChatView.viewId, chatView),
@@ -79,13 +84,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             void vscode.window.showInformationMessage("pi-bridge-vs 已激活 ✓");
         }),
 
-        // 扩展停用时杀掉 pi 子进程（避免留下孤儿进程）
+        // 扩展停用时杀掉 pi 子进程（避免孤儿进程）
         {
             dispose: () => {
                 void pi.stop();
             },
         },
     );
+
+    logInfo("pi-bridge-vs 激活完成（pi 将在首条消息时启动）");
 }
 
 export function deactivate(): void {

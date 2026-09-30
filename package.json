@@ -59,7 +59,8 @@
         {
           "type": "webview",
           "id": "pi-bridge.chatView",
-          "name": "Pi 会话"
+          "name": "Pi 会话",
+          "icon": "svg/pi.svg"
         }
       ]
     }

@@ -11,7 +11,7 @@
  * - 关闭后零干扰，但缓冲继续工作（内存里就一个数组）
  */
 import * as vscode from "vscode";
-import { debugHtml } from "./debug-html.js";
+import { loadWebviewHtml } from "./html-loader.js";
 
 /** 环形缓冲：容量固定，满了丢最旧的 */
 class RingBuffer<T> {
@@ -47,6 +47,9 @@ export class DebugPanel {
     /** 后台缓冲：容量 500 条，够调试用 */
     private readonly buffer = new RingBuffer<unknown>(500);
 
+    /** @param extensionUri 扩展根目录（用于读取 media/debug.html） */
+    constructor(private readonly extensionUri: vscode.Uri) {}
+
     /**
      * 记录一条数据（由 main.ts 的数据流调用）
      * - 无论面板是否打开都进缓冲
@@ -72,7 +75,7 @@ export class DebugPanel {
             { enableScripts: true }, // 允许 webview 里跑 JS
         );
 
-        this.panel.webview.html = debugHtml;
+        this.panel.webview.html = loadWebviewHtml(this.extensionUri, "debug.html", this.panel.webview);
 
         // 接收前端（调试板 HTML）发来的消息
         this.panel.webview.onDidReceiveMessage((msg) => {
