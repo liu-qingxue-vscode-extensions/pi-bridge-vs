@@ -58,6 +58,17 @@ export function activate(context: vscode.ExtensionContext): void {
         debugPanel.log(toFrontendPayload(event));
     });
 
+    // 3b. 数据流 ①-补充：pi 的 stderr（错误 / 诊断）→ 调试板
+    //     官方 RpcClient 把 stderr 转发到 process.stderr（开发者控制台），界面上看不见——
+    //     所以必须主动捕获送到前端，否则“用着用着突然报错”用户无法感知。
+    pi.onStderr((text) => {
+        for (const line of text.split("\n")) {
+            if (line.trim()) {
+                debugPanel.log({ type: "stderr", text: line });
+            }
+        }
+    });
+
     // 4. 数据流 ②：聊天视图的消息 → format 表（白名单）→ pi
     const chatView = new ChatView(context.extensionUri, async (msg: FrontendMessage) => {
         logDebug(`前端消息: ${JSON.stringify(msg)}`);

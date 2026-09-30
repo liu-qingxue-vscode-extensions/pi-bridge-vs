@@ -63,6 +63,19 @@
           "icon": "svg/pi.svg"
         }
       ]
+    },
+    "configuration": {
+      "title": "pi-bridge",
+      "properties": {
+        "pi-bridge.debug.hiddenTypes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "在调试板中**隐藏**的事件类型（黑名单）。默认空 = 全部显示。\n\n用途：某个类型已经“消灭”成真实 UI 后，把它的名字写进来，调试板就只剩未完成的类型 —— 相当于一块进度仪表盘。想看全部就清空列表。\n\n例：`[\"message_update\", \"agent_start\"]`"
+        }
+      }
     }
   },
   "activationEvents": [],

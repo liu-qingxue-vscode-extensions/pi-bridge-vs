@@ -52,10 +52,20 @@ export class DebugPanel {
 
     /**
      * 记录一条数据（由 main.ts 的数据流调用）
+     * - 黑名单过滤：配置里列出的类型不显示（已实现 UI 的类型可以屏蔽）
      * - 无论面板是否打开都进缓冲
      * - 面板打开时，实时推给前端
      */
     log(payload: unknown): void {
+        // 读配置：在调试板中隐藏的类型（每次读取 → 改设置立即生效）
+        const hidden = vscode.workspace
+            .getConfiguration("pi-bridge.debug")
+            .get<string[]>("hiddenTypes", []);
+        const type = (payload as { type?: string } | null)?.type;
+        if (type && hidden.includes(type)) {
+            return; // 在黑名单里 → 不显示
+        }
+
         this.buffer.push(payload);
         this.panel?.webview.postMessage({ kind: "debug", payload });
     }

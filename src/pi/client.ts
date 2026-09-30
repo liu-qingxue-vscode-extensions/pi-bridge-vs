@@ -16,6 +16,7 @@
  */
 import { RpcClient } from "@earendil-works/pi-coding-agent";
 import type { RpcCommand, JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { logDebug, logInfo, logError } from "../logger.js";
@@ -52,6 +53,12 @@ export class PiClient {
 
     /** 我们自己维护的订阅者集合（官方 onEvent 的回调会转发到这里） */
     private readonly handlers = new Set<PiEventHandler>();
+
+    /** stderr 订阅者 */
+    private readonly stderrHandlers = new Set<(text: string) => void>();
+
+    /** stderr 监听是否已挂载（避免重复挂） */
+    private stderrAttached = false;
 
     /**
      * @param cwd     pi 的工作目录（通常 = VS Code 打开的工作区）
@@ -112,8 +119,62 @@ export class PiClient {
         //    （等价于 s-pi 里的 waitReady 探针）
         await this.client.getState();
 
+        // ③ 挂载 stderr 监听（此时子进程已存在）
+        this.attachStderr();
+
         this.started = true;
         logInfo("[PiClient] pi 就绪");
+    }
+
+    /**
+     * 挂载 stderr 监听（事件驱动，幂等）
+     *
+     * 【怎么做到的？】
+     * 官方 RpcClient 只暴露拉取式 getStderr()，但它内部把子进程存进了 this.process。
+     * TypeScript 的 private 只是【编译期】限制（编译后类型擦除）——
+     * 所以运行时可以直接访问它，给 childProcess.stderr 挂自己的监听器
+     * （Node 的 EventEmitter 支持多个监听器，与官方内部那个共存）。
+     *
+     * 【风险】依赖了官方未承诺的私有字段。挂了不上时不崩，只告警；
+     * 将来官方改结构会导致这里失效（必要时可回退到轮询 getStderr）。
+     */
+    private attachStderr(): void {
+        if (this.stderrAttached) return;
+
+        const proc = (this.client as unknown as { process?: ChildProcess }).process;
+        if (!proc?.stderr) {
+            logError("[PiClient] 无法挂载 stderr 监听（进程未就绪或官方内部结构已变）");
+            return;
+        }
+
+        proc.stderr.on("data", (chunk: Buffer) => {
+            const text = chunk.toString();
+            for (const handler of this.stderrHandlers) {
+                handler(text);
+            }
+        });
+
+        this.stderrAttached = true;
+        logInfo("[PiClient] stderr 监听已挂载（事件驱动）");
+    }
+
+    /**
+     * 订阅 pi 的 stderr（错误 / 诊断信息）
+     *
+     * 【为什么必须送上前端？】
+     * stderr 是 pi 进程的第三条输出通道，包含错误和诊断。
+     * 官方只把它转发给 process.stderr（开发者控制台）——
+     * 界面上看不见，用户就无法感知“用着用着突然报错”。
+     *
+     * @returns 取消订阅的函数
+     */
+    onStderr(handler: (text: string) => void): () => void {
+        this.stderrHandlers.add(handler);
+        // 若已启动过，立即尝试挂载；否则等 doStart 里挂
+        this.attachStderr();
+        return () => {
+            this.stderrHandlers.delete(handler);
+        };
     }
 
     /** 停止 pi 子进程 */
@@ -122,6 +183,8 @@ export class PiClient {
         logInfo("[PiClient] 正在停止 pi ...");
         await this.client.stop();
         this.started = false;
+        // 重置挂载状态：进程已死，下次 start 需要重新挂
+        this.stderrAttached = false;
     }
 
     /** 订阅事件流，返回取消订阅函数 */

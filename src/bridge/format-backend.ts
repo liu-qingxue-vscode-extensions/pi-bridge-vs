@@ -21,7 +21,15 @@ import type {
  *   JsonAgentSessionEvent —— 事件流（message_update / tool_execution_end / ...）大头
  *   RpcExtensionUIRequest —— pi 扩展要求 UI 交互（select/confirm/input/notify）
  */
-export type BackendOutput = RpcResponse | JsonAgentSessionEvent | RpcExtensionUIRequest;
+export type BackendOutput = RpcResponse | JsonAgentSessionEvent | RpcExtensionUIRequest | PiStderrLine;
+
+/**
+ * 来自 pi 进程 stderr 的一行（诊断信息 / 错误）
+ *
+ * 它不是 pi 的 RPC 协议消息，而是我们从进程的第三通道（stderr）捕获的。
+ * 纳入类型空间的原因：它是 pi 对我们的输出，必须能被前端展示（不得被“捂着”）。
+ */
+export type PiStderrLine = { type: "stderr"; text: string };
 
 /** 转换函数：后端原始对象 → 前端可消费的载荷 */
 type BackendFormatter = (raw: BackendOutput) => unknown;

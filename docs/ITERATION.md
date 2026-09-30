@@ -16,6 +16,9 @@
    - VS Code 自动把内容写入它自己的日志目录（`Developer: Open Logs Folder` 可打开）
    - 自带分级（trace/debug/info/warn/error）+ 自动轮转/清理 → **无需自己写文件**
    - 不引入 winston 等依赖
+10. **数据可见性原则**：pi 的**任何输出**（包括 stderr 的错误/诊断）都必须送到前端，**不得“捂着”**
+    - 理由：用着用着突然报错，用户必须能立刻知道才能去修
+    - stderr 要送到两个前端（调试板 + 聊天渲染）
 
 ## 已解决的重大外部问题（存档）
 
@@ -46,6 +49,17 @@
   - 读取用 `context.extensionUri`（不是 `__dirname`，tsc 不复制 .html）
   - `src/view/html-loader.ts` 负责读取 + 注入 nonce/cspSource
 - [x] **webview CSP + nonce**：`default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src 'nonce-{{nonce}}'`
+
+### 批次 A3：数据可见性（已完成 ✓）
+- [x] **调试板字段过滤**（黑名单）：VS Code 设置项 `pi-bridge.debug.hiddenTypes`
+  - 语义：列出的 type 在调试板中隐藏（**接收时过滤**：不进缓冲、不推送）
+  - 用途：某类型“消灭”成 UI 后加入黑名单 → 调试板只剩未完成类型 = 进度仪表盘
+  - 选“接收时过滤”而非“展示时过滤”的理由：高频事件（`message_update` 一次回答数百条）会挤爆 500 条环形缓冲
+- [x] **stderr 事件驱动**（方案 A：hook 官方私有字段 `client.process.stderr`）
+  - 已验证：`scripts/smoke-stderr.mjs`（私有字段运行时可访问 + 事件驱动生效 + 与官方转发共存）
+  - 挂载失败会告警（不崩）；将来官方改结构则可能失效（届时回退轮询 `getStderr()`）
+  - 类型：`PiStderrLine = { type: "stderr"; text: string }` 已加入 `BackendOutput` 类型空间
+  - 接线：`main.ts` 里 `pi.onStderr(...)` → 逐行拆开 → `debugPanel.log({type:"stderr", text})`
 
 ### 批次 B：UI 迭代（调试板 → 聊天视图）
 - [ ] 第一个被消灭的类型：`message_update` 的 `text_delta` → AI 气泡
