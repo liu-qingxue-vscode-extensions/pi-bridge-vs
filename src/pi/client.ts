@@ -147,15 +147,32 @@ export class PiClient {
             return;
         }
 
-        proc.stderr.on("data", (chunk: Buffer) => {
-            const text = chunk.toString();
-            for (const handler of this.stderrHandlers) {
-                handler(text);
-            }
-        });
+        // ① 先拉一次【历史】：
+        //    官方在 spawn 后就挂了监听，把启动期输出（扩展日志 / 警告）
+        //    累积在 getStderr() 字符串里。我们挂得晚，只能靠拉取补上。
+        const history = this.client.getStderr();
 
+        // ② 再挂【事件监听】：收之后新产生的数据（实时）
+        proc.stderr.on("data", (chunk: Buffer) => {
+            this.emitStderr(chunk.toString());
+        });
         this.stderrAttached = true;
-        logInfo("[PiClient] stderr 监听已挂载（事件驱动）");
+
+        // ③ 推送历史
+        //    注：这是“拉取时刻”的快照；从拉取到挂监听之间的极短窗口内的数据可能漏掉
+        //    （微秒级，且 stderr 是诊断信息，可接受）
+        if (history) {
+            this.emitStderr(history);
+        }
+
+        logInfo(`[PiClient] stderr 监听已挂载（历史 ${history.length} 字符 + 事件驱动）`);
+    }
+
+    /** 把 stderr 文本分发给所有订阅者 */
+    private emitStderr(text: string): void {
+        for (const handler of this.stderrHandlers) {
+            handler(text);
+        }
     }
 
     /**

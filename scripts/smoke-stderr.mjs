@@ -1,10 +1,10 @@
 /**
- * 冒烟测试：验证方案 A（hook 官方私有字段 client.process.stderr）是否可行
+ * 冒烟测试 v2：验证「补历史 + 事件驱动」的组合
  *
- * 验证三件事：
- *   ① 运行时能否访问官方的 private 字段 `process`
- *   ② 能否给 childProcess.stderr 挂自己的监听器（与官方共存）
- *   ③ 事件驱动能否真的收到 stderr 数据
+ * 模拟我们扩展的真实时序：
+ *   启动 → 等探针 → 【先拉历史】→ 【再挂监听】
+ *
+ * 验证：历史能否捕到启动期输出（扩展日志/警告），监听能否收到后续数据
  *
  * 跑法：node scripts/smoke-stderr.mjs
  */
@@ -14,31 +14,39 @@ import path from "node:path";
 import fs from "node:fs";
 
 const cwd = "/tmp/pi-stderr-test";
-fs.mkdirSync(cwd, { recursive: true });   // ← 必须存在，否则 spawn 报 ENOENT
+fs.mkdirSync(cwd, { recursive: true });   // 必须存在，否则 spawn 报 ENOENT
 const entryUrl = import.meta.resolve("@earendil-works/pi-coding-agent");
 const cliPath = path.join(path.dirname(fileURLToPath(entryUrl)), "cli.js");
 
 const client = new RpcClient({ cwd, cliPath, model: "ollama/ornstein:latest" });
 await client.start();
+await client.getState();
 
-// ★ 关键验证 ①：私有字段在运行时是否可访问
+// 故意等一会儿 —— 模拟"探针耗时"，让启动期输出都产生完（此时我们还没挂监听）
+await new Promise((r) => setTimeout(r, 2000));
+
+// ============ 我们的实现方式 ============
+// ① 先拉历史（补上启动期那批）
+const history = client.getStderr();
+console.log(`① 补历史拿到 ${history.length} 字符`);
+if (history) {
+    console.log("   内容预览:", JSON.stringify(history.slice(0, 130)));
+}
+
+// ② 再挂监听（收之后的新数据）
 const proc = client.process;
-console.log("① client.process 可访问:", proc ? "✓" : "✗");
-console.log("② client.process.stderr 可访问:", proc?.stderr ? "✓" : "✗");
-
-// ★ 关键验证 ②：挂自己的监听器（事件驱动）
 const captured = [];
-proc?.stderr?.on("data", (chunk) => {
-    const text = chunk.toString();
-    captured.push(text);
-    process.stdout.write("[stderr 事件] " + text.trim().slice(0, 110) + "\n");
-});
+proc?.stderr?.on("data", (chunk) => captured.push(chunk.toString()));
 
-// 等一会儿，让 pi 的启动期输出（扩展日志、警告）流过来
-await new Promise((r) => setTimeout(r, 6000));
+// 触发一点运行期输出来验证监听（发个 prompt 让扩展活动起来）
+await client.prompt("回复一个字");
+await new Promise((r) => setTimeout(r, 12000));
 
-console.log("③ 通过事件驱动捕获到", captured.length, "个 stderr 片段");
-console.log(captured.length > 0 ? "✓ 方案 A 可行（事件驱动生效）" : "✗ 没收到数据");
+console.log(`② 挂监听后收到 ${captured.length} 个片段`);
+if (captured.length) {
+    console.log("   片段预览:", JSON.stringify(captured[0].slice(0, 130)));
+}
+console.log(history.length > 0 ? "\n✓ 补历史生效（启动期输出没漏）" : "\n✗ 历史为空");
 
 await client.stop();
 process.exit(0);

@@ -61,6 +61,16 @@
   - 类型：`PiStderrLine = { type: "stderr"; text: string }` 已加入 `BackendOutput` 类型空间
   - 接线：`main.ts` 里 `pi.onStderr(...)` → 逐行拆开 → `debugPanel.log({type:"stderr", text})`
 
+### 批次 A4：stderr 补历史（已完成 ✓）
+- [x] 挂载 stderr 监听时，**先拉一次 `getStderr()` 补历史**
+  - 原因：官方在 spawn 后【立即】挂了监听，把启动期输出（扩展日志/警告）累积在字符串里；
+    而我们挂得晚（要等 `getState()` 探针）—— 启动期那批只能靠拉取补上
+  - 实现：`attachStderr()` 里【先拉历史 → 再挂监听 → 推送历史】
+  - 已验证：`scripts/smoke-stderr.mjs`（补历史拿到 167 字符的启动期输出）
+  - 已知微小竞态：[拉取历史 → 挂监听] 之间的极短窗口可能漏几个字节（诊断信息，可接受）
+  - 模型澄清：**没有“错误池”** —— 历史累积在官方 `this.stderr` 字符串里（`getStderr()` 可取）；
+    只有“流未被监听”时数据才会堆在 Node 流的内部缓冲
+
 ### 批次 B：UI 迭代（调试板 → 聊天视图）
 - [ ] 第一个被消灭的类型：`message_update` 的 `text_delta` → AI 气泡
 - [ ] `thinking` → 灰色思考区
