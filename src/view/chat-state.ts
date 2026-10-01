@@ -34,8 +34,14 @@ export interface Block {
     text: string;
     /** tool 专用：工具名 */
     toolName?: string;
+    /** tool 专用：调用 id（用于把“结果消息”关联回这个块）★ */
+    toolCallId?: string;
     /** tool 专用：参数是否拼装完毕（toolcall_end 到达） */
     toolDone?: boolean;
+    /** tool 专用：执行结果（来自 toolResult 消息，可能跨越其他气泡） */
+    result?: string;
+    /** tool 专用：结果是否为错误 */
+    resultIsError?: boolean;
 }
 
 /** 一条聊天气泡 */
@@ -58,10 +64,12 @@ export type ChatPatch =
     | { kind: "startBubble"; role: ChatRole; text: string }
     | { kind: "append"; block: "text" | "thinking"; text: string }
     | { kind: "endBubble"; role: ChatRole }
-    // 工具调用（toolcall_*）—— 工具块的生命周期
-    | { kind: "toolStart"; name: string }
+    // 工具调用（toolcall_*）—— 工具气泡的生命周期
+    | { kind: "toolStart"; name: string; callId: string }
     | { kind: "toolArgs"; text: string }
-    | { kind: "toolEnd" };
+    | { kind: "toolEnd" }
+    // 工具结果（toolResult 消息）—— 不建新气泡，而是【填回】对应的工具块
+    | { kind: "toolResult"; callId: string; text: string; isError: boolean };
 
 export class ChatState {
     /** 所有气泡（权威状态） */
@@ -121,11 +129,17 @@ export class ChatState {
                 break;
             }
 
-            // ===== 工具块的生命周期（toolcall_*）=====
+            // ===== 工具气泡的生命周期（toolcall_* + toolResult）=====
             case "toolStart": {
                 const last = this.bubbles.at(-1);
                 if (!last || last.done) return;
-                last.blocks.push({ type: "tool", text: "", toolName: patch.name, toolDone: false });
+                last.blocks.push({
+                    type: "tool",
+                    text: "",
+                    toolName: patch.name,
+                    toolCallId: patch.callId,
+                    toolDone: false,
+                });
                 break;
             }
 
@@ -142,8 +156,27 @@ export class ChatState {
                 blk.toolDone = true;
                 break;
             }
+
+            case "toolResult": {
+                // ★ 结果可能来自【另一条消息】→ 按 callId 在所有气泡里找回那个工具块
+                const blk = this.findToolBlock(patch.callId);
+                if (!blk) return; // 关联不上就忽略（不崩）
+                blk.result = patch.text;
+                blk.resultIsError = patch.isError;
+                break;
+            }
         }
         this.emit(patch);
+    }
+
+    /** 按 callId 在所有气泡的内容块里找工具块 */
+    private findToolBlock(callId: string): Block | undefined {
+        for (const bubble of this.bubbles) {
+            for (const blk of bubble.blocks) {
+                if (blk.type === "tool" && blk.toolCallId === callId) return blk;
+            }
+        }
+        return undefined;
     }
 
     private emit(patch: ChatPatch): void {

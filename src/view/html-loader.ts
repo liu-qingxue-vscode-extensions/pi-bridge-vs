@@ -27,15 +27,18 @@ function getNonce(): string {
  * 读取 media/<fileName>，把占位符替换成实际值：
  *   {{nonce}}     → 本次加载的随机 nonce
  *   {{cspSource}} → VS Code 的资源源标识（webview.cspSource）
+ *   {{styleVars}} → 从设置生成的 CSS 变量覆盖（见 style-config.ts）
  */
 export function loadWebviewHtml(
     extensionUri: vscode.Uri,
     fileName: string,
     webview: vscode.Webview,
+    extraCss = "",
 ): string {
     const filePath = path.join(extensionUri.fsPath, "media", fileName);
     const raw = fs.readFileSync(filePath, "utf8");
     return raw
         .replace(/\{\{nonce\}\}/g, getNonce())
-        .replace(/\{\{cspSource\}\}/g, webview.cspSource);
+        .replace(/\{\{cspSource\}\}/g, webview.cspSource)
+        .replace(/\{\{styleVars\}\}/g, extraCss);
 }

@@ -82,6 +82,150 @@
                     },
                     "default": [],
                     "markdownDescription": "传给 pi 子进程的**额外启动参数**（默认已有 `--no-session`）。\n\n常用：\n- `--no-extensions` —— 临时禁用所有扩展。\n  场景：守卫类扩展会拦住工具执行（等待审批），而本扩展还没做 `extension_ui_request` 的响应桥时，工具会卡住。\n- `--thinking high` —— 指定思考级别\n- `--no-extensions` + `-e <path>` —— 只加载指定扩展\n\n⚠️ 修改后需**重新加载窗口**才生效（pi 子进程已启动）。"
+                },
+                "pi-bridge.style.bubbleWidth": {
+                    "type": "number",
+                    "default": 88,
+                    "minimum": 0,
+                    "maximum": 100,
+                    "markdownDescription": "气泡宽度（百分比）。默认 88。"
+                },
+                "pi-bridge.style.bubbleRadius": {
+                    "type": "number",
+                    "default": 6,
+                    "minimum": 0,
+                    "maximum": 30,
+                    "markdownDescription": "气泡圆角半径（px）。默认 6。设 0 = 方角。"
+                },
+                "pi-bridge.style.bubblePadding": {
+                    "type": "string",
+                    "default": "8px 12px",
+                    "markdownDescription": "气泡内边距（CSS padding 语法）。默认 `8px 12px`。"
+                },
+                "pi-bridge.style.gapTurn": {
+                    "type": "number",
+                    "default": 10,
+                    "minimum": 0,
+                    "maximum": 60,
+                    "markdownDescription": "**默认间距**：任何相邻气泡之间（px）。默认 10。"
+                },
+                "pi-bridge.style.gapUserFirst": {
+                    "type": "number",
+                    "default": 12,
+                    "minimum": 0,
+                    "maximum": 60,
+                    "markdownDescription": "**你的消息 → AI 第一个气泡** 的间距（px）。默认 12。"
+                },
+                "pi-bridge.style.gapThinkingToText": {
+                    "type": "number",
+                    "default": 4,
+                    "minimum": 0,
+                    "maximum": 60,
+                    "markdownDescription": "**思考气泡 → 正文气泡** 的间距。默认 4。"
+                },
+                "pi-bridge.style.gapThinkingToTool": {
+                    "type": "number",
+                    "default": 4,
+                    "minimum": 0,
+                    "maximum": 60,
+                    "markdownDescription": "**思考气泡 → 工具气泡** 的间距。默认 4。"
+                },
+                "pi-bridge.style.gapTextToTool": {
+                    "type": "number",
+                    "default": 6,
+                    "minimum": 0,
+                    "maximum": 60,
+                    "markdownDescription": "**正文气泡 → 工具气泡** 的间距。默认 6。"
+                },
+                "pi-bridge.style.gapToolToText": {
+                    "type": "number",
+                    "default": 4,
+                    "minimum": 0,
+                    "maximum": 60,
+                    "markdownDescription": "**工具气泡 → 正文气泡** 的间距。默认 4。"
+                },
+                "pi-bridge.style.gapToolToThinking": {
+                    "type": "number",
+                    "default": 4,
+                    "minimum": 0,
+                    "maximum": 60,
+                    "markdownDescription": "**工具气泡 → 思考气泡** 的间距。默认 4。"
+                },
+                "pi-bridge.style.gapTextToThinking": {
+                    "type": "number",
+                    "default": 4,
+                    "minimum": 0,
+                    "maximum": 60,
+                    "markdownDescription": "**正文气泡 → 思考气泡** 的间距。默认 4。"
+                },
+                "pi-bridge.style.railWidth": {
+                    "type": "number",
+                    "default": 2,
+                    "minimum": 0,
+                    "maximum": 10,
+                    "markdownDescription": "左侧竖线的宽度（px）。**设 0 = 不显示**。默认 2。"
+                },
+                "pi-bridge.style.railColorThinking": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "思考气泡左侧线的颜色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                },
+                "pi-bridge.style.railColorTool": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "工具气泡左侧线的颜色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                },
+                "pi-bridge.style.railColorResult": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "工具结果部分的左侧线颜色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                },
+                "pi-bridge.style.borderBubble": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "普通气泡的**四边框颜色**（默认空 = 无边框）。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                },
+                "pi-bridge.style.borderTool": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "**工具气泡外框**颜色（默认空 = 跟随主题的面板边框色）。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                },
+                "pi-bridge.style.bgUser": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "你的消息气泡的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                },
+                "pi-bridge.style.bgThinking": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "思考气泡的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                },
+                "pi-bridge.style.bgText": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "正文气泡的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                },
+                "pi-bridge.style.bgToolCall": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "工具气泡**上半部分（调用）**的背景色。\n\n可把它和下半部调成不同色 → 视觉上区分调用与结果。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                },
+                "pi-bridge.style.bgToolResult": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "工具气泡**下半部分（结果）**的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                },
+                "pi-bridge.style.borderUser": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "**你的消息气泡**的边框颜色。\n\n**留空 = 跟随主题**。与普通气泡边框（`borderBubble`）互不影响 ✓"
+                },
+                "pi-bridge.style.userMinWidth": {
+                    "type": "number",
+                    "default": 48,
+                    "minimum": 0,
+                    "maximum": 400,
+                    "markdownDescription": "**你的消息气泡**的最小宽度（px）。默认 48。\n\n你的消息是【自适应宽度】的（内容多宽就多宽，超过上限换行），这个值保证短消息不会缩成一条线 ✓"
                 }
             }
         }

@@ -9,17 +9,30 @@
 > **粒度必须到【顶层 type + 子类型】**，不能只看顶层 type：
 > `message_update` 只是个信封，里面的 `assistantMessageEvent.type` 才是内容（共 11 种）。
 
-### 已消灭 ✅（7 类，均在 B1）
+### 已消灭 ✅（可加入 hiddenTypes 屏蔽）
 
 | # | 数据包 | 渲染成 |
 |---|---|---|
-| 1 | `message_start` (role=user) | 右侧用户气泡 |
-| 2 | `message_start` (role=assistant) | 左侧 AI 气泡（开始） |
-| 3 | `message_update › text_delta` | 正文块（流式追加） |
-| 4 | `message_update › thinking_delta` | 思考块（灰色斜体） |
-| 5 | `message_update › toolcall_start/delta/end` | 工具块（🔧 工具名 + 参数 JSON） |
-| 6 | `message_start/end` (role=toolResult) | 工具结果气泡（role=tool） |
-| 7 | `message_end` | 封口气泡 |
+| 1 | `message_start` (role=user) | 右侧用户气泡（自适应宽度）|
+| 2 | `message_start` (role=assistant) | 左侧 AI 气泡（开始）|
+| 3 | `message_update › text_delta` | 正文气泡（流式追加）|
+| 4 | `message_update › thinking_delta` | 思考气泡（灰色斜体 + 左线）|
+| 5 | `message_update › toolcall_start/delta/end` | 工具气泡·上半（🔧 工具名 + 参数）|
+| 6 | `message_start/end` (role=toolResult) | ★ 工具气泡·下半（用 `toolCallId` 跨消息关联）|
+| 7 | `message_end` | 封口 |
+
+**当前可屏蔽清单**（`pi-bridge.debug.hiddenTypes`）：
+```json
+["message_start", "message_update", "message_end"]
+```
+
+**渲染模型（与用户对齐的术语）**：一条消息 ≠ 一个视觉气泡。
+每个内容段（思考/正文/工具）各是一个独立气泡；用户的每条消息是一个气泡。
+工具气泡由「调用 + 结果」两部分拼成（同一外框、中间无线、各自背景色）——
+
+### 22 项外观配置（`pi-bridge.style.*`）
+宽度/圆角/内边距 · 8 个间距（气泡对）· 线 · 边框 · 5 个背景色（用户/思考/正文/工具上半/工具下半）
+全部**留空 = 跟随主题**。改配置**实时生效**（不用重载）。
 
 ### 待消灭 ❌（都属于【非常规】：过程/环境，不进会话文件）
 
@@ -161,3 +174,44 @@
 - [ ] 长会话的消息区滚动优化（现在无条件自动滚底）
 - [ ] （实测需要时）推送节流：合并高频 delta，减少跨进程 IPC + DOM 重排
 - [ ] 用 `message_end` 的完整 `content` 校对累积的 delta（处理丢包）
+
+---
+
+## B2：气泡模型重构 + 工具气泡 + 外观配置（已完成）
+
+**核心变化**：视觉模型从「一条消息 = 一个气泡（内含多个块）」
+改成「**一个内容段 = 一个独立气泡**」（与用户的术语对齐）
+
+### 渲染模型
+- 每个内容段（思考 / 正文 / 工具）→ 独立 `.bubble`
+- 用户的每条消息 → 一个 `.bubble.user`（**自适应宽度**、靠右）
+- AI 气泡用固定宽度（流式无法预测最终宽度）
+
+### 工具气泡（调用 + 结果 = 视觉上【一个】气泡）
+- 实现：一个外框容器 + 内部两部分（上半=调用，下半=结果）
+- 关键：`overflow: hidden` → 内部背景被外框圆角裁剪，中间无缝隙、无线条
+- **跨消息关联**：`toolcall_start.assistantMessageEvent.id` = `toolResult.message.toolCallId` ✓
+  （结果不建新气泡，而是按 `callId` 填回对应的工具块）
+
+### 22 项外观配置（`pi-bridge.style.*`）
+| 组 | 项 |
+|---|---|
+| 外观 | `bubbleWidth` `bubbleRadius` `bubblePadding` `userMinWidth` |
+| 间距（气泡对）| `gapTurn` `gapUserFirst` `gapThinkingToText` `gapThinkingToTool` `gapTextToTool` `gapToolToText` `gapToolToThinking` `gapTextToThinking` |
+| 线 | `railWidth` `railColorThinking` `railColorTool` `railColorResult` |
+| 边框 | `borderBubble` `borderUser` `borderTool` |
+| 背景 | `bgUser` `bgThinking` `bgText` `bgToolCall` `bgToolResult` |
+
+- **全部留空 = 跟随 VS Code 主题** ✓
+- 改设置**实时生效**（宿主监听 → postMessage 推 CSS 变量 → webview 改 `:root`，**不重建 DOM**）
+- 实现：`src/view/style-config.ts`（设置 → CSS 变量）+ `html-loader` 注入占位符 `{{styleVars}}`
+
+### 修掉的两个 bug
+1. **用户气泡被误渲染成 `.bubble.text`** → `.bubble.user` 的全部样式（右对齐 / 自适应 / 独立背景）**从未生效** ✗
+   - 教训：改 CSS 后必须确认**渲染时用了对应的 class**（不能只看样式写了没）
+2. **stderr 挂载失败在激活阶段误报 error**（那时 pi 还没启动，挂不上是正常的）→ 改为静默 ✓
+
+### 验证工具（无需 UI）
+- `scripts/test-chat-state.mjs`：喂 mock 事件给 format + ChatState，打印气泡结构
+  （已验证 `toolResult` 通过 `callId` 成功关联回工具块 ✓）
+- `scripts/probe-toolresult.mjs`：探测 toolResult 消息的完整结构

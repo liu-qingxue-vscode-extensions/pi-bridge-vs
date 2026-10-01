@@ -1,0 +1,86 @@
+/**
+ * style-config —— 把 VS Code 设置读成 CSS 变量映射，注入到 webview
+ *
+ * 【设计约定（重要）】
+ * 1. 数值/尺寸类 → 直接映射为 CSS 变量 ✓
+ * 2. 颜色/文本类 → **留空则不注入**，让 CSS 回退到默认值或 --vscode-* 主题变量
+ *    （这样默认永远跟随主题；用户填了才覆盖 → 不会和主题"打架"）
+ *
+ * 【术语（与用户对齐）】
+ *   气泡 bubble = 一个可见的圆角矩形（用户消息 / 思考 / 正文 / 工具各是一个气泡）
+ *   工具气泡内部有两部分：上半=调用，下半=结果（合起来视觉上是【一个】气泡）
+ */
+import * as vscode from "vscode";
+
+/** 读取设置 → CSS 变量映射（只包含需要覆盖的项） */
+export function readStyleVars(): Record<string, string> {
+    const cfg = vscode.workspace.getConfiguration("pi-bridge.style");
+    const vars: Record<string, string> = {};
+
+    /** 数值类：追加单位 */
+    const num = (key: string, cssVar: string, unit = "px"): void => {
+        const v = cfg.get<number>(key);
+        if (typeof v === "number" && Number.isFinite(v)) {
+            vars[cssVar] = `${v}${unit}`;
+        }
+    };
+
+    /** 原样字符串（如 padding 的 "8px 12px"）：非空才注入 */
+    const raw = (key: string, cssVar: string): void => {
+        const v = cfg.get<string>(key);
+        if (typeof v === "string" && v.trim() !== "") vars[cssVar] = v.trim();
+    };
+
+    // 外观
+    num("bubbleWidth", "--pi-bubble-width", "%");
+    num("bubbleRadius", "--pi-bubble-radius");
+    raw("bubblePadding", "--pi-bubble-padding");
+    num("userMinWidth", "--pi-user-min-width"); // 用户气泡的最小宽度
+
+    // 间距
+    num("gapTurn", "--pi-gap-turn");
+    num("gapUserFirst", "--pi-gap-user-first");
+    num("gapThinkingToText", "--pi-gap-thinking-text");
+    num("gapThinkingToTool", "--pi-gap-thinking-tool");
+    num("gapTextToTool", "--pi-gap-text-tool");
+    num("gapToolToText", "--pi-gap-tool-text");
+    num("gapToolToThinking", "--pi-gap-tool-thinking");
+    num("gapTextToThinking", "--pi-gap-text-thinking");
+
+    // 左侧竖线
+    num("railWidth", "--pi-rail-width");
+    raw("railColorThinking", "--pi-rail-color-thinking");
+    raw("railColorTool", "--pi-rail-color-tool");
+    raw("railColorResult", "--pi-rail-color-result");
+
+    // 边框
+    raw("borderBubble", "--pi-border-bubble");
+    raw("borderUser", "--pi-border-user");
+    raw("borderTool", "--pi-border-tool");
+
+    // 背景色
+    raw("bgUser", "--pi-bg-user");
+    raw("bgThinking", "--pi-bg-thinking");
+    raw("bgText", "--pi-bg-text");
+    raw("bgToolCall", "--pi-bg-tool-call");
+    raw("bgToolResult", "--pi-bg-tool-result");
+
+    return vars;
+}
+
+/** 把变量映射拼成一段 CSS（注入到 <style> 里） */
+export function styleVarsToCss(vars: Record<string, string>): string {
+    const body = Object.entries(vars)
+        .map(([k, v]) => `    ${k}: ${v};`)
+        .join("\n");
+    return body ? `  :root {\n${body}\n  }` : "";
+}
+
+/** 监听设置变化（返回取消订阅函数） */
+export function onStyleChange(handler: () => void): vscode.Disposable {
+    return vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration("pi-bridge.style")) {
+            handler();
+        }
+    });
+}

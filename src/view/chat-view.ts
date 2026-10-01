@@ -10,6 +10,7 @@
  */
 import * as vscode from "vscode";
 import { loadWebviewHtml } from "./html-loader.js";
+import { readStyleVars, styleVarsToCss, onStyleChange } from "./style-config.js";
 import type { FrontendMessage } from "../bridge/format-frontend.js";
 import type { ChatState } from "./chat-state.js";
 
@@ -40,6 +41,18 @@ export class ChatView implements vscode.WebviewViewProvider {
         chatState.onChange((patch) => {
             this.post("patch", patch);
         });
+
+        // 样式设置变化 → 实时推给 webview（不重建 DOM，只改 CSS 变量）
+        this.styleChangeSub = onStyleChange(() => {
+            this.post("styleVars", readStyleVars());
+        });
+    }
+
+    /** 设置变化订阅（需要外部 dispose；也可由调用方把它塞进 context.subscriptions） */
+    private styleChangeSub: vscode.Disposable | undefined;
+
+    dispose(): void {
+        this.styleChangeSub?.dispose();
     }
 
     /** VS Code 在视图第一次显示时调用 */
@@ -47,8 +60,13 @@ export class ChatView implements vscode.WebviewViewProvider {
         this.view = webviewView;
 
         webviewView.webview.options = { enableScripts: true };
-        // 从 media/chat.html 读取 + 注入 CSP nonce
-        webviewView.webview.html = loadWebviewHtml(this.extensionUri, "chat.html", webviewView.webview);
+        // 从 media/chat.html 读取 + 注入 CSP nonce + 注入样式变量
+        webviewView.webview.html = loadWebviewHtml(
+            this.extensionUri,
+            "chat.html",
+            webviewView.webview,
+            styleVarsToCss(readStyleVars()),
+        );
 
         // 接收 webview 页面发来的消息
         webviewView.webview.onDidReceiveMessage((msg: unknown) => {

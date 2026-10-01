@@ -71,19 +71,27 @@ function extractText(content: unknown): string {
  */
 const formatMap: Partial<Record<string, BackendFormatter>> = {
     /**
-     * 消息开始 → 新建气泡
-     * - user：内容在 message.content 里（非流式）
-     * - assistant：content 为空，靠 delta 累积
-     * - toolResult：工具执行结果（非流式，内容在 content 里）→ 映射为 role="tool"
+     * 消息开始 → 新建气泡 / 填回工具结果
+     * - user / assistant：建气泡（内容在 message.content 里）
+     * - toolResult：★ 不建气泡，而是按 toolCallId 填回对应的工具块
+     *   （视觉上它们要拼成一个“工具气泡”）
      */
     message_start: (raw) => {
-        const message = (raw as { message?: { role?: unknown; content?: unknown } }).message;
+        const message = (raw as {
+            message?: { role?: unknown; content?: unknown; toolCallId?: unknown; isError?: unknown };
+        }).message;
         const role = message?.role;
         if (role === "user" || role === "assistant") {
             return { kind: "startBubble", role, text: extractText(message?.content) };
         }
         if (role === "toolResult") {
-            return { kind: "startBubble", role: "tool", text: extractText(message?.content) };
+            if (typeof message?.toolCallId !== "string") return undefined;
+            return {
+                kind: "toolResult",
+                callId: message.toolCallId,
+                text: extractText(message?.content),
+                isError: message?.isError === true,
+            };
         }
         return undefined;
     },
@@ -103,20 +111,20 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
             if (type === "toolcall_delta") return { kind: "toolArgs", text: ev.delta };
         }
 
-        // 工具块边界（RPC 模式下 toolcall_start 带 toolName）
-        if (type === "toolcall_start" && typeof ev?.toolName === "string") {
-            return { kind: "toolStart", name: ev.toolName };
+        // 工具调用边界（RPC 模式下 toolcall_start 带 id + toolName）
+        const evId = (ev as { id?: unknown } | undefined)?.id;
+        if (type === "toolcall_start" && typeof ev?.toolName === "string" && typeof evId === "string") {
+            return { kind: "toolStart", name: ev.toolName, callId: evId };
         }
         if (type === "toolcall_end") return { kind: "toolEnd" };
 
         return undefined; // 其余边界包（*_start / *_end）暂不处理
     },
 
-    /** 消息结束 → 封口气泡 */
+    /** 消息结束 → 封口气泡（工具结果不需要，它已在 message_start 填回去了） */
     message_end: (raw) => {
         const role = (raw as { message?: { role?: unknown } }).message?.role;
         if (role === "user" || role === "assistant") return { kind: "endBubble", role };
-        if (role === "toolResult") return { kind: "endBubble", role: "tool" };
         return undefined;
     },
 };

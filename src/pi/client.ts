@@ -138,15 +138,19 @@ export class PiClient {
      * 所以运行时可以直接访问它，给 childProcess.stderr 挂自己的监听器
      * （Node 的 EventEmitter 支持多个监听器，与官方内部那个共存）。
      *
-     * 【风险】依赖了官方未承诺的私有字段。挂了不上时不崩，只告警；
+     * 【风险】依赖了官方未承诺的私有字段。挂不上时不崩；
      * 将来官方改结构会导致这里失效（必要时可回退到轮询 getStderr）。
+     *
+     * @param silent 激活阶段（进程还没启动）挂不上是正常现象 → 不报错
      */
-    private attachStderr(): void {
+    private attachStderr(silent = false): void {
         if (this.stderrAttached) return;
 
         const proc = (this.client as unknown as { process?: ChildProcess }).process;
         if (!proc?.stderr) {
-            logError("[PiClient] 无法挂载 stderr 监听（进程未就绪或官方内部结构已变）");
+            if (!silent) {
+                logError("[PiClient] 无法挂载 stderr 监听（官方内部结构可能已变）");
+            }
             return;
         }
 
@@ -191,7 +195,8 @@ export class PiClient {
     onStderr(handler: (text: string) => void): () => void {
         this.stderrHandlers.add(handler);
         // 若已启动过，立即尝试挂载；否则等 doStart 里挂
-        this.attachStderr();
+        // （silent：激活阶段进程还没起，挂不上是正常的，不报错）
+        this.attachStderr(true);
         return () => {
             this.stderrHandlers.delete(handler);
         };
