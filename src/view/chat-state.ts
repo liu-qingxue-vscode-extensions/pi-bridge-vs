@@ -13,65 +13,10 @@
  *   webview 重建 → 发 "ready" → ChatView 用 snapshot() 重放全量
  */
 
-/** 气泡角色（user / assistant / 工具结果） */
-export type ChatRole = "user" | "assistant" | "tool";
+import type { Block, Bubble, ChatPatch, ChatRole } from "./chat-types.js";
 
-/**
- * 气泡内的【内容块】类型
- *
- * 【为什么气泡内要分块？】
- * 一条 assistant 消息的 content 是个【数组】，可以有多个块（由 contentIndex 区分）：
- *   [0] thinking 块、[1] text 块、（后续）toolcall 块…
- * 所以气泡不是一段文本，而是一串块 —— 渲染时要按块分开呈现
- * （思考块灰色斜体、正文块正常、工具块卡片…）。
- */
-export type BlockType = "text" | "thinking" | "tool";
-
-/** 气泡内的一个内容块 */
-export interface Block {
-    type: BlockType;
-    /** text/thinking：正文内容；tool：参数的 JSON 文本（流式拼装中） */
-    text: string;
-    /** tool 专用：工具名 */
-    toolName?: string;
-    /** tool 专用：调用 id（用于把“结果消息”关联回这个块）★ */
-    toolCallId?: string;
-    /** tool 专用：参数是否拼装完毕（toolcall_end 到达） */
-    toolDone?: boolean;
-    /** tool 专用：执行结果（来自 toolResult 消息，可能跨越其他气泡） */
-    result?: string;
-    /** tool 专用：结果是否为错误 */
-    resultIsError?: boolean;
-}
-
-/** 一条聊天气泡 */
-export interface Bubble {
-    role: ChatRole;
-    /** 内容块（按出现顺序） */
-    blocks: Block[];
-    /** 是否已封口（流式结束） */
-    done: boolean;
-}
-
-/**
- * 渲染指令 —— ChatState 的输入，也是推给 webview 的载荷
- *
- * 【为什么是"增量指令"而不是"全量状态"？】
- * 流式输出时每个 delta 都推一次，若每次重传整个历史就太浪费了。
- * 全量只在 webview 重建时通过 snapshot() 重放。
- */
-export type ChatPatch =
-    | { kind: "startBubble"; role: ChatRole; text: string }
-    | { kind: "append"; block: "text" | "thinking"; text: string }
-    | { kind: "endBubble"; role: ChatRole }
-    // 工具调用（toolcall_*）—— 工具气泡的生命周期
-    | { kind: "toolStart"; name: string; callId: string }
-    | { kind: "toolArgs"; text: string }
-    | { kind: "toolEnd" }
-    // 工具结果（toolResult 消息）—— 不建新气泡，而是【填回】对应的工具块
-    | { kind: "toolResult"; callId: string; text: string; isError: boolean }
-    // 任务级状态（agent_start / agent_settled）—— 不进气泡列表，直接驱动状态条/按钮
-    | { kind: "agentState"; state: "working" | "idle" };
+// 对外保持兼容：旧的 `from "./chat-state.js"` 导入仍然可用
+export type { Block, BlockType, Bubble, ChatPatch, ChatRole } from "./chat-types.js";
 
 export class ChatState {
     /** 所有气泡（权威状态） */
@@ -144,6 +89,7 @@ export class ChatState {
                     toolName: patch.name,
                     toolCallId: patch.callId,
                     toolDone: false,
+                    argsText: "",
                 });
                 break;
             }
@@ -151,7 +97,7 @@ export class ChatState {
             case "toolArgs": {
                 const blk = this.bubbles.at(-1)?.blocks.at(-1);
                 if (blk?.type !== "tool") return;
-                blk.text += patch.text; // 参数 JSON 是流式拼装的
+                blk.argsText = (blk.argsText ?? "") + patch.text; // 流式拼装（备查）
                 break;
             }
 
@@ -159,14 +105,20 @@ export class ChatState {
                 const blk = this.bubbles.at(-1)?.blocks.at(-1);
                 if (blk?.type !== "tool") return;
                 blk.toolDone = true;
+                blk.args = patch.args; // ★ 解析好的对象 → 前端渲染成键值对
                 break;
             }
+
+            // 思考边界包：不改数据，只为让前端能计时/切换折叠头（下方 emit 会转发出去）
+            case "thinkStart":
+            case "thinkEnd":
+                break;
 
             case "toolResult": {
                 // ★ 结果可能来自【另一条消息】→ 按 callId 在所有气泡里找回那个工具块
                 const blk = this.findToolBlock(patch.callId);
                 if (!blk) return; // 关联不上就忽略（不崩）
-                blk.result = patch.text;
+                blk.resultParts = patch.parts;
                 blk.resultIsError = patch.isError;
                 break;
             }

@@ -259,3 +259,72 @@
    “设置里开着、但视觉不生效” ✗
    - 教训：webview 重建时要重放【**所有**初始状态】（不只是消息快照）
 2. **stderr 挂载失败在激活阶段误报 error**（那时 pi 还没启动）→ 改静默 ✓
+
+---
+
+## B4：工具通用渲染 + 折叠体系（已完成）
+
+### ① 工具【通用渲染】（不丢字段）
+
+**关键认知**：所有工具的执行模型是**统一的**，所以不需要为每个工具写渲染 ✗
+```
+    toolName + args(JSON)  →  result(content 数组)
+```
+| 部分 | 渲染方式 |
+|---|---|
+| **参数** | **键值对**（grid 两列，多行值续行自动对齐 ✓）—— 比原始 JSON 字符串好读 ✓ |
+| **结果** | 按 content 元素的 **`type` 分发**：`text`→文本 · `image`→`<img data:...>` · 其他→JSON 兜底 |
+| **状态** | 转圈（running）· ✓（ok）· ✗（error，来自 `isError`）|
+
+**已确认 content 只有 4 种 type**（`text` / `thinking` / `image` / `toolCall`）；
+工具结果通常只有 `text` / `image` 两种 ✓（没有 video/audio/document ✓）
+
+**白名单特化**（bash→终端风、read→文件卡片、edit→diff）**后续再做**；
+其他工具永远回落通用渲染 → 零维护 ✓
+
+### ② 折叠体系（四处，行为一致）
+| 位置 | 头部 | 收起效果 |
+|---|---|---|
+| 思考气泡 | ✳ 正在思考… / 已思考（用时 X 秒） | 隐藏思考内容 |
+| 工具气泡 | 🔧 工具名 + 状态图标 | 隐藏全部内容（参数+结果）|
+| 结果区 | ▾ 结果（文字可配）| 隐藏结果内容 |
+| 参数行 | ▾ 参数名 | `line-clamp: 1` → 只显示第一行 ✓ |
+
+- 箭头用 **SVG**（之前用字符 `˅` 太小 ✗），**放在名字前面**（短参数也不违和 ✓）
+- 头部结构：名字串 = 一个按钮 + 右侧 `head-actions`【预留未来按钮位】（复制/重试…）
+- hover 反馈统一：文字**下划线** ✓
+
+### ③ 占位三点
+- `agent_start` → 立即显示跳动的三点（不再空荡荡地等第一个数据包 ✓）
+- 第一个真实内容到达 → 自动移除占位 ✓
+- `thinking_start` → 开始计时；`thinking_end` → 头部变“已思考（用时 X 秒）”
+
+### ④ 数据层改造（为通用渲染铺路）
+```
+    Block.args          参数【对象】（toolcall_end 时解析，不再传字符串）
+    Block.resultParts   结果的 content 【数组】原样（不再拍平成文本）
+```
+`format-backend` 相应调整：`toolEnd` 带 `args`；`toolResult` 带 `parts`（content 数组）
+
+### ⑤ 类型拆分
+- 新增 `src/view/chat-types.ts`（80 行）：ChatRole / BlockType / Block / Bubble / ChatPatch
+- `chat-state.ts` **207 → 144 行**（状态机与类型分离，改动时匹配范围更小 ✓）
+- `chat-state.ts` 里 re-export 类型（旧 import 仍可用 ✓）
+
+### ⑥ 新增配置（3 个）
+| 项 | 默认 | 说明 |
+|---|---|---|
+| `thinkCollapsed` | false | 思考气泡默认收起 |
+| `toolCollapsed` | false | 工具气泡默认收起 |
+| `resultLabel` | "结果" | 结果区标题文字（留空隐藏 ✓）|
+
+### ⑦ 修掉的 3 个 bug
+1. **工具气泡被 flex 压扁成一条线** ✗
+   - 根因：把 `#messages` 改成 flex 纵向容器后，子项默认 `flex-shrink: 1` → 内容一多就被压缩
+   - 修：`.bubble { flex-shrink: 0 }` ✓
+2. **参数名比它的值高半行** ✗
+   - 根因：`inline-flex` 容器的 baseline = 它第一个子元素（SVG 箭头）的 baseline
+   - 修：`align-items: baseline` → `start` ✓
+3. **结果区丢失左缩进** ✗
+   - 根因：结果元素被 append 到 `.bubble` 而不是 `.tool-body` → 跑到 padding 之外
+   - 修：`(bubble.querySelector(".tool-body") || bubble).appendChild(...)` ✓

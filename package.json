@@ -114,6 +114,21 @@
                     "maximum": 80,
                     "markdownDescription": "气泡与视图**左右边界**的间距（px）。默认 12。\n\n它决定左对齐气泡的左边距 / 右对齐气泡的右边距。"
                 },
+                "pi-bridge.style.thinkCollapsed": {
+                    "type": "boolean",
+                    "default": false,
+                    "markdownDescription": "思考气泡**默认收起**（只显示头部，点一下展开）。默认 false。"
+                },
+                "pi-bridge.style.toolCollapsed": {
+                    "type": "boolean",
+                    "default": false,
+                    "markdownDescription": "工具气泡**默认收起**（只显示头部，点一下展开）。默认 false。"
+                },
+                "pi-bridge.style.resultLabel": {
+                    "type": "string",
+                    "default": "结果",
+                    "markdownDescription": "工具结果区的**标题文字**。默认 `结果`。\n\n可改成英文（如 `Result`）或符号（如 `›`）。**留空则不显示标题**。"
+                },
                 "pi-bridge.style.inputRadius": {
                     "type": "number",
                     "default": 14,

@@ -66,14 +66,15 @@ for (const [i, b] of chat.snapshot().entries()) {
     console.log(`\n气泡[${i}] role=${b.role} done=${b.done} blocks=${b.blocks.length}`);
     for (const blk of b.blocks) {
         if (blk.type === "tool") {
-            const res = blk.result === undefined
+            const res = blk.resultParts === undefined
                 ? "(无结果)"
-                : JSON.stringify(blk.result).slice(0, 60);
+                : JSON.stringify(blk.resultParts).slice(0, 70);
             console.log(
                 `   ├─ [tool] ${blk.toolName} callId=${(blk.toolCallId || "?").slice(0, 12)}` +
-                ` done=${blk.toolDone} args=${JSON.stringify(blk.text)}`,
+                ` done=${blk.toolDone}`,
             );
-            console.log(`   │        result=${res} isError=${blk.resultIsError}`);
+            console.log(`   │        args=${JSON.stringify(blk.args)}`);
+            console.log(`   │        parts=${res} isError=${blk.resultIsError}`);
         } else {
             const t = blk.text.replace(/\n/g, "\\n");
             console.log(`   ├─ [${blk.type}] "${t.slice(0, 70)}${t.length > 70 ? "…" : ""}"`);

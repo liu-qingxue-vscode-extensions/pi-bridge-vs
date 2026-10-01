@@ -89,7 +89,8 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
             return {
                 kind: "toolResult",
                 callId: message.toolCallId,
-                text: extractText(message?.content),
+                // ★ 原样传 content 数组 → 前端按 type 分发渲染（text / image / 兵底）
+                parts: Array.isArray(message.content) ? message.content : [],
                 isError: message?.isError === true,
             };
         }
@@ -116,7 +117,15 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
         if (type === "toolcall_start" && typeof ev?.toolName === "string" && typeof evId === "string") {
             return { kind: "toolStart", name: ev.toolName, callId: evId };
         }
-        if (type === "toolcall_end") return { kind: "toolEnd" };
+        // ★ 参数拼完：直接取【解析好的对象】（toolCall.arguments），交给前端渲染成键值对
+        if (type === "toolcall_end") {
+            const toolCall = (ev as { toolCall?: { arguments?: unknown } } | undefined)?.toolCall;
+            return { kind: "toolEnd", args: toolCall?.arguments };
+        }
+
+        // 思考边界（前端用它计时：正在思考… → 已思考（用时 X 秒））
+        if (type === "thinking_start") return { kind: "thinkStart" };
+        if (type === "thinking_end") return { kind: "thinkEnd" };
 
         return undefined; // 其余边界包（*_start / *_end）暂不处理
     },

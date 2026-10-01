@@ -61,6 +61,9 @@
     border: var(--pi-border-w, 1px) solid var(--pi-border-bubble, transparent);
     white-space: pre-wrap;
     word-break: break-word;
+    /* ★★ 关键：禁止 flex 压缩 —— 否则内容变多时气泡会被挤成一条线 ✗
+       （#messages 是 flex 纵向容器，item 默认 flex-shrink: 1）*/
+    flex-shrink: 0;
   }
   /* 默认间距（相邻气泡之间）*/
   .bubble + .bubble { margin-top: var(--pi-gap-turn, 10px); }
@@ -78,22 +81,80 @@
   /* 用户消息 → AI 第一个气泡（覆盖默认间距）*/
   .bubble.user + .bubble { margin-top: var(--pi-gap-user-first, 12px); }
 
+  /* ---- 思考气泡：可折叠（点头部切换）---- */
+  /* ===== 通用折叠头（思考 / 工具共用）=====
+     左：【名字串】整体是一个按钮（点击折叠）· 右：操作区（未来放复制等按钮）*/
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 4px 12px;
+  }
+  .head-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+  }
+  .head-toggle:hover { color: var(--vscode-foreground); }
+  /* 箭头用 SVG：尺寸可控、和文字同高（之前用字符太小 ✗）*/
+  .head-caret {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    opacity: 0.7;
+    transition: transform 0.15s;
+  }
+  [data-open="false"] .head-caret { transform: rotate(-90deg); }
+  /* 右侧操作区（未来的按钮位）*/
+  .head-actions { margin-left: auto; display: inline-flex; gap: 6px; }
+
   /* ---- 思考气泡 ---- */
   .bubble.thinking {
     background: var(--pi-bg-thinking, transparent);
+    border-left: none;
+    padding: 0;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.95em;
+  }
+  .bubble.thinking .head { padding: 2px 0; }
+  .think-body {
     border-left: var(--pi-rail-width, 2px) solid
       var(--pi-rail-color-thinking, var(--vscode-panel-border));
-    color: var(--vscode-descriptionForeground);
+    padding: 2px 0 2px 10px;
+    margin: 2px 0 2px 4px;
     font-style: italic;
-    font-size: 0.95em;
-  }  .bubble.thinking::before {
-    content: "思考";
-    display: block;
-    font-style: normal;
-    font-size: 10px;
-    letter-spacing: 1px;
-    opacity: 0.6;
-    margin-bottom: 2px;
+  }
+  .bubble.thinking[data-open="false"] .think-body { display: none; }
+
+  /* ---- 占位三点（发送后、等第一个数据包）---- */
+  .bubble.pending {
+    background: none;
+    border: none;
+    padding: 2px 0;
+    width: auto;
+    color: var(--vscode-descriptionForeground);
+  }
+  .dots { display: inline-flex; gap: 4px; align-items: center; height: 1.1em; }
+  .dots i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: dotPulse 1.2s infinite;
+  }
+  .dots i:nth-child(2) { animation-delay: 0.15s; }
+  .dots i:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes dotPulse {
+    0%, 60%, 100% { opacity: 0.3; }
+    30% { opacity: 1; }
   }
 
   /* ---- 正文气泡 ---- */
@@ -112,36 +173,108 @@
     border-left: var(--pi-rail-width, 2px) solid
       var(--pi-rail-color-tool, var(--vscode-charts-orange));
   }
-  .bubble.tool .tool-call,
-  .bubble.tool .tool-result {
+  .bubble.tool .tool-body .tool-call,
+  .bubble.tool .tool-body .tool-result {
     padding: 6px 12px;
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: 0.9em;
     white-space: pre-wrap;
     word-break: break-all;
   }
+  .bubble.tool .head { color: var(--vscode-charts-orange); }
   .bubble.tool .tool-call {
     background: var(--pi-bg-tool-call, var(--vscode-textBlockQuote-background));
   }
-  .bubble.tool .tool-head {
-    color: var(--vscode-charts-orange);
-    margin-bottom: 3px;
-  }
+  /* 折叠：收起时隐藏整个内容体 */
+  .bubble.tool[data-open="false"] .tool-body { display: none; }
   .bubble.tool .tool-result {
     background: var(--pi-bg-tool-result, var(--vscode-textBlockQuote-background));
     max-height: 220px;
     overflow-y: auto;
   }
-  .bubble.tool .tool-result::before {
-    content: "结果";
-    display: block;
+  .bubble.tool .tool-result .result-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    margin-bottom: 3px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--vscode-charts-orange);
+    font: inherit;
     font-size: 10px;
     letter-spacing: 1px;
-    opacity: 0.65;
-    color: var(--vscode-charts-orange);
-    margin-bottom: 3px;
+    text-align: left;
   }
-  .bubble.tool .tool-result.error::before { content: "结果（出错）"; color: var(--vscode-charts-red); }
+  /* ★ 结果区标题文字可配置（留空则不显示）*/
+  .result-label::before { content: var(--pi-result-label, "结果"); }
+  .bubble.tool .tool-result.error .result-toggle { color: var(--vscode-charts-red); }
+  .bubble.tool .tool-result.error .result-label::before { content: var(--pi-result-label, "结果") "（出错）"; }
+  /* 收起结果 → 隐藏内容体 */
+  .bubble.tool .tool-result[data-open="false"] .result-body { display: none; }
+
+  /* ===== 工具：参数键值对（通用渲染）=====
+     用 grid → 多行值的续行自动对齐到第二列 ✓ */
+  .arg-row {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 2px 10px;
+    /* ★ 不能用 baseline：左侧是 inline-flex（箭头+名字），
+       其 baseline 会取【第一个 item（SVG）】的 baseline → 名字被抬高 ✗ */
+    align-items: start;
+  }
+  /* 箭头 + 参数名 = 一个按钮（点它收起该参数，只显示第一行）*/
+  .arg-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+  }
+  /* 所有可折叠头 → 统一的 hover 反馈：文字下划线 ✓ */
+  .head-toggle:hover .head-label,
+  .result-toggle:hover .result-label,
+  .arg-toggle:hover .arg-key { text-decoration: underline; }
+  .arg-key { color: var(--vscode-charts-orange); }
+  .arg-key::after { content: ":"; }
+  .arg-val { white-space: pre-wrap; word-break: break-word; }
+  /* 收起参数 → 只显示第一行 */
+  .arg-row[data-open="false"] .arg-val {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* ===== 工具：结果部分（按 type 分发）===== */
+  .part-text { white-space: pre-wrap; word-break: break-word; }
+  .part-image { display: block; max-width: 100%; border-radius: 4px; margin: 4px 0; }
+  .part-unknown { white-space: pre-wrap; opacity: 0.7; font-size: 0.9em; }
+
+  /* ===== 工具：状态图标（转圈 / 勾 / 叉）===== */
+  .tool-state {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 0.95em;
+    line-height: 1;
+  }
+  .tool-state.running {
+    width: 10px;
+    height: 10px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+  }
+  .tool-state.ok { color: var(--vscode-charts-green, #4caf50); }
+  .tool-state.error { color: var(--vscode-charts-red, #f44336); }
 
   /* ===== 气泡之间的间距（按【前 → 后】分别控制；只写 margin-top，不叠加）===== */
   .bubble.thinking + .bubble.text { margin-top: var(--pi-gap-thinking-text, 4px); }
