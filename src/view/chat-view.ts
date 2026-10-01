@@ -78,6 +78,9 @@ export class ChatView implements vscode.WebviewViewProvider {
             // webview 就绪 → 重放全量快照
             // （webview 被销毁重建后靠这个恢复画面 —— “显示器”没脑子，状态都在插件端）
             if (kind === "ready") {
+                // ★ 先推样式变量：布尔开关（如 centerColumn）需要在 webview 里切 CSS 类，
+                //   否则重建后“设置里有、但视觉没生效” ✗
+                this.post("styleVars", readStyleVars());
                 this.post("snapshot", this.chatState.snapshot());
                 return;
             }

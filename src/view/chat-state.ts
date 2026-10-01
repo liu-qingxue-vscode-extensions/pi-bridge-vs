@@ -69,7 +69,9 @@ export type ChatPatch =
     | { kind: "toolArgs"; text: string }
     | { kind: "toolEnd" }
     // 工具结果（toolResult 消息）—— 不建新气泡，而是【填回】对应的工具块
-    | { kind: "toolResult"; callId: string; text: string; isError: boolean };
+    | { kind: "toolResult"; callId: string; text: string; isError: boolean }
+    // 任务级状态（agent_start / agent_settled）—— 不进气泡列表，直接驱动状态条/按钮
+    | { kind: "agentState"; state: "working" | "idle" };
 
 export class ChatState {
     /** 所有气泡（权威状态） */
@@ -96,6 +98,9 @@ export class ChatState {
      * （由 main.ts 把 pi 事件交给 format 层翻译后调用）
      */
     apply(patch: ChatPatch): void {
+        // 任务级状态不进气泡列表（由 main.ts 分流直接送给视图）
+        if (patch.kind === "agentState") return;
+
         switch (patch.kind) {
             case "startBubble":
                 // 用户消息可能自带内容（非流式，内容在 message_start 里）→ 包成一个 text 块；

@@ -35,7 +35,18 @@ export function readStyleVars(): Record<string, string> {
     num("bubbleWidth", "--pi-bubble-width", "%");
     num("bubbleRadius", "--pi-bubble-radius");
     raw("bubblePadding", "--pi-bubble-padding");
+    num("sideGap", "--pi-side-gap"); // 气泡与视图左右边界的间距
     num("userMinWidth", "--pi-user-min-width"); // 用户气泡的最小宽度
+
+    // 居中内容列开关：布尔不能直接当 CSS 变量用 → 传一个特殊值，webview 收到后切换 CSS 类
+    vars["--pi-centered-mode"] = cfg.get<boolean>("centerColumn", false) ? "on" : "off";
+
+    // 输入框（行数类传空单位：只是数字，由 JS 读取后自己算像素）
+    num("inputRadius", "--pi-input-radius");
+    num("inputWidth", "--pi-input-width", "%");
+    num("inputMinRows", "--pi-input-min-rows", "");
+    num("inputMaxRows", "--pi-input-max-rows", "");
+    num("inputBottomGap", "--pi-input-bottom-gap");
 
     // 间距
     num("gapTurn", "--pi-gap-turn");

@@ -24,8 +24,13 @@
     - stderr 要送到两个前端（调试板 + 聊天渲染）
 11. **权威状态在插件端**（不在 webview）
     - 理由：VS Code 的 webview 在切走 tab 时会被**销毁** → 状态会丢
-    - 因此 webview 只是"完全不长脑子的显示器"：状态在插件端维护，webview 重建时从快照重放
+    - 因此 webview 只是“完全不长脑子的显示器”：状态在插件端维护，webview 重建时从快照重放
     - 三端生命周期互相独立：`pi 子进程`（插件端管）/ `插件端`（VS Code 管）/ `webview`（VS Code 管，可随时销毁）
+12. **webview 资源拆分**：`media/<name>.html`（只放结构）+ `<name>.css` + `<name>.js`
+    - 理由：早期把 CSS/JS 内联在 HTML 里 → 单文件巨大、编辑时容易匹配出错、无语法高亮
+    - 加载：`html-loader.ts` 用 `webview.asWebviewUri()` 把 `{{css}}` / `{{js}}` 换成可加载 URI，
+      CSP 放开 `{{cspSource}}`（否则外链资源被拦死）
+    - 设置注入点 `{{styleVars}}` 放在 HTML 的内联 `<style>` 里（**CSS 文件不经 loader 替换，不能放占位符** ✗）
 
 ## 数据契约（实测，来自调试板导出）
 

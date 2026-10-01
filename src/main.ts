@@ -72,7 +72,11 @@ export function activate(context: vscode.ExtensionContext): void {
     pi.onEvent((event) => {
         debugPanel.log(event);
         const patch = toChatPatch(event);
-        if (patch) {
+        if (!patch) return;
+        // 任务级状态不进 ChatState（它不是气泡），直接推给视图
+        if (patch.kind === "agentState") {
+            chatView.post("agentState", patch.state);
+        } else {
             chatState.apply(patch);
         }
     });

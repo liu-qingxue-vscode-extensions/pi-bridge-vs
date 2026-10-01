@@ -215,3 +215,47 @@
 - `scripts/test-chat-state.mjs`：喂 mock 事件给 format + ChatState，打印气泡结构
   （已验证 `toolResult` 通过 `callId` 成功关联回工具块 ✓）
 - `scripts/probe-toolresult.mjs`：探测 toolResult 消息的完整结构
+
+---
+
+## B3：输入区改造 + 状态指示 + 资源拆分（已完成）
+
+### 输入区（参照 DeepSeek 风格）
+- 上：输入区（无边框内嵌）；下：固定栏（右对齐的圆形发送按钮）
+- 大圆角 + 悬空（底部留白）+ 渐变遮罩（消息可滑到框后面 = 无缝）
+- **高度自适应**：最小/最大【**行数**】可配；行高从计算样式动态取（跟随字号变化 ✓）
+- **发送按钮 = 状态**：`agent_start` → 转圈；`agent_settled` → 粗箭头（SVG）
+  - `agent_end` **故意不处理**：它后面可能还有排队/重试 → 等 `settled` 才算真空闲 ✓
+
+### 智能滚动（修了一个严重 bug）
+- 原来每个 delta 都无条件滚到底 ✗ → AI 说话时无法往上翻（抖动、被强行拉回）✗
+- 改为：**只在用户本来就在底部时才自动滚** ✓（往上翻了就不打扰）
+
+### 居中内容列（新开关 `centerColumn`）
+- `true`：气泡与输入框**同宽**（都用 `bubbleWidth` 作列宽）、居中；
+  你的消息右对齐到内容列右边 ✓
+- 实现：`padding-left/right = calc((100% - 列宽) / 2)` → 自动形成居中内容列 ✓
+- 布尔开关不能当 CSS 变量 → 传特殊值 + webview 切 `:root.centered` 类
+- **不删任何配置**：关闭时各项独立可调（逻辑合并，非删除 ✓）
+
+### webview 资源拆分（架构变更 → FACTS 第 12 条）
+- `media/chat.html`（仅 1.4KB 结构）+ `chat.css` + `chat.js`（debug 同样）
+- loader 用 `asWebviewUri()` 注入 `{{css}}` / `{{js}}`；CSP 放开 `{{cspSource}}`
+- 教训：**不要用正则解析 HTML** ✗（注释里的 `<style>` 字样会被误匹配，
+  把 CSP meta 一并吃掉 ✗）——一次性任务就手工拆 ✓
+
+### 配置新增
+| 项 | 默认 | 说明 |
+|---|---|---|
+| `inputRadius` | 14 | 输入框圆角 |
+| `inputWidth` | 100 | 输入框宽度（%，边界模式用）|
+| `inputMinRows` / `inputMaxRows` | 1 / 8 | 输入框最小/最大行数 |
+| `inputBottomGap` | 22 | 底部悬空高度 |
+| `sideGap` | 12 | 气泡与视图左右边界的间距 |
+| `centerColumn` | false | 居中内容列开关 |
+
+### 修掉的两个 bug
+1. **`ready` 时没重放 `styleVars`** → 布尔开关（centerColumn）在视图重建后
+   “设置里开着、但视觉不生效” ✗
+   - 教训：webview 重建时要重放【**所有**初始状态】（不只是消息快照）
+2. **stderr 挂载失败在激活阶段误报 error**（那时 pi 还没启动）→ 改静默 ✓

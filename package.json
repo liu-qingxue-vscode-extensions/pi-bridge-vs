@@ -90,6 +90,11 @@
                     "maximum": 100,
                     "markdownDescription": "气泡宽度（百分比）。默认 88。"
                 },
+                "pi-bridge.style.centerColumn": {
+                    "type": "boolean",
+                    "default": false,
+                    "markdownDescription": "把所有气泡和输入框对齐到一个【**居中的内容列**】。\n\n**开启**：气泡与输入框同宽（都用 `bubbleWidth` 作为列宽）、居中；你的消息右对齐到内容列右边 ✓\n**关闭**（默认）：各自对齐视图边界 —— 气泡靠左、输入框用它自己的 `inputWidth`"
+                },
                 "pi-bridge.style.bubbleRadius": {
                     "type": "number",
                     "default": 6,
@@ -101,6 +106,48 @@
                     "type": "string",
                     "default": "8px 12px",
                     "markdownDescription": "气泡内边距（CSS padding 语法）。默认 `8px 12px`。"
+                },
+                "pi-bridge.style.sideGap": {
+                    "type": "number",
+                    "default": 12,
+                    "minimum": 0,
+                    "maximum": 80,
+                    "markdownDescription": "气泡与视图**左右边界**的间距（px）。默认 12。\n\n它决定左对齐气泡的左边距 / 右对齐气泡的右边距。"
+                },
+                "pi-bridge.style.inputRadius": {
+                    "type": "number",
+                    "default": 14,
+                    "minimum": 0,
+                    "maximum": 40,
+                    "markdownDescription": "输入框圆角半径（px）。默认 14。"
+                },
+                "pi-bridge.style.inputWidth": {
+                    "type": "number",
+                    "default": 100,
+                    "minimum": 30,
+                    "maximum": 100,
+                    "markdownDescription": "输入框宽度（百分比，相对侧边栏宽度）。默认 100。觉得太宽就调小。"
+                },
+                "pi-bridge.style.inputMinRows": {
+                    "type": "number",
+                    "default": 1,
+                    "minimum": 1,
+                    "maximum": 20,
+                    "markdownDescription": "输入框**最小行数**（按行数配置，比像素直观）。默认 1。"
+                },
+                "pi-bridge.style.inputMaxRows": {
+                    "type": "number",
+                    "default": 8,
+                    "minimum": 1,
+                    "maximum": 50,
+                    "markdownDescription": "输入框**最大行数**（超过后出滚动条）。默认 8。"
+                },
+                "pi-bridge.style.inputBottomGap": {
+                    "type": "number",
+                    "default": 22,
+                    "minimum": 0,
+                    "maximum": 100,
+                    "markdownDescription": "输入框距底部的**悬空高度**（px）。默认 22。"
                 },
                 "pi-bridge.style.gapTurn": {
                     "type": "number",

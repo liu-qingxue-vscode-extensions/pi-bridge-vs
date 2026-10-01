@@ -1,0 +1,248 @@
+  /* ===== 可调参数（CSS 变量）=====
+     这些是默认值；扩展会从 VS Code 设置生成覆盖（留空 = 用这里/主题变量）*/
+  :root {
+    --pi-bubble-width: 88%;
+    --pi-bubble-radius: 6px;
+    --pi-bubble-padding: 8px 12px;
+
+    /* 气泡之间的竖直间距（挂 margin-top，不叠加）*/
+    --pi-gap-turn: 10px;
+    --pi-gap-user-first: 12px;
+    --pi-gap-thinking-text: 4px;
+    --pi-gap-thinking-tool: 4px;
+    --pi-gap-text-tool: 6px;
+    --pi-gap-tool-text: 4px;
+    --pi-gap-tool-thinking: 4px;
+    --pi-gap-text-thinking: 4px;
+
+    --pi-rail-width: 2px;
+    --pi-border-w: 1px;
+
+    /* 输入框 */
+    --pi-input-radius: 14px;
+    --pi-input-width: 100%;
+    --pi-input-min-rows: 1;
+    --pi-input-max-rows: 8;
+    --pi-input-bottom-gap: 22px;
+  }
+  /* 设置覆盖注入点已移到 chat.html 的 <style>{{styleVars}}</style>
+     （CSS 文件不经过 loader 替换，不能在这里放占位符 ✗）*/
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    position: relative;        /* 给底部悬浮的输入区定位 */
+    height: 100vh;
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-editor-foreground);
+    background: var(--vscode-sideBar-background);
+  }
+  #messages {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    /* 底部留白由 JS 动态同步（= 输入区实际高度）*/
+    /* 左右用 sideGap：控制气泡与视图左右边界的间距 */
+    padding: 12px var(--pi-side-gap, 12px) 120px;
+    /* 用 flex 纵向布局：靠左/靠右用 align-self —— 比 margin:auto 可靠得多 */
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;   /* 默认靠左 */
+  }
+
+  /* ===== 气泡（每个内容段 = 一个气泡）=====
+     ★ 间距只用 margin-top（相邻兄弟），避免和 margin-bottom 叠加 */
+  .bubble {
+    width: var(--pi-bubble-width, 88%);   /* AI 气泡：固定宽度（流式无法预测）*/
+    padding: var(--pi-bubble-padding, 8px 12px);
+    border-radius: var(--pi-bubble-radius, 6px);
+    /* ★ 默认透明：各类型自己指定背景，避免“改一处动全部” */
+    background: transparent;
+    border: var(--pi-border-w, 1px) solid var(--pi-border-bubble, transparent);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  /* 默认间距（相邻气泡之间）*/
+  .bubble + .bubble { margin-top: var(--pi-gap-turn, 10px); }
+
+  /* ---- 用户消息：靠右 + 【自适应宽度】（不固定）---- */
+  .bubble.user {
+    align-self: flex-end;                     /* ★ 可靠右对齐 */
+    width: auto;                              /* 内容多宽就多宽 */
+    min-width: var(--pi-user-min-width, 48px); /* 短消息不会缩成一条线 */
+    max-width: var(--pi-bubble-width, 88%);   /* 超过上限就换行 */
+    background: var(--pi-bg-user, var(--vscode-button-background));
+    color: var(--vscode-button-foreground);
+    border-color: var(--pi-border-user, var(--pi-border-bubble, transparent));
+  }
+  /* 用户消息 → AI 第一个气泡（覆盖默认间距）*/
+  .bubble.user + .bubble { margin-top: var(--pi-gap-user-first, 12px); }
+
+  /* ---- 思考气泡 ---- */
+  .bubble.thinking {
+    background: var(--pi-bg-thinking, transparent);
+    border-left: var(--pi-rail-width, 2px) solid
+      var(--pi-rail-color-thinking, var(--vscode-panel-border));
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+    font-size: 0.95em;
+  }  .bubble.thinking::before {
+    content: "思考";
+    display: block;
+    font-style: normal;
+    font-size: 10px;
+    letter-spacing: 1px;
+    opacity: 0.6;
+    margin-bottom: 2px;
+  }
+
+  /* ---- 正文气泡 ---- */
+  .bubble.text {
+    background: var(--pi-bg-text, var(--vscode-textBlockQuote-background));
+  }
+
+  /* ---- 工具气泡：外框 + 上下两部分（调用 / 结果），中间无线 ----
+     ★ 一个外框画出全部四条边 → 视觉上是【一个】气泡 ✓
+     ★ overflow: hidden → 内部背景被外框圆角裁剪 ✓ */
+  .bubble.tool {
+    padding: 0;
+    overflow: hidden;
+    background: transparent;
+    border: var(--pi-border-w, 1px) solid var(--pi-border-tool, var(--vscode-panel-border));
+    border-left: var(--pi-rail-width, 2px) solid
+      var(--pi-rail-color-tool, var(--vscode-charts-orange));
+  }
+  .bubble.tool .tool-call,
+  .bubble.tool .tool-result {
+    padding: 6px 12px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.9em;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .bubble.tool .tool-call {
+    background: var(--pi-bg-tool-call, var(--vscode-textBlockQuote-background));
+  }
+  .bubble.tool .tool-head {
+    color: var(--vscode-charts-orange);
+    margin-bottom: 3px;
+  }
+  .bubble.tool .tool-result {
+    background: var(--pi-bg-tool-result, var(--vscode-textBlockQuote-background));
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .bubble.tool .tool-result::before {
+    content: "结果";
+    display: block;
+    font-size: 10px;
+    letter-spacing: 1px;
+    opacity: 0.65;
+    color: var(--vscode-charts-orange);
+    margin-bottom: 3px;
+  }
+  .bubble.tool .tool-result.error::before { content: "结果（出错）"; color: var(--vscode-charts-red); }
+
+  /* ===== 气泡之间的间距（按【前 → 后】分别控制；只写 margin-top，不叠加）===== */
+  .bubble.thinking + .bubble.text { margin-top: var(--pi-gap-thinking-text, 4px); }
+  .bubble.thinking + .bubble.tool { margin-top: var(--pi-gap-thinking-tool, 4px); }
+  .bubble.text + .bubble.tool { margin-top: var(--pi-gap-text-tool, 6px); }
+  .bubble.tool + .bubble.text { margin-top: var(--pi-gap-tool-text, 4px); }
+  .bubble.tool + .bubble.thinking { margin-top: var(--pi-gap-tool-thinking, 4px); }
+  .bubble.text + .bubble.thinking { margin-top: var(--pi-gap-text-thinking, 4px); }
+
+  /* ===== 居中内容列模式（centerColumn = true）=====
+     原理：把左右 padding 设为 (100% - 列宽)/2 → 自动形成居中的内容列
+     然后所有气泡占满内容列、用户气泡右对齐到列右边、输入框同宽 ✓ */
+  :root.centered #messages {
+    padding-left: calc((100% - var(--pi-bubble-width, 88%)) / 2);
+    padding-right: calc((100% - var(--pi-bubble-width, 88%)) / 2);
+  }
+  :root.centered #input-area {
+    padding-left: calc((100% - var(--pi-bubble-width, 88%)) / 2);
+    padding-right: calc((100% - var(--pi-bubble-width, 88%)) / 2);
+  }
+  :root.centered .bubble { width: 100%; }                 /* 占满内容列 */
+  :root.centered .bubble.user { width: auto; max-width: 100%; align-self: flex-end; }
+  :root.centered #input-box { width: 100%; margin: 0; }   /* 输入框与气泡同宽 ✓ */
+
+  /* ===== 输入区：悬浮在底部（圆角 + 悬空 + 与消息流无缝）=====
+     · 渐变遮罩：消息滚到框后面时自然淡出
+     · pointer-events: none 只作用于遮罩层（不挡鼠标），框本身可交互 ✓ */
+  #input-area {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 10px var(--pi-side-gap, 12px) var(--pi-input-bottom-gap, 22px);
+    background: linear-gradient(
+      to top,
+      var(--vscode-sideBar-background) 62%,
+      transparent
+    );
+    pointer-events: none;
+  }
+  #input-box {
+    pointer-events: auto;
+    width: var(--pi-input-width, 100%);
+    margin: 0 auto;                                        /* 调窄后居中 */
+    border-radius: var(--pi-input-radius, 14px);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+    padding: 8px 10px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.18);
+    transition: border-color 0.15s;
+  }
+  #input-box:focus-within { border-color: var(--vscode-focusBorder); }
+
+  #input {
+    border: none;
+    background: transparent;
+    color: var(--vscode-input-foreground);
+    font-family: inherit;
+    font-size: inherit;
+    line-height: 1.45;
+    resize: none;
+    outline: none;
+    min-height: 20px;
+    max-height: 180px;         /* ★ 最大高度：超过后出现滚动条（JS 控制）*/
+    overflow-y: hidden;
+  }
+
+  /* 固定栏：右对齐的发送按钮 */
+  #input-bar { display: flex; align-items: center; justify-content: flex-end; min-height: 26px; }
+  #send {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    transition: background 0.15s;
+  }
+  #send svg { width: 62%; height: 62%; }   /* 箭头占圆的比例（要粗、要大）*/
+  #send:not(.busy):hover { background: var(--vscode-button-hoverBackground); }
+  /* 工作中：隐藏箭头，变成一个转圈 */
+  #send.busy {
+    background: transparent;
+    cursor: default;
+    position: relative;
+  }
+  #send.busy svg { display: none; }
+  #send.busy::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border: 2.5px solid var(--vscode-descriptionForeground);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }

@@ -127,6 +127,15 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
         if (role === "user" || role === "assistant") return { kind: "endBubble", role };
         return undefined;
     },
+
+    /**
+     * 任务级状态（驱动状态条 + 发送按钮形态）
+     * - agent_start：任务开始（用户发消息后）→ working
+     * - agent_settled：彻底空闲（重试/队列都空了）→ idle
+     * （agent_end 不单独处理：它后面几乎总跟 settled）
+     */
+    agent_start: () => ({ kind: "agentState", state: "working" }),
+    agent_settled: () => ({ kind: "agentState", state: "idle" }),
 };
 
 /**
