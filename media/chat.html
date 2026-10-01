@@ -22,12 +22,94 @@
     color: var(--vscode-editor-foreground);
     background: var(--vscode-sideBar-background);
   }
-  /* 消息区：第一步先空着，数据在调试板里看 */
+  /* ===== 消息区 ===== */
   #messages {
     flex: 1;
     overflow-y: auto;
     padding: 12px;
   }
+  .bubble {
+    display: flex;
+    margin-bottom: 10px;
+  }
+  /* 用户消息靠右，AI 靠左 */
+  .bubble.user { justify-content: flex-end; }
+  .bubble-body {
+    max-width: 88%;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--vscode-editorWidget-background);
+  }
+  .bubble.user .bubble-body {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+  }
+
+  /* ===== 气泡内的内容块 =====
+     一条 assistant 消息可以有多个块（thinking 块 / text 块…），按顺序排列 */
+  .block {
+    white-space: pre-wrap;      /* 保留换行与空格 */
+    word-break: break-word;
+  }
+  .block + .block { margin-top: 8px; }
+
+  /* 思考块：灰色斜体 + 左边线 + 小标签 */
+  .block-thinking {
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+    font-size: 0.95em;
+    border-left: 2px solid var(--vscode-panel-border);
+    padding-left: 8px;
+  }
+  .block-thinking::before {
+    content: "思考";
+    display: block;
+    font-style: normal;
+    font-size: 10px;
+    letter-spacing: 1px;
+    opacity: 0.6;
+    margin-bottom: 2px;
+  }
+
+  /* 工具块：工具名 + 参数（等宽字体） */
+  .block-tool {
+    border-left: 2px solid var(--vscode-charts-orange);
+    background: var(--vscode-textBlockQuote-background);
+    border-radius: 3px;
+    padding: 6px 8px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.9em;
+  }
+  .block-tool .tool-head {
+    color: var(--vscode-charts-orange);
+    margin-bottom: 3px;
+  }
+  .block-tool .tool-args {
+    white-space: pre-wrap;
+    word-break: break-all;
+    opacity: 0.85;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  /* 工具结果气泡（toolResult message）：等宽 + 紧凑 */
+  .bubble.tool .bubble-body {
+    background: var(--vscode-textBlockQuote-background);
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.88em;
+    max-height: 220px;
+    overflow-y: auto;
+    opacity: 0.92;
+  }
+  /* 流式中：末尾跟一个闪烁光标 */
+  .bubble:not(.done) .bubble-body::after {
+    content: "▌";
+    opacity: .6;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ===== 输入区 ===== */
   #input-area {
     display: flex;
     gap: 6px;
@@ -71,8 +153,75 @@
 
   <script nonce="{{nonce}}">
     const vscode = acquireVsCodeApi();
+    const messagesEl = document.getElementById("messages");
     const inputEl = document.getElementById("input");
     const sendBtn = document.getElementById("send");
+
+    // ===== 气泡管理 =====
+    // 本页面【不维护状态】，只是"显示器"：
+    //   - snapshot：宿主给全量（webview 重建时恢复画面）
+    //   - patch：宿主给增量指令（流式时逐条执行）
+    let currentBubble = null;   // 当前正在流式的气泡元素
+
+    function createBubble(role) {
+      const div = document.createElement("div");
+      div.className = "bubble " + role;
+      const body = document.createElement("div");
+      body.className = "bubble-body";
+      div.appendChild(body);
+      messagesEl.appendChild(div);
+      return div;
+    }
+
+    function scrollToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    /**
+     * 往气泡里追加【文本类】块（text / thinking）
+     * 规则：只有最后一个块能续写 —— 类型一致就追加，否则新建块。
+     * （对应 pi 的 contentIndex：thinking 块 → text 块 → … 顺序推进）
+     */
+    function appendTextBlock(bubbleEl, type, text) {
+      if (!bubbleEl) return;
+      const body = bubbleEl.querySelector(".bubble-body");
+      let last = body.lastElementChild;
+      if (!last || last.dataset.type !== type) {
+        last = document.createElement("div");
+        last.className = "block block-" + type;
+        last.dataset.type = type;
+        body.appendChild(last);
+      }
+      last.textContent += text;   // textContent 而非 innerHTML：免疫 HTML 注入
+      scrollToBottom();
+    }
+
+    /** 新建一个工具块（工具名 + 参数体） */
+    function createToolBlock(bubbleEl, toolName) {
+      if (!bubbleEl) return null;
+      const el = document.createElement("div");
+      el.className = "block block-tool";
+      el.dataset.type = "tool";
+      const head = document.createElement("div");
+      head.className = "tool-head";
+      head.textContent = "🔧 " + (toolName || "tool");
+      const args = document.createElement("div");
+      args.className = "tool-args";
+      el.appendChild(head);
+      el.appendChild(args);
+      bubbleEl.querySelector(".bubble-body").appendChild(el);
+      scrollToBottom();
+      return el;
+    }
+
+    /** 追加工具参数（流式 JSON 片段） */
+    function appendToolArgs(bubbleEl, text) {
+      if (!bubbleEl) return;
+      const blk = bubbleEl.querySelector(".block-tool:last-of-type");
+      if (!blk) return;
+      blk.querySelector(".tool-args").textContent += text;
+      scrollToBottom();
+    }
 
     // ===== 发送：前端 -> 扩展宿主 =====
     function send() {
@@ -91,12 +240,56 @@
     });
 
     // ===== 接收：扩展宿主 -> 前端 =====
-    // 第一步先不做渲染（数据在调试板看）；
-    // 第二步开始按 msg.kind 逐个长出 UI：
-    //   case "pi": ...    case "system": ...    case "error": ...
     window.addEventListener("message", (event) => {
-      console.log("[chat] 收到:", event.data);
+      const data = event.data ?? {};
+
+      if (data.kind === "snapshot") {
+        // 全量重放：清空后用快照重建所有气泡（含各自的块）
+        messagesEl.innerHTML = "";
+        currentBubble = null;
+        for (const b of data.payload) {
+          const el = createBubble(b.role);
+          for (const blk of b.blocks) {
+            if (blk.type === "tool") {
+              const toolEl = createToolBlock(el, blk.toolName);
+              if (toolEl) toolEl.querySelector(".tool-args").textContent = blk.text;
+            } else {
+              appendTextBlock(el, blk.type, blk.text);
+            }
+          }
+          if (b.done) el.classList.add("done");
+          else currentBubble = el;      // 最后一条未封口的 = 正在流式的
+        }
+        scrollToBottom();
+        return;
+      }
+
+      if (data.kind === "patch") {
+        const p = data.payload;
+        if (p.kind === "startBubble") {
+          currentBubble = createBubble(p.role);
+          // 用户/工具结果消息自带内容（非流式）；AI 消息这里是空串，靠后续 append 累积
+          if (p.text) appendTextBlock(currentBubble, "text", p.text);
+        } else if (p.kind === "append") {
+          appendTextBlock(currentBubble, p.block, p.text);
+        } else if (p.kind === "toolStart") {
+          createToolBlock(currentBubble, p.name);
+        } else if (p.kind === "toolArgs") {
+          appendToolArgs(currentBubble, p.text);
+        } else if (p.kind === "toolEnd") {
+          const blk = currentBubble?.querySelector(".block-tool:last-of-type");
+          if (blk) blk.classList.add("done");
+        } else if (p.kind === "endBubble") {
+          if (currentBubble) {
+            currentBubble.classList.add("done");
+            currentBubble = null;
+          }
+        }
+      }
     });
+
+    // 通知宿主：webview 已就绪 → 请求重放快照
+    vscode.postMessage({ kind: "ready" });
   </script>
 </body>
 </html>

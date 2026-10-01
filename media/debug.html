@@ -16,6 +16,8 @@
     display: flex;
     flex-direction: column;
   }
+
+  /* ===== 工具栏 ===== */
   #toolbar {
     display: flex;
     gap: 8px;
@@ -23,6 +25,7 @@
     padding: 6px 10px;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-sideBar-background);
+    flex-shrink: 0;
   }
   #toolbar button {
     background: var(--vscode-button-secondaryBackground);
@@ -31,22 +34,73 @@
     padding: 3px 10px;
     border-radius: 3px;
     cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
   }
+  #toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground); }
   #count { color: var(--vscode-descriptionForeground); margin-left: auto; }
-  #log { flex: 1; overflow-y: auto; padding: 8px 10px; }
+
+  /* ===== 条目列表 ===== */
+  #log { flex: 1; overflow-y: auto; padding: 6px 8px; }
+
+  /* 每条数据 = 一节车厢（时间戳 + 类型 + 内容），车厢之间有线分隔
+     色条颜色用主题变量 → 自动适配浅色/深色主题 */
   .entry {
-    padding: 2px 0;
-    border-bottom: 1px solid var(--vscode-panel-border);
+    padding: 5px 9px 6px;
+    margin-bottom: 2px;
+    border-left: 3px solid var(--vscode-panel-border);   /* 左侧色条（分类）*/
+    border-bottom: 1px solid var(--vscode-panel-border); /* 车厢分隔线 */
+    border-radius: 2px;
+    transition: background-color .08s;
+  }
+  .entry:hover { background: var(--vscode-list-hoverBackground); }
+
+  .entry[data-cat="stream"]    { border-left-color: var(--vscode-charts-blue); }
+  .entry[data-cat="message"]   { border-left-color: var(--vscode-charts-green); }
+  .entry[data-cat="lifecycle"] { border-left-color: var(--vscode-charts-purple); }
+  .entry[data-cat="extension"] { border-left-color: var(--vscode-charts-orange); }
+  .entry[data-cat="tools"]     { border-left-color: var(--vscode-charts-red); }
+  .entry[data-cat="error"]     { border-left-color: var(--vscode-charts-red); }
+
+  /* 卡片头部：时间戳 + 类型名 */
+  .entry .meta { display: flex; gap: 8px; align-items: baseline; margin-bottom: 3px; }
+  .entry .ts { color: var(--vscode-descriptionForeground); font-size: 11px; }
+  .entry .kind { font-weight: 600; color: var(--vscode-descriptionForeground); }
+  .entry[data-cat="stream"] .kind    { color: var(--vscode-charts-blue); }
+  .entry[data-cat="message"] .kind   { color: var(--vscode-charts-green); }
+  .entry[data-cat="lifecycle"] .kind { color: var(--vscode-charts-purple); }
+  .entry[data-cat="extension"] .kind { color: var(--vscode-charts-orange); }
+  .entry[data-cat="tools"] .kind     { color: var(--vscode-charts-red); }
+  .entry[data-cat="error"] .kind     { color: var(--vscode-charts-red); }
+
+  /* JSON 正文（长内容内部滚动，不撑爆面板） */
+  .entry .j {
     white-space: pre-wrap;
     word-break: break-all;
+    max-height: 320px;
+    overflow-y: auto;
   }
-  .ts { color: var(--vscode-descriptionForeground); }
-  .kind { color: var(--vscode-textLink-foreground); font-weight: bold; }
+  /* JSON 语法高亮（借 symbol icon 的主题色，自动适配主题） */
+  .j .k { color: var(--vscode-symbolIcon-keyForeground, #9cdcfe); }
+  .j .s { color: var(--vscode-symbolIcon-stringForeground, #ce9178); }
+  .j .n { color: var(--vscode-symbolIcon-numberForeground, #b5cea8); }
+  .j .b { color: var(--vscode-symbolIcon-booleanForeground, #569cd6); }
+  .j .x { color: var(--vscode-descriptionForeground); }
+
+  /* ===== 折叠条目（命中忽略列表：只显示 类型 × 条数）===== */
+  .entry.folded {
+    border-left-color: var(--vscode-charts-yellow, #cca700);
+    background: color-mix(in srgb, var(--vscode-charts-yellow, #cca700) 12%, transparent);
+  }
+  .entry.folded .kind { color: var(--vscode-charts-yellow, #cca700); }
+  .entry.folded .fold-count { color: var(--vscode-charts-yellow, #cca700); font-weight: 700; }
+  .entry.folded .fold-hint { color: var(--vscode-descriptionForeground); font-size: 11px; }
 </style>
 </head>
 <body>
   <div id="toolbar">
     <button id="clear">清空</button>
+    <button id="export">导出 JSON</button>
     <span id="count">0 条</span>
   </div>
   <div id="log"></div>
@@ -58,29 +112,100 @@
     let count = 0;
 
     function escapeHtml(s) {
-      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
-    // 扩展到调试板的消息格式：{ kind: "debug", payload: <原始对象> }
-    window.addEventListener("message", (event) => {
-      const msg = event.data;
-      if (msg.kind !== "debug") return;
+    // ===== 分类：决定色条颜色（一眼看出这是哪类事件）=====
+    function categorize(type) {
+      if (!type) return "other";
+      if (type === "stderr") return "error";
+      if (type.startsWith("message_update")) return "stream";   // 流式增量（高频）
+      if (type.startsWith("message_")) return "message";        // 消息边界
+      if (type.startsWith("extension_")) return "extension";     // pi 扩展请求
+      if (type.startsWith("tool")) return "tools";               // 工具调用
+      if (type.startsWith("agent_") || type.startsWith("turn_")) return "lifecycle";
+      return "other";
+    }
 
+    // ===== JSON 语法高亮 =====
+    // 一次正则扫描所有 token（多次 replace 会互相破坏，这里一次搞定）
+    function highlightJson(obj) {
+      const s = escapeHtml(JSON.stringify(obj, null, 2));
+      return s.replace(
+        /("(?:\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(?:\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
+        (m) => {
+          let cls = "n";                                    // 数字
+          if (m.startsWith('"')) {
+            cls = m.trim().endsWith(":") ? "k" : "s";        // key / 字符串
+          } else if (m === "true" || m === "false") {
+            cls = "b";
+          } else if (m === "null") {
+            cls = "x";
+          }
+          return '<span class="' + cls + '">' + m + "</span>";
+        }
+      );
+    }
+
+    function bumpCount() {
       count++;
       countEl.textContent = count + " 条";
+    }
 
+    /** 普通条目：一节完整车厢（时间戳 + 类型 + JSON 内容） */
+    function renderEntry(payload, ts) {
+      const type = payload && payload.type ? payload.type : "?";
       const div = document.createElement("div");
       div.className = "entry";
-
-      const ts = new Date().toLocaleTimeString();
-      const type = msg.payload && msg.payload.type ? msg.payload.type : "?";
+      div.dataset.cat = categorize(type);
       div.innerHTML =
-        '<span class="ts">' + ts + "</span> " +
-        '<span class="kind">' + type + "</span>\n" +
-        escapeHtml(JSON.stringify(msg.payload, null, 2));
+        '<div class="meta"><span class="ts">' + new Date(ts).toLocaleTimeString() + "</span>" +
+        '<span class="kind">' + escapeHtml(type) + "</span></div>" +
+        '<div class="j">' + highlightJson(payload) + "</div>";
+      return div;
+    }
 
-      logEl.appendChild(div);
-      logEl.scrollTop = logEl.scrollHeight;
+    /**
+     * 折叠条目：【同样是一节完整车厢】—— 有自己的时间戳，不搭别人的车头
+     * （命中忽略列表的类型，只显示 `类型 × 条数`，位置与数量都保留 → 时序不错乱）
+     */
+    function renderFolded(type, n, ts) {
+      const div = document.createElement("div");
+      div.className = "entry folded";
+      div.dataset.cat = categorize(type);
+      div.dataset.fold = type;
+      div.innerHTML =
+        '<div class="meta"><span class="ts">' + new Date(ts).toLocaleTimeString() + "</span>" +
+        '<span class="kind">' + escapeHtml(type) + "</span>" +
+        '<span class="fold-count">×' + n + "</span>" +
+        '<span class="fold-hint">（已忽略，仅计数）</span></div>';
+      return div;
+    }
+
+    // ===== 接收宿主消息 =====
+    //   { kind: "debug", payload, ts }              ← 普通条目（原始数据 + 宿主时间戳）
+    //   { kind: "debug-fold", type, count, ts }     ← 折叠条目（命中忽略列表）
+    window.addEventListener("message", (event) => {
+      const msg = event.data;
+
+      if (msg.kind === "debug") {
+        bumpCount();
+        logEl.appendChild(renderEntry(msg.payload, msg.ts));
+        logEl.scrollTop = logEl.scrollHeight;
+        return;
+      }
+
+      if (msg.kind === "debug-fold") {
+        bumpCount();
+        const last = logEl.lastElementChild;
+        if (last && last.dataset.fold === msg.type) {
+          // 同一折叠段 → 只更新计数（时间戳保持段开始的时刻）
+          last.querySelector(".fold-count").textContent = "×" + msg.count;
+        } else {
+          logEl.appendChild(renderFolded(msg.type, msg.count, msg.ts));
+        }
+        logEl.scrollTop = logEl.scrollHeight;
+      }
     });
 
     document.getElementById("clear").addEventListener("click", () => {
@@ -89,6 +214,11 @@
       countEl.textContent = "0 条";
       // 通知宿主清空它的环形缓冲（否则关掉面板重开会把旧数据刷回来）
       vscode.postMessage({ kind: "clear" });
+    });
+
+    // 导出：把宿主【环形缓冲】里的数据导出成 JSON 文件
+    document.getElementById("export").addEventListener("click", () => {
+      vscode.postMessage({ kind: "export" });
     });
 
     // 通知扩展：调试板已打开，请把缓冲刷过来

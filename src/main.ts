@@ -4,8 +4,9 @@
  * 【这是整个框架的"组装现场"】
  * 把各个零件接成两条数据流：
  *
- *   ① 后端 → 前端：
- *      pi 事件 → toFrontendPayload(透传) → DebugPanel.log → （未来）ChatView.post
+ *   ① 后端 → 前端（一个事件源【扇出】给两个独立订阅者）：
+ *      原始数据   → DebugPanel.log          （诊断用，不翻译）
+ *      翻译后指令 → toChatPatch → ChatState → ChatView.post（渲染）
  *
  *   ② 前端 → 后端：
  *      ChatView 的消息 → toRpcCommand(表驱动) → PiClient.send → pi
@@ -30,7 +31,8 @@ import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
 import { ChatView } from "./view/chat-view.js";
 import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
-import { toFrontendPayload } from "./bridge/format-backend.js";
+import { toChatPatch } from "./bridge/format-backend.js";
+import { ChatState } from "./view/chat-state.js";
 import { toErrorMessage } from "./utils.js";
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -49,13 +51,30 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     // 2. 创建零件
-    const debugPanel = new DebugPanel(context.extensionUri);
-    const pi = new PiClient(cwd);
+    const debugPanel = new DebugPanel(context.extensionUri, context);
 
-    // 3. 数据流 ①：pi 事件 → 透传格式层 → 调试板
-    //    注意：这里【只】放 pi 的真数据，本地日志不掺进来
+    // pi 的额外启动参数（设置项 pi-bridge.launchArgs）
+    // 用途：临时禁用扩展（--no-extensions）等 —— 比如守卫扩展会拦住工具执行，
+    //       而我们还没做 extension_ui_request 的响应桥时，工具会卡在审批上。
+    const launchArgs = vscode.workspace
+        .getConfiguration("pi-bridge")
+        .get<string[]>("launchArgs", []);
+    if (launchArgs.length > 0) {
+        logInfo(`pi 额外启动参数：${launchArgs.join(" ")}`);
+    }
+    const pi = new PiClient(cwd, { extraArgs: launchArgs });
+    const chatState = new ChatState(); // 插件端权威聊天状态（webview 只是显示器）
+
+    // 3. 数据流 ①：pi 事件 → 两个【独立】订阅者（扇出）
+    //    订阅者 1（调试板）：收【原始数据】—— 诊断用，保持原样不翻译
+    //    订阅者 2（ChatState）：收【翻译后的渲染指令】—— 只关心聊天需要的事件
+    //    两者互不影响：调试板看不到翻译结果，聊天也拿不到原始事件
     pi.onEvent((event) => {
-        debugPanel.log(toFrontendPayload(event));
+        debugPanel.log(event);
+        const patch = toChatPatch(event);
+        if (patch) {
+            chatState.apply(patch);
+        }
     });
 
     // 3b. 数据流 ①-补充：pi 的 stderr（错误 / 诊断）→ 调试板
@@ -70,7 +89,7 @@ export function activate(context: vscode.ExtensionContext): void {
     });
 
     // 4. 数据流 ②：聊天视图的消息 → format 表（白名单）→ pi
-    const chatView = new ChatView(context.extensionUri, async (msg: FrontendMessage) => {
+    const chatView = new ChatView(context.extensionUri, chatState, async (msg: FrontendMessage) => {
         logDebug(`前端消息: ${JSON.stringify(msg)}`);
         try {
             const cmd = toRpcCommand(msg); // 表驱动：前端消息 → RpcCommand

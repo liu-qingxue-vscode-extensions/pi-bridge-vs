@@ -11,6 +11,7 @@
 import * as vscode from "vscode";
 import { loadWebviewHtml } from "./html-loader.js";
 import type { FrontendMessage } from "../bridge/format-frontend.js";
+import type { ChatState } from "./chat-state.js";
 
 export class ChatView implements vscode.WebviewViewProvider {
     /** 视图 id：必须和 package.json 的 contributes.views 里声明的一致 */
@@ -21,6 +22,7 @@ export class ChatView implements vscode.WebviewViewProvider {
 
     /**
      * @param extensionUri 扩展根目录（用于读取 media/chat.html）
+     * @param chatState 插件端权威聊天状态（本视图订阅它，把变化推给 webview）
      * @param onMessage 前端消息的【统一出口】
      *
      * 【为什么传“整个消息”而不是“text”？】
@@ -30,8 +32,15 @@ export class ChatView implements vscode.WebviewViewProvider {
      */
     constructor(
         private readonly extensionUri: vscode.Uri,
+        private readonly chatState: ChatState,
         private readonly onMessage: (msg: FrontendMessage) => void | Promise<void>,
-    ) {}
+    ) {
+        // 状态变化 → 增量推给 webview
+        // （view 不存在时 post() 静默丢弃；重建时会在 resolveWebviewView 里重放全量）
+        chatState.onChange((patch) => {
+            this.post("patch", patch);
+        });
+    }
 
     /** VS Code 在视图第一次显示时调用 */
     resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -41,19 +50,26 @@ export class ChatView implements vscode.WebviewViewProvider {
         // 从 media/chat.html 读取 + 注入 CSP nonce
         webviewView.webview.html = loadWebviewHtml(this.extensionUri, "chat.html", webviewView.webview);
 
-        // 接收 webview 页面发来的消息（纯转发，业务在 main.ts / format 层）
+        // 接收 webview 页面发来的消息
         webviewView.webview.onDidReceiveMessage((msg: unknown) => {
-            // webview 发来的是任意 JSON，先做最小校验再交给上层
-            if (msg && typeof msg === "object" && typeof (msg as { kind?: unknown }).kind === "string") {
-                void this.onMessage(msg as FrontendMessage);
+            // webview 发来的是任意 JSON，先做最小校验
+            if (!msg || typeof msg !== "object") return;
+            const kind = (msg as { kind?: unknown }).kind;
+            if (typeof kind !== "string") return;
+
+            // webview 就绪 → 重放全量快照
+            // （webview 被销毁重建后靠这个恢复画面 —— “显示器”没脑子，状态都在插件端）
+            if (kind === "ready") {
+                this.post("snapshot", this.chatState.snapshot());
+                return;
             }
+
+            // 其余消息交给业务出口（main.ts → format 层白名单）
+            void this.onMessage(msg as FrontendMessage);
         });
     }
 
-    /**
-     * 扩展宿主 → 前端（迭代用：以后把渲染数据推给聊天界面）
-     * 第一步暂时没人调用，先留好接口。
-     */
+    /** 扩展宿主 → 前端（view 不存在时静默丢弃） */
     post(kind: string, payload: unknown): void {
         this.view?.webview.postMessage({ kind, payload });
     }

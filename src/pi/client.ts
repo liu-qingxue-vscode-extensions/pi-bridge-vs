@@ -62,10 +62,11 @@ export class PiClient {
 
     /**
      * @param cwd     pi 的工作目录（通常 = VS Code 打开的工作区）
-     * @param cliPath pi CLI 路径；不传则自动解析
+     * @param options.cliPath   pi CLI 路径；不传则自动解析
+     * @param options.extraArgs 传给 pi 的【额外】启动参数（来自设置项 pi-bridge.launchArgs）
      */
-    constructor(cwd: string, cliPath?: string) {
-        const resolvedCli = cliPath ?? resolvePiCliPath();
+    constructor(cwd: string, options: { cliPath?: string; extraArgs?: string[] } = {}) {
+        const resolvedCli = options.cliPath ?? resolvePiCliPath();
         logDebug(`[PiClient] cliPath = ${resolvedCli}`);
         this.client = new RpcClient({
             cwd,
@@ -76,7 +77,9 @@ export class PiClient {
             // 1. 开发阶段不需要持久化（会话管理将来由我们自己实现）
             // 2. 避免污染用户的 TUI 会话列表（~/.pi/agent/sessions/）
             // 3. 避免被外部工具破坏（如 pi-web 会往会话文件追加无 id 的条目，导致链断）
-            args: ["--no-session"],
+            //
+            // extraArgs：用户在设置里追加的参数（如 --no-extensions）
+            args: ["--no-session", ...(options.extraArgs ?? [])],
         });
 
         // 构造时就注册官方事件回调 —— 这样无论何时 start，事件都不会漏

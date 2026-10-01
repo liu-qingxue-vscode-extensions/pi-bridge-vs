@@ -1,95 +1,104 @@
 {
-  "name": "pi-bridge-vs",
-  "displayName": "pi-bridge-vs",
-  "description": "让 VS Code 作为 Pi 的前端",
-  "version": "1.0.0",
-  "categories": [
-    "AI",
-    "Other"
-  ],
-  "keywords": [
-    "ai",
-    "coding agent",
-    "pi",
-    "liu-qingxue"
-  ],
-  "publisher": "liu-qingxue",
-  "license": "ISC",
-  "author": {
-    "name": "liu-qingxue",
-    "email": "liu-qingxue@proton.me",
-    "url": "https://github.com/liu-qingxue"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/liu-qingxue-vscode-extensions/pi-bridge-VS"
-  },
-  "main": "./dist/main.js",
-  "type": "module",
-  "contributes": {
-    "commands": [
-      {
-        "command": "pi-bridge.test",
-        "title": "测试桥",
-        "category": "pi-bridge"
-      },
-      {
-        "command": "pi-bridge.showDebug",
-        "title": "打开调试板",
-        "category": "pi-bridge"
-      }
+    "name": "pi-bridge-vs",
+    "displayName": "pi-bridge-vs",
+    "description": "让 VS Code 作为 Pi 的前端",
+    "version": "1.0.0",
+    "categories": [
+        "AI",
+        "Other"
     ],
-    "keybindings": [
-      {
-        "command": "pi-bridge.showDebug",
-        "key": "ctrl+alt+d"
-      }
+    "keywords": [
+        "ai",
+        "coding agent",
+        "pi",
+        "liu-qingxue"
     ],
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "pi-bridge-activitybar",
-          "title": "pi-bridge-vs",
-          "icon": "svg/pi.svg"
-        }
-      ]
+    "publisher": "liu-qingxue",
+    "license": "ISC",
+    "author": {
+        "name": "liu-qingxue",
+        "email": "liu-qingxue@proton.me",
+        "url": "https://github.com/liu-qingxue"
     },
-    "views": {
-      "pi-bridge-activitybar": [
-        {
-          "type": "webview",
-          "id": "pi-bridge.chatView",
-          "name": "Pi 会话",
-          "icon": "svg/pi.svg"
-        }
-      ]
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/liu-qingxue-vscode-extensions/pi-bridge-VS"
     },
-    "configuration": {
-      "title": "pi-bridge",
-      "properties": {
-        "pi-bridge.debug.hiddenTypes": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "markdownDescription": "在调试板中**隐藏**的事件类型（黑名单）。默认空 = 全部显示。\n\n用途：某个类型已经“消灭”成真实 UI 后，把它的名字写进来，调试板就只剩未完成的类型 —— 相当于一块进度仪表盘。想看全部就清空列表。\n\n例：`[\"message_update\", \"agent_start\"]`"
+    "main": "./dist/main.js",
+    "type": "module",
+    "contributes": {
+        "commands": [
+            {
+                "command": "pi-bridge.test",
+                "title": "测试桥",
+                "category": "pi-bridge"
+            },
+            {
+                "command": "pi-bridge.showDebug",
+                "title": "打开调试板",
+                "category": "pi-bridge"
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "pi-bridge.showDebug",
+                "key": "ctrl+alt+d"
+            }
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "pi-bridge-activitybar",
+                    "title": "pi-bridge-vs",
+                    "icon": "svg/pi.svg"
+                }
+            ]
+        },
+        "views": {
+            "pi-bridge-activitybar": [
+                {
+                    "type": "webview",
+                    "id": "pi-bridge.chatView",
+                    "name": "Pi 会话",
+                    "icon": "svg/pi.svg"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "pi-bridge",
+            "properties": {
+                "pi-bridge.debug.hiddenTypes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "markdownDescription": "在调试板中**折叠计数**的事件类型（黑名单）。默认空 = 全部展开显示。\n\n语义：命中列表的类型**不会消失**，而是被折叠成一行 `类型 × 条数`（黄色）—— 保住时序语义（不会因为忽略而错乱），但不显示详情。\n\n用途：某个类型已经“消灭”成真实 UI 后，把它的名字写进来，调试板就只剩未完成的类型 —— 相当于一块进度仪表盘。想看详情就清空列表。\n\n例：`[\"message_update\", \"agent_start\"]`"
+                },
+                "pi-bridge.launchArgs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "markdownDescription": "传给 pi 子进程的**额外启动参数**（默认已有 `--no-session`）。\n\n常用：\n- `--no-extensions` —— 临时禁用所有扩展。\n  场景：守卫类扩展会拦住工具执行（等待审批），而本扩展还没做 `extension_ui_request` 的响应桥时，工具会卡住。\n- `--thinking high` —— 指定思考级别\n- `--no-extensions` + `-e <path>` —— 只加载指定扩展\n\n⚠️ 修改后需**重新加载窗口**才生效（pi 子进程已启动）。"
+                }
+            }
         }
-      }
+    },
+    "activationEvents": [],
+    "scripts": {
+        "compile": "tsc -p ./",
+        "watch": "tsc --watch -p ./",
+        "vscode:prepublish": "npm run compile"
+    },
+    "engines": {
+        "vscode": "^1.135.0"
+    },
+    "devDependencies": {
+        "@truly-private/omdsh-llm-mock-server": "^0.1.0",
+        "@types/node": "^26.5.1",
+        "@types/vscode": "^1.135.0",
+        "typescript": "^7.0.2"
     }
-  },
-  "activationEvents": [],
-  "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc --watch -p ./",
-    "vscode:prepublish": "npm run compile"
-  },
-  "engines": {
-    "vscode": "^1.135.0"
-  },
-  "devDependencies": {
-    "@types/node": "^26.5.1",
-    "@types/vscode": "^1.135.0",
-    "typescript": "^7.0.2"
-  }
 }

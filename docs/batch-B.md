@@ -1,0 +1,163 @@
+> 批次 B：UI 迭代（进行中）。上级索引：[ITERATION.md](./ITERATION.md)
+> 不变量（架构决议 / 数据契约）见 [FACTS.md](./FACTS.md)
+
+# 批次 B：UI 迭代（进行中）
+
+## 消灭进度表（本批次的核心台账）
+
+> **“消灭”的定义**：一个 pi 数据包 → 变成真实 UI（能看见了）。
+> **粒度必须到【顶层 type + 子类型】**，不能只看顶层 type：
+> `message_update` 只是个信封，里面的 `assistantMessageEvent.type` 才是内容（共 11 种）。
+
+### 已消灭 ✅（7 类，均在 B1）
+
+| # | 数据包 | 渲染成 |
+|---|---|---|
+| 1 | `message_start` (role=user) | 右侧用户气泡 |
+| 2 | `message_start` (role=assistant) | 左侧 AI 气泡（开始） |
+| 3 | `message_update › text_delta` | 正文块（流式追加） |
+| 4 | `message_update › thinking_delta` | 思考块（灰色斜体） |
+| 5 | `message_update › toolcall_start/delta/end` | 工具块（🔧 工具名 + 参数 JSON） |
+| 6 | `message_start/end` (role=toolResult) | 工具结果气泡（role=tool） |
+| 7 | `message_end` | 封口气泡 |
+
+### 待消灭 ❌（都属于【非常规】：过程/环境，不进会话文件）
+
+| # | 数据包 | 计划渲染成 | 优先级 |
+|---|---|---|---|
+| 8 | `tool_execution_start/update/end` | 工具块上的“执行中…”状态（现在只有请求+结果，中间过程是盲的） | 中 |
+| 9 | `message_end` 的 `stopReason` | 结束状态（`length` 截断 / `aborted` 中断 / `error` 出错） | 中 |
+| 10 | `agent_start` / `agent_end` / `agent_settled` | 状态条（思考中 / 空闲） | 中 |
+| 11 | `extension_ui_request`（`setStatus` 等） | 通知板 / VS Code 状态栏 | 中 |
+| 12 | `stderr` | 通知板 | 中 |
+| 13 | `turn_start` / `turn_end` | 回合分隔（可选） | 低 |
+| 14 | `auto_retry_start` | 通知板“重试中…” | 低 |
+
+> **归属判据**（见 FACTS.md）：**进会话文件的 → 对话区**；**不进文件的 → 状态条 / 通知板**。
+> 8–14 全部不进文件 → 都归状态条 / 通知板。
+
+**边界包**（`start` / `text_start` / `text_end` / `thinking_start` / `thinking_end`）不单独消灭：
+它们只有结构信息，已被 `*_delta` 隐式处理（建块/切块）✓
+
+---
+
+## B1：气泡 + 块渲染 + 工具 + 测试基础设施
+
+**状态**：代码完成，**未提交**（B 轮的第一次提交）
+
+**目标**：发一条消息能完整看到一轮对话来回 —— 用户消息、思考、正文、工具调用与结果
+
+### ① 气泡骨架 + text_delta（渲染主体）
+
+- 新增 `src/view/chat-state.ts`：插件端【权威状态】`ChatState`
+  - `bubbles: Bubble[]` + `onChange` 订阅 + `snapshot()` 全量快照
+  - `apply(patch)` 统一入口，对 `append`/`endBubble` 做防御（无打开气泡 / 角色不匹配则忽略）
+- `format-backend.ts` 的 `formatMap`（语义变更：从"兜底透传"改为"**聊天渲染专用**"，不关心的事件返回 `undefined`）
+- `main.ts` 把一条流**扇出**给两个独立订阅者：
+  ```ts
+  pi.onEvent((event) => {
+      debugPanel.log(event);              // 订阅者 1：原始数据（不翻译）
+      const patch = toChatPatch(event);   // 订阅者 2：翻译后指令
+      if (patch) chatState.apply(patch);
+  });
+  ```
+- `chat-view.ts`：构造时订阅 `ChatState` → 增量推送；收到 `{kind:"ready"}` → 用 `snapshot()` 重放全量
+- `chat.html`：气泡渲染（user 靠右 / assistant 靠左）+ 流式闪烁光标 + 自动滚底
+  - `textContent` 而非 `innerHTML` → 天然免疫 HTML 注入
+- **关键能力**：webview 被销毁重建后能恢复画面（状态在插件端）★
+
+### ② 思考块（thinking）
+
+- **气泡引入【块结构】**：`Bubble.text: string` → `Bubble.blocks: Block[]`
+  - 原因：一条 assistant 消息的 `content` 是数组，可有多个块（由 `contentIndex` 区分）
+  - `ChatPatch.append` 增加 `block` 字段：`{kind:"append", block:"thinking", text}`
+- `format-backend.ts`：`message_update › thinking_delta` → `{kind:"append", block:"thinking"}`
+- `chat.html`：块渲染规则 —— **只有最后一个块能续写**（类型一致追加，否则新建块）
+  - 思考块视觉：灰色斜体 + 左侧线 + “思考”小标签（`::before` 实现）
+- 教训：**“消灭”的粒度是（顶层 type + 子类型）**，写进度时必须诚实到这一层
+
+### ③ 工具块 + 工具结果
+
+- `BlockType` 加 `"tool"`；`Block` 加 `toolName` / `toolDone`
+- `ChatRole` 加 `"tool"`（承载 `toolResult` message）
+- `format-backend` 新增翻译：
+
+  | pi 事件 | 翻译成 |
+  |---|---|
+  | `message_update › toolcall_start`（带 `toolName`） | `{kind:"toolStart", name}` |
+  | `message_update › toolcall_delta` | `{kind:"toolArgs", text}` |
+  | `message_update › toolcall_end` | `{kind:"toolEnd"}` |
+  | `message_start/end` (role=toolResult) | `startBubble/endBubble` with `role:"tool"` |
+
+- `chat.html`：工具块（🔧 工具名 + 参数 JSON，等宽）+ 工具结果气泡（等宽、紧凑、可滚动）
+- **新增设置项 `pi-bridge.launchArgs`**（string 数组，默认空）：传给 pi 的额外启动参数
+  - 主要用途：`["--no-extensions"]` 临时禁用守卫类扩展（否则工具执行会卡在审批上，
+    因为本扩展还没做 `extension_ui_request` 的响应桥）
+  - 修改后需**重载窗口**才生效（pi 子进程已启动）
+- **验证**（`scripts/test-chat-state.mjs`，无需 UI）：
+```
+气泡[0] role=user        "读一下 demo.txt"
+气泡[1] role=assistant   [tool] read  args={"path":"demo.txt"}     ← AI 请求工具
+气泡[2] role=tool        "ENOENT: no such file or directory…"      ← 工具结果（失败也正确）
+气泡[3] role=assistant   "好的，我来读取文件。"                    ← AI 基于结果继续
+```
+
+### ④ 调试板工具（导出 + 折叠计数）
+
+- **导出 JSON**：工具栏按钮 → `showSaveDialog` → 写文件（缓冲全量）
+  - 默认路径：**上次用过的**（存 `globalState`，改一次就固定）→ 首次默认工作区根目录 + 时间戳
+- **忽略 = 折叠计数**（修正 A3 的语义）：
+  - 命中 `hiddenTypes` 的类型**不再丢弃**，而是折叠成一行 `类型 × 条数`（黄色高亮）
+  - 折叠保留【位置】和【数量】→ **时序语义不错乱**，只是不看详情
+  - 连续同类型合并到同一个折叠段；中间插入其他类型则开新段
+  - 折叠条目也进缓冲 → 导出时能看到“这里折叠了 N 条”
+- **车厢模型**：每条数据 = 一节车厢（时间戳 + 类型 + 内容），有边界线
+  - 折叠条目也是**完整车厢**（有自己的时间戳），不搭别人的车头
+  - 时间戳由**宿主**记录（`Date.now()`）—— 前端渲染时刻不等于事件发生时刻
+- 调试板视觉：按类别着色（`message_update` 蓝 / `message_start` 绿 / `extension_*` 橙 / 折叠 黄…），
+  全部用 `--vscode-*` 主题变量（浅色/深色自动适配）
+
+### ⑤ Bug 修复：用户消息不显示
+
+- **根因**：用户消息是**非流式**的，内容只在 `message_start.message.content` 里
+  - 最初的翻译器只取 `role` → 气泡永远是空的（没有 `text_delta` 给它补内容）
+- **修复**：`message_start` 翻译器增加 `extractText(message.content)`
+  - `extractText` 处理两种形态：字符串 / 块数组 `[{type:"text", text}]`
+- **定位方法**：用调试板**导出 JSON** 取证（实测数据见 FACTS.md 的“数据契约”）
+
+### ⑥ 测试基础设施（mock LLM，取代“拿真模型手测”）
+
+| 脚本 | 作用 |
+|---|---|
+| `scripts/mock-server.mjs` | 手动起 mock LLM server（24 种行为可选） |
+| `scripts/e2e-mock.mjs` | 端到端：起 mock + pi，打印完整事件序列 |
+| `scripts/test-chat-state.mjs` | 验证 format + ChatState 的翻译结果（**无需 UI**） |
+| `scripts/probe-abort.mjs` | 探测中断场景的事件序列 |
+| `scripts/probe-session-persist.mjs` | 探测会话文件到底记了什么 |
+
+依赖：`~/.pi/agent/models.json` 里的 `mock` provider（baseUrl `http://127.0.0.1:8123/v1`）
+
+**收益**：协议/UI 测试从「30 秒 + 花钱 + 网络不确定」→「1 秒 + 免费 + 完全可复现」
+
+### 踩过的坑（重要）
+
+1. **测试脚本必须加 `--no-extensions`** —— 否则守卫类扩展（mode-guard）会把工具执行卡在审批上
+   （表现为 `tool_execution_start` 之后就停住，且不会收到 `tool_execution_end`）
+2. **`tool_call_success` + `repeatLast` 会死循环** —— 每轮 LLM 都返回工具调用；
+   应改成序列 `[tool_call_success, success]`
+3. **`npm i` 会清掉 `npm link` 的 pi 包** → 用 `npm link @earendil-works/pi-coding-agent` 恢复
+4. mock 端口必须 **8123**（与 `models.json` 的 baseUrl 一致）
+5. mock 包**没有 CLI**，只能通过库入口 `startMockLlmServer()` 调用
+6. pi 的 `provider` 定义只能改 `~/.pi/agent/models.json`（**没有**环境变量覆盖 baseUrl 的机制）
+
+### 后续（未做）
+
+- [ ] 思考块默认展开是否合适？（长思考会占地方）→ 可选“完成后自动折叠”，实测再定
+- [ ] `tool_execution_*` → 工具块上的“执行中…”状态（消除中间过程盲区）
+- [ ] `stopReason` → 结束状态提示（`length` 截断 / `aborted` 中断 / `error` 出错）
+- [ ] 状态条：`agent_*` / `turn_*` → 思考中 / 空闲
+- [ ] 通知板：`extension_ui_request` / `stderr` / `auto_retry_start`
+- [ ] 用户消息的乐观显示（发送即显示，不等 pi 回显）
+- [ ] 长会话的消息区滚动优化（现在无条件自动滚底）
+- [ ] （实测需要时）推送节流：合并高频 delta，减少跨进程 IPC + DOM 重排
+- [ ] 用 `message_end` 的完整 `content` 校对累积的 delta（处理丢包）
