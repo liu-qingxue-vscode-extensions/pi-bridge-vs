@@ -63,7 +63,10 @@ await mock.close();
 console.log(`\nbehavior=${behavior} · 产生 ${patches} 个 patch\n`);
 console.log("=== ChatState 里的气泡结构 ===");
 for (const [i, b] of chat.snapshot().entries()) {
-    console.log(`\n气泡[${i}] role=${b.role} done=${b.done} blocks=${b.blocks.length}`);
+    console.log(
+        `\n气泡[${i}] role=${b.role} done=${b.done} blocks=${b.blocks.length}` +
+            (b.stopReason ? `  ⚠ stopReason=${b.stopReason}` : ""),
+    );
     for (const blk of b.blocks) {
         if (blk.type === "tool") {
             const res = blk.resultParts === undefined
@@ -71,10 +74,17 @@ for (const [i, b] of chat.snapshot().entries()) {
                 : JSON.stringify(blk.resultParts).slice(0, 70);
             console.log(
                 `   ├─ [tool] ${blk.toolName} callId=${(blk.toolCallId || "?").slice(0, 12)}` +
-                ` done=${blk.toolDone}`,
+                ` done=${blk.toolDone} exec=${blk.executing ?? false}`,
             );
             console.log(`   │        args=${JSON.stringify(blk.args)}`);
             console.log(`   │        parts=${res} isError=${blk.resultIsError}`);
+            if (blk.partialParts !== undefined) {
+                const txt = blk.partialParts
+                    .filter((p) => p && p.type === "text")
+                    .map((p) => p.text ?? "")
+                    .join("");
+                console.log(`   │        partial(${txt.length}字)=${JSON.stringify(txt.slice(0, 60))}`);
+            }
         } else {
             const t = blk.text.replace(/\n/g, "\\n");
             console.log(`   ├─ [${blk.type}] "${t.slice(0, 70)}${t.length > 70 ? "…" : ""}"`);

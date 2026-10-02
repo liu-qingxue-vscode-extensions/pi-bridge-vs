@@ -16,6 +16,22 @@
 <style>{{styleVars}}</style>
 </head>
 <body>
+  <!-- ★ 顶部常驻状态栏（手机式）——数据来自 message_end.message 的 usage / model -->
+  <div id="status-bar">
+    <span class="sb-item" id="sb-cost" title="本次会话花费">¥ 0</span>
+    <span class="sb-sep"></span>
+    <span class="sb-item" id="sb-out" title="输出 token">out 0</span>
+    <span class="sb-sep"></span>
+    <span class="sb-item" id="sb-cache" title="缓存命中率 = cacheRead / (input + cacheRead)">cache 0%</span>
+    <span class="sb-sep"></span>
+    <span class="sb-item" id="sb-ctx" title="对话长度（显示【剩余】占比）">
+      <span class="battery" id="sb-battery">
+        <span class="battery-fill" id="sb-battery-fill"></span>
+        <span class="battery-pct" id="sb-battery-pct">?</span>
+      </span>
+    </span>
+  </div>
+
   <div id="messages"></div>
 
   <div id="input-area">

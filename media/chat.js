@@ -2,6 +2,71 @@ const vscode = acquireVsCodeApi();
     const messagesEl = document.getElementById("messages");
     const inputEl = document.getElementById("input");
     const sendBtn = document.getElementById("send");
+    // 顶部状态栏
+    const statusBarEl = document.getElementById("status-bar");
+    const sbCost = document.getElementById("sb-cost");
+    const sbOut = document.getElementById("sb-out");
+    const sbCache = document.getElementById("sb-cache");
+    const sbBattery = document.getElementById("sb-battery");
+    const sbBatteryFill = document.getElementById("sb-battery-fill");
+    const sbBatteryPct = document.getElementById("sb-battery-pct");
+
+    /** modelId → contextWindow（由宿主推送；查不到则电池显示 "?"）*/
+    let modelLimits = {};
+
+    /** 数字缩写：12345 → 12.3k */
+    function fmtNum(n) {
+      const v = Number(n) || 0;
+      if (v >= 1e6) return (v / 1e6).toFixed(1) + "M";
+      if (v >= 1e3) return (v / 1e3).toFixed(1) + "k";
+      return String(v);
+    }
+
+    /** 花费：小额多给几位小数 */
+    function fmtCost(c) {
+      const v = Number(c) || 0;
+      if (v === 0) return "0";
+      if (v < 0.001) return v.toFixed(6);
+      if (v < 1) return v.toFixed(4);
+      return v.toFixed(2);
+    }
+
+    /**
+     * 刷新顶部状态栏（数据源：message_end.message.usage / model）
+     * 四列（视觉左→右）：花费 · 输出 token · 缓存命中率 · 电池（对话长度）
+     */
+    function updateStatusBar(usage, model) {
+      const u = usage || {};
+
+      // 花费
+      sbCost.textContent = "¥ " + fmtCost(u.cost && u.cost.total);
+
+      // 输出 token
+      sbOut.textContent = "out " + fmtNum(u.output);
+
+      // 缓存命中率 = cacheRead / (input + cacheRead)
+      const inp = Number(u.input) || 0;
+      const cr = Number(u.cacheRead) || 0;
+      const hit = inp + cr > 0 ? Math.round((cr / (inp + cr)) * 100) : 0;
+      sbCache.textContent = "cache " + hit + "%";
+
+      // 电池 = 【剩余】上下文比例（reverse 语义：越用越少 ✓）
+      const total = Number(u.totalTokens) || 0;
+      const limit = model ? modelLimits[model] : undefined;
+      if (typeof limit === "number" && limit > 0) {
+        const usedPct = Math.max(0, Math.min(100, Math.round((total / limit) * 100)));
+        const remain = 100 - usedPct;                  // ★ 显示剩余 ✓
+        statusBarEl.classList.remove("no-limit");
+        sbBatteryFill.style.width = remain + "%";      // ★ 填充 = 剩余 ✓
+        sbBatteryPct.textContent = String(remain);     // 数字在电池【内部】✓
+        sbBattery.classList.toggle("low", remain <= 25);
+        sbBattery.classList.toggle("empty", remain <= 5);
+      } else {
+        // 拿不到分母 → 整个电池区变成一个问号 ✓（不显示绝对 token ✗）
+        statusBarEl.classList.add("no-limit");
+        sbBatteryPct.textContent = "?";
+      }
+    }
 
     // ===== 渲染模型 =====
     // 【每个内容段 = 一个独立气泡】(user / thinking / text / tool)
@@ -162,6 +227,125 @@ const vscode = acquireVsCodeApi();
       return div;
     }
 
+    /** 结束“执行中…”状态（头部标签恢复成“结果”）*/
+    function markStreamingDone(bubble) {
+      const host = bubble.querySelector(".tool-result");
+      if (host) host.dataset.streaming = "false";
+    }
+
+    // ===== 重连提示（auto_retry_start / auto_retry_end）=====
+    // ★ 不进快照 → webview 重建后自然消失 ✓
+    // ★ 出现之后【一直留着】（下次对话也不挤掉 ✗）
+    let retryNoticeEl = null;
+
+    /**
+     * ★ 用户是否主动中断过当前任务
+     * 用途：auto_retry_end 的 success 无法区分【被中断】和【真的连上了】✗
+     *   实测两者都是 { success:true, attempt:N }（无 finalError）—— 结构一模一样 ✗
+     *   唯一判据就是【我们自己的 abort 按钮】（用户点了才知道 ✓）
+     */
+    let userAborted = false;
+
+    /**
+     * 重连提示气泡（同一个气泡内【原地更新】→ 能看到 1/3 → 2/3 → 3/3 的变化 ✓）
+     * p: ChatPatch 里的 retryNotice 字段（attempt / maxAttempts / delayMs / message / final / success）
+     */
+    function showRetryNotice(p) {
+      // ★ 进入重试状态 → 占位三点应该消失（被重试气泡取代 ✓）
+      removePending();
+      // ★ 什么时候开【新】气泡？
+      //   判据：上一个气泡已经【终结】（final=true）→ 那才是新一批 ✓
+      //   不能用 p.attempt === 1 ✗：实测 attempt 会跨批次重置（1,2,3 … 又是 1,2）✗
+      //   → 用 attempt===1 会在旧气泡还活着时就新建 → 旧气泡变成【僵尸】永远转圈 ✗
+      let el = retryNoticeEl;
+      if (!el || el.dataset.final === "true") {
+        el = document.createElement("div");
+        el.className = "bubble notice retry";
+        el.dataset.final = "false";
+        messagesEl.appendChild(el);
+        retryNoticeEl = el;
+      }
+      const isFinal = p.final === true;
+      el.dataset.final = isFinal ? "true" : "false";   // ★ 供下一次判定“是否新一批”使用 ✓
+      // ★ 中断 ≠ 成功：pi 两者都发 success:true 无 finalError ✗ → 用我们自己的标志判定 ✓
+      const aborted = isFinal && userAborted;
+      const ok = isFinal && p.success === true && !aborted;
+      el.classList.toggle("failed", aborted || (isFinal && !ok));
+      el.classList.toggle("retrying", !isFinal);
+      el.classList.toggle("ok", ok);
+
+      // 进度：1/3
+      const attempt =
+        p.attempt && p.maxAttempts
+          ? p.attempt + "/" + p.maxAttempts
+          : p.attempt
+            ? String(p.attempt)
+            : "";
+
+      // 文案：尽量复用 pi 给的原文（errorMessage / finalError）✓
+      let text;
+      if (isFinal) {
+        if (aborted) {
+          text = "已中断";
+        } else if (ok) {
+          text = "重连成功" + (attempt ? "（第 " + attempt + " 次尝试）" : "");
+        } else {
+          text =
+            "重连失败" +
+            (attempt ? "（已尝试 " + attempt + " 次）" : "") +
+            "：" +
+            (p.message || "未知错误");
+        }
+      } else {
+        const parts = ["连接中断，正在重试"];
+        if (attempt) parts.push("（" + attempt + "）");
+        if (p.message) parts.push(" · " + p.message);
+        if (p.delayMs) parts.push(" · " + Math.round(p.delayMs / 1000) + " 秒后");
+        text = parts.join("");
+      }
+
+      // 图标：进行中 = 转圈（红色 ✓）；最终 = ✖ / ✓
+      const icon = isFinal
+        ? aborted
+          ? '<span class="notice-mark">■</span>'
+          : ok
+            ? '<span class="notice-mark">✓</span>'
+            : '<span class="notice-mark">✖</span>'
+        : '<span class="retry-spin"></span>';
+
+      // ★ 固定结构（只在第一次建）+ textContent 写入（防注入 ✓）
+      el.innerHTML = icon + '<span class="notice-text"></span>';
+      el.querySelector(".notice-text").textContent = text;
+      scrollToBottom();
+    }
+
+    /**
+     * 异常结束提示（stopReason）—— ★ 突发情况，要【正常大小/正常颜色】地显示 ✓
+     * 只处理三种异常：length（截断）/ aborted（中断）/ error（出错）
+     * 正常结束（stop / toolUse）根本不会进来 ✓
+     */
+    function appendStopNote(reason) {
+      // 挂在【最后一条 AI 气泡】底部（思考/正文/工具气泡都算）
+      // ★ 必须排除 .notice（重试气泡）：否则提示会跑到重试气泡里面 ✗（两个气泡叠在一起）
+      const all = messagesEl.querySelectorAll(
+        ".bubble:not(.user):not(.pending):not(.notice)",
+      );
+      const target = all[all.length - 1];
+      if (!target) return;
+      if (target.querySelector(".bubble-note")) return; // 防重复
+      const MAP = {
+        length: { icon: "⚠", text: "输出达到长度上限，已截断", cls: "warn" },
+        aborted: { icon: "■", text: "已中断", cls: "info" },
+        error: { icon: "✖", text: "生成出错", cls: "error" },
+      };
+      const m = MAP[reason] ?? { icon: "•", text: reason, cls: "info" };
+      const el = document.createElement("div");
+      el.className = "bubble-note " + m.cls;
+      el.textContent = m.icon + " " + m.text;
+      target.appendChild(el);
+      scrollToBottom();
+    }
+
     /** 工具状态：转圈（running）/ 勾（ok）/ 叉（error）*/
     function setToolState(bubble, state) {
       let el = bubble.querySelector(".tool-state");
@@ -221,38 +405,45 @@ const vscode = acquireVsCodeApi();
       }
     }
 
+    /** 在工具气泡上【取得或创建】结果区（含可折叠头部）*/
+    function ensureResultHost(bubble) {
+      let host = bubble.querySelector(".tool-result");
+      if (host) return host;
+      host = document.createElement("div");
+      host.className = "tool-result";
+      host.dataset.open = "true";
+
+      // 可折叠头部（箭头 + 标签，标签文字由 CSS 变量控制）
+      const head = document.createElement("button");
+      head.className = "result-toggle";
+      head.insertAdjacentHTML("beforeend", CARET_SVG);
+      head.insertAdjacentHTML("beforeend", '<span class="result-label"></span>');
+      head.addEventListener("click", () => {
+        host.dataset.open = host.dataset.open === "true" ? "false" : "true";
+      });
+
+      // 内容体
+      const body = document.createElement("div");
+      body.className = "result-body";
+
+      host.appendChild(head);
+      host.appendChild(body);
+      // ★ 必须加进 .tool-body（直接加在 .bubble 上会跑到 padding 之外 ✗）
+      (bubble.querySelector(".tool-body") || bubble).appendChild(host);
+      return host;
+    }
+
     /**
      * 结果 → 按 content 元素的 type 分发渲染（通用，不丢字段）
      * · text  → 等宽文本（保留换行）
      * · image → <img data:...>
      * · 其他  → 原始 JSON 兜底
+     *
+     * streaming=true 时用于【执行中】的实时输出（累积全文 → 每次整块替换 ✓）
      */
-    function renderResultParts(bubble, parts, isError) {
-      let host = bubble.querySelector(".tool-result");
-      if (!host) {
-        host = document.createElement("div");
-        host.className = "tool-result";
-        host.dataset.open = "true";
-
-        // 可折叠头部（箭头 + 标签，标签文字由 CSS 变量控制）
-        const head = document.createElement("button");
-        head.className = "result-toggle";
-        head.insertAdjacentHTML("beforeend", CARET_SVG);
-        head.insertAdjacentHTML("beforeend", '<span class="result-label"></span>');
-        head.addEventListener("click", () => {
-          host.dataset.open = host.dataset.open === "true" ? "false" : "true";
-        });
-
-        // 内容体
-        const body = document.createElement("div");
-        body.className = "result-body";
-
-        host.appendChild(head);
-        host.appendChild(body);
-        // ★ 必须加进 .tool-body（直接加在 .bubble 上会跑到 padding 之外 ✗）
-        (bubble.querySelector(".tool-body") || bubble).appendChild(host);
-      }
-      host.classList.toggle("error", !!isError);
+    function renderResultParts(bubble, parts, isError, streaming) {
+      const host = ensureResultHost(bubble);
+      host.classList.toggle("error", !!isError && !streaming);
       const body = host.querySelector(".result-body");
       body.innerHTML = "";
       for (const p of parts || []) {
@@ -276,7 +467,8 @@ const vscode = acquireVsCodeApi();
           body.appendChild(pre);
         }
       }
-      if (!body.childElementCount) body.textContent = "（无输出）";
+      // 流式中还没输出（第 1 个 update 是空的）→ 留空，不要显示“（无输出）”✗
+      if (!body.childElementCount) body.textContent = streaming ? "" : "（无输出）";
       scrollToBottom();
     }
 
@@ -284,6 +476,7 @@ const vscode = acquireVsCodeApi();
     function send() {
       const text = inputEl.value.trim();
       if (!text) return;
+      userAborted = false;   // ★ 新任务开始 → 清中断标志 ✓
       vscode.postMessage({ kind: "prompt", text });
       inputEl.value = "";
       autoGrow();
@@ -331,9 +524,18 @@ const vscode = acquireVsCodeApi();
     function setAgentState(state) {
       const busy = state === "working";
       sendBtn.classList.toggle("busy", busy);
-      sendBtn.title = busy ? "工作中…" : "发送 (Enter)";
+      sendBtn.title = busy ? "点击中断" : "发送 (Enter)";
     }
-    sendBtn.addEventListener("click", send);
+    // ★ 点击发送按钮：工作中 → 中断；空闲 → 发送
+    //（转圈本身就表示“正在跑”，点击它 = 中断，设计上天然对应 ✓）
+    sendBtn.addEventListener("click", () => {
+      if (sendBtn.classList.contains("busy")) {
+        userAborted = true;   // ★ 记住：这次是【我们主动中断】的（用于区分重连“成功”和“被中断”✓）
+        vscode.postMessage({ kind: "abort" });
+      } else {
+        send();
+      }
+    });
     inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -368,11 +570,23 @@ const vscode = acquireVsCodeApi();
         return;
       }
 
+      if (data.kind === "modelLimits") {
+        // ★ 模型上下文窗口表（电池的分母）
+        modelLimits = data.payload ?? {};
+        return;
+      }
+
       if (data.kind === "agentState") {
         setAgentState(data.payload);
         // 任务开始 → 立刻显示占位三点（不要空荡荡地等第一个数据包）
-        if (data.payload === "working") showPending();
-        else removePending();
+        if (data.payload === "working") {
+          // 注：【不】移除重连提示 ✓（用户要求：留着，别挤掉）
+          showPending();
+        } else {
+          // ★ 任务彻底结束（settled 一定晚于 auto_retry_end ✓）→ 清中断标志
+          userAborted = false;
+          removePending();
+        }
         return;
       }
 
@@ -396,11 +610,16 @@ const vscode = acquireVsCodeApi();
             if (blk.type === "tool") {
               last = createToolBubble(blk.toolCallId || "", blk.toolName);
               renderArgs(last, blk.args);
+              // 优先显示最终结果，其次显示执行中的实时内容
               if (blk.resultParts !== undefined) {
-                renderResultParts(last, blk.resultParts, blk.resultIsError === true);
+                renderResultParts(last, blk.resultParts, blk.resultIsError === true, false);
                 setToolState(last, blk.resultIsError ? "error" : "ok");
+              } else if (blk.partialParts !== undefined) {
+                renderResultParts(last, blk.partialParts, false, blk.executing === true);
+                setToolState(last, blk.executing ? "running" : "ok");
+                if (blk.executing) ensureResultHost(last).dataset.streaming = "true";
               } else {
-                setToolState(last, "running");
+                setToolState(last, blk.executing ? "running" : "ok");
               }
             } else if (blk.type === "thinking") {
               // 历史里的思考：也是可折叠气泡（已完成，无时长可显示）
@@ -417,6 +636,13 @@ const vscode = acquireVsCodeApi();
             currentBubble = last;
           }
         }
+        // ★ 顶部状态栏也从快照恢复（取最后一条带 usage 的气泡）
+        for (let i = data.payload.length - 1; i >= 0; i--) {
+          if (data.payload[i].usage) {
+            updateStatusBar(data.payload[i].usage, data.payload[i].model);
+            break;
+          }
+        }
         scrollToBottom();
         return;
       }
@@ -431,11 +657,30 @@ const vscode = acquireVsCodeApi();
             const el = createBubble("user");
             el.textContent = p.text;
             currentBubble = el;
+            // ★ 占位三点要始终跟在最后 → 用户气泡插进来后把它挪回末尾 ✓
+            //   （否则三点会跑到用户消息【上方】，看着很奇怪 ✗）
+            if (pendingEl) messagesEl.appendChild(pendingEl);
           }
         } else if (p.kind === "append") {
           appendSegment(p.block, p.text);
         } else if (p.kind === "endBubble") {
+          // ★ 异常结束（截断/中断/出错）→ 在最后一条 AI 气泡底部补一行提示
+          //   但“中断”且已有重试气泡时：由重试气泡负责显示“已中断”✓（不重复挂 ✗）
+          if (p.stopReason === "aborted" && retryNoticeEl && retryNoticeEl.dataset.final !== "true") {
+            // 重试气泡已经在讲了 → 什么都不做 ✓
+          } else if (p.stopReason) {
+            appendStopNote(p.stopReason);
+          }
+          // ★ 注意：【不在这里】清 userAborted
+          //   实测时序：aborted 先到，auto_retry_end 后到 ✗
+          //   若在这里清，auto_retry_end 就会误判成“成功”✗✗✗
+          //   清标志的时机 → agent_settled（任务彻底结束，必然晚于 auto_retry_end ✓）
+          // ★ 顶部状态栏（token 用量 + 模型名）
+          if (p.usage || p.model) updateStatusBar(p.usage, p.model);
           currentBubble = null;
+        } else if (p.kind === "retryNotice") {
+          // ★ 重连提示：同一气泡原地更新（不进快照 ✓ 一直留着 ✗ 不挤掉）
+          showRetryNotice(p);
         } else if (p.kind === "toolStart") {
           removePending();
           setToolState(createToolBubble(p.callId, p.name), "running");
@@ -460,7 +705,30 @@ const vscode = acquireVsCodeApi();
           // 结果在另一条消息里 → 按 callId 找回工具气泡
           const bubble = messagesEl.querySelector('.bubble.tool[data-call-id="' + p.callId + '"]');
           if (bubble) {
-            renderResultParts(bubble, p.parts, p.isError);
+            renderResultParts(bubble, p.parts, p.isError, false);
+            setToolState(bubble, p.isError ? "error" : "ok");
+            markStreamingDone(bubble);
+          }
+        } else if (p.kind === "toolExecStart") {
+          // ★ 工具开始执行 → 结果区先建好，头部显示“执行中…”
+          const bubble = messagesEl.querySelector('.bubble.tool[data-call-id="' + p.callId + '"]');
+          if (bubble) {
+            setToolState(bubble, "running");
+            ensureResultHost(bubble).dataset.streaming = "true";
+          }
+        } else if (p.kind === "toolExecUpdate") {
+          // ★ 执行中的实时输出（累积全文 → 整块替换 ✓）
+          const bubble = messagesEl.querySelector('.bubble.tool[data-call-id="' + p.callId + '"]');
+          if (bubble) {
+            const host = ensureResultHost(bubble);
+            host.dataset.streaming = "true";
+            renderResultParts(bubble, p.parts, false, true);
+          }
+        } else if (p.kind === "toolExecEnd") {
+          const bubble = messagesEl.querySelector('.bubble.tool[data-call-id="' + p.callId + '"]');
+          if (bubble) {
+            markStreamingDone(bubble);
+            // 状态先按 exec 的 isError 定；若随后 toolResult 到达会再覆盖一次 ✓
             setToolState(bubble, p.isError ? "error" : "ok");
           }
         }

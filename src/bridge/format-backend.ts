@@ -20,6 +20,7 @@ import type {
     JsonAgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { ChatPatch } from "../view/chat-state.js";
+import type { Usage } from "../view/chat-types.js";
 
 /**
  * 后端输出的类型空间（我们讨论过的结论：pi 发给前端的一切都要包含进来）
@@ -130,11 +131,71 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
         return undefined; // 其余边界包（*_start / *_end）暂不处理
     },
 
+    /**
+     * 工具【执行】阶段（工具真正跑起来的这段时间）
+     *
+     * ★ 为什么单独处理？
+     *   toolcall_*  = LLM 生成参数（流式 JSON）
+     *   tool_execution_* = pi 真正执行工具 ← 原本完全没渲染 → 界面这段是黑的 ✗
+     *   toolResult  = 最终结果
+     *
+     * ★ tool_execution_update.partialResult 是【累积全文】（实测 ✗不是增量）
+     *   → 前端每次【替换】而不是追加 ✓
+     */
+    tool_execution_start: (raw) => {
+        const ev = raw as { toolCallId?: unknown; toolName?: unknown };
+        if (typeof ev.toolCallId !== "string") return undefined;
+        return {
+            kind: "toolExecStart",
+            callId: ev.toolCallId,
+            name: typeof ev.toolName === "string" ? ev.toolName : "",
+        };
+    },
+    tool_execution_update: (raw) => {
+        const ev = raw as { toolCallId?: unknown; partialResult?: { content?: unknown } };
+        if (typeof ev.toolCallId !== "string") return undefined;
+        return {
+            kind: "toolExecUpdate",
+            callId: ev.toolCallId,
+            // 结构与 toolResult.message.content 【完全同构】✓ → 渲染层可复用 ✓
+            parts: Array.isArray(ev.partialResult?.content) ? ev.partialResult.content : [],
+        };
+    },
+    tool_execution_end: (raw) => {
+        const ev = raw as { toolCallId?: unknown; isError?: unknown };
+        if (typeof ev.toolCallId !== "string") return undefined;
+        return { kind: "toolExecEnd", callId: ev.toolCallId, isError: ev.isError === true };
+    },
+
     /** 消息结束 → 封口气泡（工具结果不需要，它已在 message_start 填回去了） */
     message_end: (raw) => {
-        const role = (raw as { message?: { role?: unknown } }).message?.role;
-        if (role === "user" || role === "assistant") return { kind: "endBubble", role };
-        return undefined;
+        const m = (raw as {
+            message?: {
+                role?: unknown;
+                stopReason?: unknown;
+                usage?: Usage;
+                model?: unknown;
+            };
+        }).message;
+        const role = m?.role;
+        if (role !== "user" && role !== "assistant") return undefined;
+        // ★ 只把【用户需要知道的】异常带出来：length（截断）/ aborted（中断）
+        //
+        // 【为什么不带 error？】实测（test_date/pi-debug-1.json）：
+        //   pi 在自动重试时，会对【每一次失败的尝试】都发一条
+        //   message_end(stopReason="error")，且内容为空（len=0）✗
+        //   这些是中间产物 → 它们的错误已经由 auto_retry 气泡呈现 ✓
+        //   若再挂“生成出错”，它会贴到【上一条正常回复】底部 ✗✗✗
+        const sr = typeof m?.stopReason === "string" ? m.stopReason : undefined;
+        const abnormal = sr === "length" || sr === "aborted" ? sr : undefined;
+        return {
+            kind: "endBubble",
+            role,
+            stopReason: abnormal,
+            // ★ token 用量 + 模型名（顶部状态栏的数据源 ✓）
+            usage: m?.usage,
+            model: typeof m?.model === "string" ? m.model : undefined,
+        };
     },
 
     /**
@@ -145,6 +206,43 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
      */
     agent_start: () => ({ kind: "agentState", state: "working" }),
     agent_settled: () => ({ kind: "agentState", state: "idle" }),
+
+    /**
+     * ★ 自动重连（断网 / 连接中断时 pi 自己发起）
+     *
+     * 【为什么单独做？】
+     *   它【不进会话文件】✓ → webview 重建后自然消失 ✓ 语义天然对齐
+     *   在此之前它是全黑箱 ✗：连接断了重试中，界面一动不动
+     *
+     * 【实测字段（真实抓包 2025）】
+     *   auto_retry_start: { attempt, maxAttempts, delayMs, errorMessage }
+     *   auto_retry_end:   { success, attempt, finalError }
+     */
+    auto_retry_start: (raw) => {
+        const ev = raw as {
+            attempt?: unknown;
+            maxAttempts?: unknown;
+            delayMs?: unknown;
+            errorMessage?: unknown;
+        };
+        return {
+            kind: "retryNotice",
+            attempt: typeof ev.attempt === "number" ? ev.attempt : undefined,
+            maxAttempts: typeof ev.maxAttempts === "number" ? ev.maxAttempts : undefined,
+            delayMs: typeof ev.delayMs === "number" ? ev.delayMs : undefined,
+            message: typeof ev.errorMessage === "string" ? ev.errorMessage : undefined,
+        };
+    },
+    auto_retry_end: (raw) => {
+        const ev = raw as { success?: unknown; attempt?: unknown; finalError?: unknown };
+        return {
+            kind: "retryNotice",
+            attempt: typeof ev.attempt === "number" ? ev.attempt : undefined,
+            message: typeof ev.finalError === "string" ? ev.finalError : undefined,
+            final: true,
+            success: ev.success === true,
+        };
+    },
 };
 
 /**

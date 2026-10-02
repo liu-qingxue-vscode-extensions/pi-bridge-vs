@@ -44,6 +44,33 @@ export interface Block {
     resultParts?: unknown[];
     /** 结果是否为错误 */
     resultIsError?: boolean;
+
+    // ===== 执行阶段（tool_execution_*）=====
+    /**
+     * 执行中的实时输出（tool_execution_update 的 partialResult.content）★
+     *
+     * ⚠️ 实测确认：它是【累积全文】而不是增量 ✗
+     *   （11 次推送，每次长度 +26、内容都是从头开始的全文）
+     *   → 前端每次【替换】而不要【追加】✓
+     */
+    partialParts?: unknown[];
+    /** 是否正在执行（exec_start 已到、exec_end 未到） */
+    executing?: boolean;
+}
+
+/**
+ * token 用量（来自 message_end / turn_end 的 message.usage）
+ * 实测字段：input / output / cacheRead / cacheWrite / reasoning / totalTokens / cost
+ * ★ totalTokens = input + output + cacheRead + cacheWrite（正好是上下文占用量 ✓）
+ */
+export interface Usage {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    reasoning?: number;
+    totalTokens?: number;
+    cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number };
 }
 
 /** 一条聊天气泡 */
@@ -53,6 +80,16 @@ export interface Bubble {
     blocks: Block[];
     /** 是否已封口（流式结束） */
     done: boolean;
+    /**
+     * 结束原因（stopReason）—— ★ 只在【异常】时有值
+     *   length=被长度截断 · aborted=被中断 · error=出错
+     * （正常结束 stop / toolUse 不带值 → 不打扰用户 ✓）
+     */
+    stopReason?: string;
+    /** token 用量（顶部状态栏：输出 token / 缓存命中 / 电池）★ */
+    usage?: Usage;
+    /** 模型 id（顶部状态栏用；也是查 contextWindow 的键 ✓） */
+    model?: string;
 }
 
 /**
@@ -65,15 +102,38 @@ export interface Bubble {
 export type ChatPatch =
     | { kind: "startBubble"; role: ChatRole; text: string }
     | { kind: "append"; block: "text" | "thinking"; text: string }
-    | { kind: "endBubble"; role: ChatRole }
+    | { kind: "endBubble"; role: ChatRole; stopReason?: string; usage?: Usage; model?: string }
     // 工具调用（toolcall_*）—— 工具气泡的生命周期
     | { kind: "toolStart"; name: string; callId: string }
     | { kind: "toolArgs"; text: string }
     | { kind: "toolEnd"; args: unknown } // 参数拼完 → 传解析好的对象
     // 工具结果（toolResult 消息）—— 不建新气泡，而是【填回】对应的工具块
     | { kind: "toolResult"; callId: string; parts: unknown[]; isError: boolean }
+    // 工具【执行】阶段（tool_execution_*）—— 补上“执行中”这段盲区
+    // （toolcall_* 只管参数生成；toolResult 只管最终结果；中间那段原本是黑的 ✗）
+    | { kind: "toolExecStart"; callId: string; name: string }
+    // ★ parts 是【累积全文】→ 前端替换渲染（不是追加 ✗）
+    | { kind: "toolExecUpdate"; callId: string; parts: unknown[] }
+    | { kind: "toolExecEnd"; callId: string; isError: boolean }
     // 任务级状态（agent_start / agent_settled）—— 不进气泡列表，直接驱动状态条/按钮
     | { kind: "agentState"; state: "working" | "idle" }
+    // ★ 重连提示（auto_retry_start / auto_retry_end）—— 【不进文件】的字段
+    //   生命周期：出现 → 【一直留着】（下次对话也不挤掉 ✗ webview 重建才消失 ✓）
+    | {
+          kind: "retryNotice";
+          /** 第几次（attempt ✓）*/
+          attempt?: number;
+          /** 共几次（maxAttempts ✓）*/
+          maxAttempts?: number;
+          /** 多久后重试（delayMs ✓）*/
+          delayMs?: number;
+          /** pi 给的错误文案（errorMessage / finalError ✓）*/
+          message?: string;
+          /** 是不是最终结果包（auto_retry_end ✓）*/
+          final?: boolean;
+          /** 最终是否成功（仅 final 时有值）*/
+          success?: boolean;
+      }
     // 思考生命周期（thinking_start / thinking_end）—— 不改数据，只转发给前端
     // （前端用它控制"正在思考…" → "已思考（用时 X 秒）"与计时）
     | { kind: "thinkStart" }

@@ -75,6 +75,16 @@
                     "default": [],
                     "markdownDescription": "在调试板中**折叠计数**的事件类型（黑名单）。默认空 = 全部展开显示。\n\n语义：命中列表的类型**不会消失**，而是被折叠成一行 `类型 × 条数`（黄色）—— 保住时序语义（不会因为忽略而错乱），但不显示详情。\n\n用途：某个类型已经“消灭”成真实 UI 后，把它的名字写进来，调试板就只剩未完成的类型 —— 相当于一块进度仪表盘。想看详情就清空列表。\n\n例：`[\"message_update\", \"agent_start\"]`"
                 },
+                "pi-bridge.piCliPath": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "（可选的）pi CLI 入口 `dist/cli.js` 的**绝对路径**。\n\n留空 = **自动探测**（推荐）：用 ESM 解析找到 pi 包，取其同目录的 `cli.js`。\n\n何时需要手填：扩展的 `node_modules` 里没有 pi 包、或 pi 装在非标准位置时。"
+                },
+                "pi-bridge.piAgentDir": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "（可选的）pi 的**配置目录**（即 `models.json` 所在目录）。\n\n留空 = **自动探测**（推荐）：调用 pi 导出的 `getAgentDir()`，默认得到 `~/.pi/agent`（并会尊重 `PI_CONFIG_DIR` 等环境变量）。\n\n何时需要手填：你把 pi 的配置放到了非标准目录时。"
+                },
                 "pi-bridge.launchArgs": {
                     "type": "array",
                     "items": {

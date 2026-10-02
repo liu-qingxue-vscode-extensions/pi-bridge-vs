@@ -13,8 +13,9 @@ import type { RpcCommand } from "@earendil-works/pi-coding-agent";
 /** 前端（webview）发给扩展宿主的消息 */
 export type FrontendMessage =
     | { kind: "prompt"; text: string }
+    // ★ 主动中断：对应发送按钮的“转圈”形态（点击转圈 = 中断 ✓）
+    | { kind: "abort" }
     // 以后在这里增加，例如：
-    // | { kind: "abort" }
     // | { kind: "setModel"; provider: string; modelId: string }
     ;
 
@@ -26,6 +27,10 @@ const formatMap: Partial<Record<FrontendMessage["kind"], FrontendFormatter>> = {
         // 类型收窄：msg 在这里一定是 { kind: "prompt"; text: string }
         if (msg.kind !== "prompt") throw new Error("unreachable");
         return { type: "prompt", message: msg.text };
+    },
+    abort: (msg) => {
+        if (msg.kind !== "abort") throw new Error("unreachable");
+        return { type: "abort" };
     },
 };
 

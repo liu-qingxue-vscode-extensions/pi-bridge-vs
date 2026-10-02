@@ -72,10 +72,15 @@ export class ChatState {
 
             case "endBubble": {
                 const last = this.bubbles.at(-1);
-                // 防御：只有"角色匹配且未封口"才真正封口
+                // 防御：只有“角色匹配且未封口”才真正封口
                 // 原因：pi 的 toolResult 消息也会发 message_end，不能误封 assistant 气泡
                 if (!last || last.done || last.role !== patch.role) return;
                 last.done = true;
+                // ★ 异常结束原因（length / aborted / error）→ 前端在气泡底部补一行提示
+                if (patch.stopReason) last.stopReason = patch.stopReason;
+                // ★ token 用量 + 模型名（顶部状态栏：输出 token / 缓存命中 / 电池）
+                if (patch.usage) last.usage = patch.usage;
+                if (patch.model) last.model = patch.model;
                 break;
             }
 
@@ -122,6 +127,35 @@ export class ChatState {
                 blk.resultIsError = patch.isError;
                 break;
             }
+
+            // ===== 工具【执行】阶段（tool_execution_*）=====
+            case "toolExecStart": {
+                const blk = this.findToolBlock(patch.callId);
+                if (!blk) return;
+                blk.executing = true;
+                break;
+            }
+
+            case "toolExecUpdate": {
+                const blk = this.findToolBlock(patch.callId);
+                if (!blk) return;
+                // ★ 累积全文 → 【直接替换】（追加会重复一万遍 ✗）
+                blk.partialParts = patch.parts;
+                break;
+            }
+
+            case "toolExecEnd": {
+                const blk = this.findToolBlock(patch.callId);
+                if (!blk) return;
+                blk.executing = false;
+                break;
+            }
+
+            // ★ 重连提示：【不改状态】—— 仅透传给前端
+            //   （原因：auto_retry_start 不进会话文件 → 不应该进 bubbles/snapshot ✓
+            //    这样 webview 重建后它自然消失，和语义一致 ✓）
+            case "retryNotice":
+                break;
         }
         this.emit(patch);
     }

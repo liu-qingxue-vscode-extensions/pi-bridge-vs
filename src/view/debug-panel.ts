@@ -76,6 +76,18 @@ interface LogEntry {
     payload: unknown;
 }
 
+/**
+ * 时间戳（文件名用）：20261002-151915
+ * ★ 用可读格式而不是毫秒数 —— 导出一堆数据时便于一眼分辨先后 ✓
+ */
+function formatStamp(d: Date): string {
+    const p = (n: number) => String(n).padStart(2, "0");
+    return (
+        `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}` +
+        `-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
+    );
+}
+
 export class DebugPanel {
     /** 面板实例（undefined = 当前没打开） */
     private panel: vscode.WebviewPanel | undefined;
@@ -200,13 +212,15 @@ export class DebugPanel {
             return;
         }
 
-        // 默认路径：上次用过的 → 否则工作区/HOME + 时间戳
+        // 默认路径：★ 时间戳必须是【新的】（否则连续导出会覆盖同一个文件 ✗）
+        //   只记住【目录】，文件名每次都重新生成 ✓
         const lastPath = this.context.globalState.get<string>("pi-bridge.debug.exportPath");
         const fallbackDir =
             vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
-        const defaultUri = lastPath
-            ? vscode.Uri.file(lastPath)
-            : vscode.Uri.file(path.join(fallbackDir, `pi-debug-${Date.now()}.json`));
+        const dir = lastPath ? path.dirname(lastPath) : fallbackDir;
+        const defaultUri = vscode.Uri.file(
+            path.join(dir, `pi-debug-${formatStamp(new Date())}.json`),
+        );
 
         const uri = await vscode.window.showSaveDialog({
             defaultUri,

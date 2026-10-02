@@ -27,22 +27,10 @@ export type PiEventHandler = (event: JsonAgentSessionEvent) => void;
 /**
  * 解析 pi CLI（dist/cli.js）的绝对路径
  *
- * 【为什么必须自己解析？】
- * 官方 RpcClient 的默认 cliPath 是相对路径 "dist/cli.js"，
- * 而 spawn 的相对路径是相对 cwd 解析的 —— 我们的 cwd 是用户工作区，
- * 那里当然没有 dist/cli.js，于是启动失败。
- *
- * 【为什么用 import.meta.resolve 而不是 require.resolve？】
- * pi 包的 package.json 里 exports 只声明了 "import" 条件（没有 "require"），
- * 所以 CJS 的 require.resolve 会报 ERR_PACKAGE_PATH_NOT_EXPORTED。
- * import.meta.resolve 走 ESM 解析，会正确按 "import" 条件找到 dist/index.js，
- * 同目录下的 cli.js 就是我们要启动的入口。
+ * 【实现已移到 paths.ts】那里同时处理了设置项覆盖（pi-bridge.piCliPath）+ 自动探测。
+ * 这里 re-export 保持旧调用点可用。
  */
-export function resolvePiCliPath(): string {
-    const entryUrl = import.meta.resolve("@earendil-works/pi-coding-agent");
-    const entryPath = fileURLToPath(entryUrl); // file:///... → /...
-    return path.join(path.dirname(entryPath), "cli.js");
-}
+import { resolvePiCliPath } from "./paths.js";
 
 export class PiClient {
     private readonly client: RpcClient;

@@ -11,6 +11,7 @@
 import * as vscode from "vscode";
 import { loadWebviewHtml } from "./html-loader.js";
 import { readStyleVars, styleVarsToCss, onStyleChange } from "./style-config.js";
+import { getModelContextWindowsObject } from "../pi/model-limits.js";
 import type { FrontendMessage } from "../bridge/format-frontend.js";
 import type { ChatState } from "./chat-state.js";
 
@@ -81,6 +82,8 @@ export class ChatView implements vscode.WebviewViewProvider {
                 // ★ 先推样式变量：布尔开关（如 centerColumn）需要在 webview 里切 CSS 类，
                 //   否则重建后“设置里有、但视觉没生效” ✗
                 this.post("styleVars", readStyleVars());
+                // ★ 模型上下文窗口表（顶部状态栏的电池分母；查不到则前端显示 "?"）
+                this.post("modelLimits", getModelContextWindowsObject());
                 this.post("snapshot", this.chatState.snapshot());
                 return;
             }
