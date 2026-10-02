@@ -30,13 +30,13 @@
 | 项 | 值 |
 |---|---|
 | 当前批次 | **B**（UI 迭代）|
-| 当前工作单元 | **B10** = UI 优化清单落地（B8⑦ 的 10 项）|
+| 当前工作单元 | **B11** = reload 按钮 + `launchArgs` 懒读 |
 | 状态 | 代码完成，**待验证 / 待提交** |
-| 消灭进度 | 常规字段 **7/7** ✅ · 非常规 **6/7** ✅（thinking_* · agent_* · tool_execution_* · auto_retry_* · stderr · extension_ui_request）|
-| 字段消费 | ★ **已完成** ✓（13 个 type：12 个进 UI，`turn_*` 用户明确不做 ✗）|
-| 下一步 | **B11：引入新按钮**。第一件：`extraArgs` 懒读（现为激活时读一次 ✗）；然后 `reload`（重启 pi）/ `resume`；之后模型选择器（`set_model`）|
-| ★ 重要参考 | pi 的 **36 个命令清单** 在 [batches/B10.md](./batches/B10.md) 的 ⑥（按钮的全集 ✓）；`response` 字段还没消费 → 新字段从这里来 ✓ |
-| ★ 压缩后恢复 | 先读：本文件“当前位置” → [batches/B10.md](./batches/B10.md)（⑥ 命令清单 + ⑦ 下一步）→ [batches/B8.md](./batches/B8.md) ⑥⑦⑧（决策/清单/术语）→ FACTS.md |
+| 消灭进度 | 常规字段 **7/7** ✅ · 非常规 **6/7** ✅ |
+| 字段消费 | ★ 已完成 ✓（13 个 type：12 进 UI，`turn_*` 不做 ✗）|
+| 路线图 | **B12** 调试板升级（颗粒度下钻 + hiddenTypes 实时生效）→ **B13** 会话列表（完成后删「临时会话参数」UI）→ **B14** 模型切换 |
+| ★ 重要参考 | pi 的 **36 个命令** 在 [batches/B10.md](./batches/B10.md) ⑥；**9 种 `extension_ui_request` method** 在 [batches/B11.md](./batches/B11.md) ⑦；`response` 字段还没消费 |
+| ★ 压缩后恢复 | 先读：本文件“当前位置” → [batches/B11.md](./batches/B11.md)⑦（路线图）→ [batches/B10.md](./batches/B10.md)⑥（命令清单）→ FACTS.md |
 
 ## 提交历史
 

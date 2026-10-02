@@ -14,6 +14,8 @@
 export const messagesEl = document.getElementById("messages")!;
 export const inputEl = document.getElementById("input") as HTMLTextAreaElement;
 export const sendBtn = document.getElementById("send")!;
+/** ★ 重启 pi 按钮（应用最新启动参数 ✓）*/
+export const btnReload = document.getElementById("btn-reload")!;
 
 // ── 顶栏（topbar）：统计栏 + 电池 ──
 export const statusBarEl = document.getElementById("status-bar")!;

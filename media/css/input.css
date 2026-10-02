@@ -76,16 +76,15 @@
   overflow-y: hidden;
 }
 
-/* 固定栏：左=模型名（将来是按钮）· 右=发送按钮 */
+/* 固定栏：左=模型名（将来是按钮）· 右=操作按钮 */
 #input-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   min-height: 26px;
 }
 #foot-model {
-  flex: 1;
+  flex: 1;                     /* ★ 占满左侧 → 按钮自然被推到右端 ✓ */
   min-width: 0;
   font-size: 12px;
   color: var(--vscode-descriptionForeground);
@@ -94,6 +93,28 @@
   text-overflow: ellipsis;
   user-select: none;
 }
+
+/* ★ 重启 pi 按钮（次级按钮：平时低调，hover 才明显 ✓）*/
+#btn-reload {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background .14s ease, color .14s ease;
+}
+#btn-reload svg { width: 15px; height: 15px; }
+#btn-reload:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+  color: var(--vscode-foreground);
+}
+#btn-reload:active svg { animation: spin .6s linear; }
 #send {
   flex-shrink: 0;
   width: 28px;

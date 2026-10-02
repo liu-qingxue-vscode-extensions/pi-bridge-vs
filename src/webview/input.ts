@@ -6,7 +6,7 @@
  *   （转圈本身就表示"正在跑"，点击它天然对应"中断" ✓）
  */
 import { vscode } from "./vscode-api.js";
-import { inputEl, sendBtn, messagesEl, inputAreaEl, footCwd } from "./dom.js";
+import { inputEl, sendBtn, messagesEl, inputAreaEl, footCwd, btnReload } from "./dom.js";
 import { ui } from "./state.js";
 import { cssNum, lineHeightOf, shortenPath } from "./format.js";
 
@@ -96,4 +96,10 @@ export function setupInput(): void {
     inputEl.addEventListener("input", autoGrow);
     window.addEventListener("resize", autoGrow);
     autoGrow();
+
+    // ★ 重启 pi：应用最新启动参数（改了 pi-bridge.launchArgs 后点它 ✓）
+    //   为什么需要？启动参数只影响 spawn 时刻 ✗ → 必须重启进程才能生效 ✓
+    btnReload.addEventListener("click", () => {
+        vscode.postMessage({ kind: "reloadPi" });
+    });
 }

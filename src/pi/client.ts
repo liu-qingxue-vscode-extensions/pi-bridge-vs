@@ -33,7 +33,17 @@ export type PiEventHandler = (event: JsonAgentSessionEvent) => void;
 import { resolvePiCliPath } from "./paths.js";
 
 export class PiClient {
-    private readonly client: RpcClient;
+    /**
+     * ★ 内部 RpcClient 【不再是 readonly】—— 每次启动重建 ✓
+     *   原因：RpcClient 的 args 是【构造时固定】的 ✗
+     *   若在构造函数里读一次设置，之后改设置就必须重载整个 VS Code 才生效 ✗
+     *   改成“每次 spawn 时现读” → 改完设置点一下 reload 就能用新参数启动 ✓
+     *
+     * ★ 类型是 `| undefined`（而不是用 `!` 断言）—— 因为激活阶段它【真的是】undefined ✗
+     *   （onStderr() 会在视图激活时就被调，那时进程还没起）
+     *   用 undefined 能让 TS 强制我们检查 → 避免刚才那个“undefined.process”崩溃 ✓
+     */
+    private client: RpcClient | undefined;
     private started = false;
 
     /** 启动中的 Promise（用于幂等：并发调用复用同一个） */
@@ -48,34 +58,64 @@ export class PiClient {
     /** stderr 监听是否已挂载（避免重复挂） */
     private stderrAttached = false;
 
+    /** pi 的工作目录（重建时要复用 ✓） */
+    private readonly cwd: string;
+    /** pi CLI 路径（构造时解析一次即可 —— 路径很少变 ⚠） */
+    private readonly cliPath: string;
+
     /**
      * @param cwd     pi 的工作目录（通常 = VS Code 打开的工作区）
      * @param options.cliPath   pi CLI 路径；不传则自动解析
-     * @param options.extraArgs 传给 pi 的【额外】启动参数（来自设置项 pi-bridge.launchArgs）
+     * @param options.readArgs  ★ 每次启动时【现读】额外参数的回调
+     *                            （比“构造时传入数组”更好：设置改了能立即生效 ✓）
+     * @param options.extraArgs 【旧接口】固定参数（保留兼容；优先用 readArgs ✓）
      */
-    constructor(cwd: string, options: { cliPath?: string; extraArgs?: string[] } = {}) {
-        const resolvedCli = options.cliPath ?? resolvePiCliPath();
-        logDebug(`[PiClient] cliPath = ${resolvedCli}`);
-        this.client = new RpcClient({
-            cwd,
-            cliPath: resolvedCli,
+    constructor(
+        cwd: string,
+        options: { cliPath?: string; readArgs?: () => string[]; extraArgs?: string[] } = {},
+    ) {
+        this.cwd = cwd;
+        this.cliPath = options.cliPath ?? resolvePiCliPath();
+        this.readArgs = options.readArgs ?? ((): string[] => options.extraArgs ?? []);
+        logDebug(`[PiClient] cliPath = ${this.cliPath}`);
+    }
+
+    /** 现读额外启动参数（由 main.ts 提供：从设置项里拿 ✓） */
+    private readonly readArgs: () => string[];
+
+    /**
+     * ★ 建一个全新的 RpcClient（每次启动都会调）
+     *
+     * 【为什么要新建而不是复用？】
+     *   RpcClient 的 args 在构造时定死 ✗
+     *   → 想换启动参数，只能连客户端一起重建 ✓
+     */
+    private buildClient(): RpcClient {
+        // ★ 现读参数（不是构造时读 ✗）—— 这就是“懒读”的关键一步 ✓
+        const extraArgs = this.readArgs();
+        if (extraArgs.length) {
+            logInfo(`[PiClient] 额外启动参数: ${extraArgs.join(" ")}`);
+        }
+
+        const client = new RpcClient({
+            cwd: this.cwd,
+            cliPath: this.cliPath,
             // --no-session：不写会话文件
             //
             // 【为什么？】
             // 1. 开发阶段不需要持久化（会话管理将来由我们自己实现）
             // 2. 避免污染用户的 TUI 会话列表（~/.pi/agent/sessions/）
             // 3. 避免被外部工具破坏（如 pi-web 会往会话文件追加无 id 的条目，导致链断）
-            //
-            // extraArgs：用户在设置里追加的参数（如 --no-extensions）
-            args: ["--no-session", ...(options.extraArgs ?? [])],
+            args: ["--no-session", ...extraArgs],
         });
 
         // 构造时就注册官方事件回调 —— 这样无论何时 start，事件都不会漏
-        this.client.onEvent((event) => {
+        client.onEvent((event) => {
             for (const handler of this.handlers) {
                 handler(event);
             }
         });
+        return client;
     }
 
     /** 启动 pi 子进程（官方内部会等待就绪） */
@@ -102,19 +142,45 @@ export class PiClient {
     private async doStart(): Promise<void> {
         logInfo("[PiClient] 启动 pi --mode rpc ...");
 
+        // ★ 每次启动都【重建客户端 + 现读参数】
+        //   → 改完设置点 reload 就能用新参数启动 ✓
+        const client = this.buildClient();
+        this.client = client;
+
         // ① 官方 start() 只等 100ms + 检查进程没立即崩溃，不等于协议层就绪
-        await this.client.start();
+        await client.start();
 
         // ② 就绪探针：发一条 get_state 并等回执
         //    能拿到回执，说明 pi 的 stdin/stdout 都通了、协议层真的活了
         //    （等价于 s-pi 里的 waitReady 探针）
-        await this.client.getState();
+        await client.getState();
 
         // ③ 挂载 stderr 监听（此时子进程已存在）
         this.attachStderr();
 
         this.started = true;
         logInfo("[PiClient] pi 就绪");
+    }
+
+    /**
+     * ★ 重启 pi 子进程（用【最新】的启动参数）
+     *
+     * 【为什么需要它？】
+     *   启动参数（如 --no-extensions）只能影响 spawn 时刻 ✗
+     *   改完设置后，必须重启进程才能生效 ✓
+     *   → 这个按钮就是“应用新设置”的开关 ✓
+     *
+     * 【注意】订阅关系（onEvent / onStderr）不受影响 ✓
+     *   因为它们挂在本类上，而重建的只是内部 RpcClient ✓
+     */
+    async reload(): Promise<void> {
+        logInfo("[PiClient] reload：重启 pi 进程（读取最新启动参数）");
+        const wasRunning = this.started;
+        await this.stop();
+        if (wasRunning) {
+            await this.ensureStarted();
+        }
+        // 若本来没在跑，就什么都不做（下一次命令会懒启动 ✓）
     }
 
     /**
@@ -134,7 +200,17 @@ export class PiClient {
     private attachStderr(silent = false): void {
         if (this.stderrAttached) return;
 
-        const proc = (this.client as unknown as { process?: ChildProcess }).process;
+        // ★ 激活阶段（进程还没起）client 就是 undefined → 直接返回 ✓
+        //   （这正是之前崩溃的地方：读了 undefined 的 .process ✗）
+        const client = this.client;
+        if (!client) {
+            if (!silent) {
+                logError("[PiClient] 无法挂载 stderr 监听：pi 尚未启动");
+            }
+            return;
+        }
+
+        const proc = (client as unknown as { process?: ChildProcess }).process;
         if (!proc?.stderr) {
             if (!silent) {
                 logError("[PiClient] 无法挂载 stderr 监听（官方内部结构可能已变）");
@@ -145,7 +221,7 @@ export class PiClient {
         // ① 先拉一次【历史】：
         //    官方在 spawn 后就挂了监听，把启动期输出（扩展日志 / 警告）
         //    累积在 getStderr() 字符串里。我们挂得晚，只能靠拉取补上。
-        const history = this.client.getStderr();
+        const history = client.getStderr();
 
         // ② 再挂【事件监听】：收之后新产生的数据（实时）
         proc.stderr.on("data", (chunk: Buffer) => {
@@ -192,9 +268,10 @@ export class PiClient {
 
     /** 停止 pi 子进程 */
     async stop(): Promise<void> {
-        if (!this.started) return;
+        const client = this.client;
+        if (!this.started || !client) return;
         logInfo("[PiClient] 正在停止 pi ...");
-        await this.client.stop();
+        await client.stop();
         this.started = false;
         // 重置挂载状态：进程已死，下次 start 需要重新挂
         this.stderrAttached = false;
@@ -208,7 +285,7 @@ export class PiClient {
 
     /** 读取 pi 的 stderr（诊断用） */
     getStderr(): string {
-        return this.client.getStderr();
+        return this.client?.getStderr() ?? "";
     }
 
     /**
@@ -223,12 +300,16 @@ export class PiClient {
     async send(cmd: RpcCommand): Promise<void> {
         await this.ensureStarted(); // 懒启动：发命令前确保 pi 已就绪
 
+        // ensureStarted 成功后 client 必定已建 ✓
+        const client = this.client;
+        if (!client) throw new Error("pi 未启动");
+
         switch (cmd.type) {
             case "prompt":
-                return this.client.prompt(cmd.message, cmd.images);
+                return client.prompt(cmd.message, cmd.images);
 
             case "abort":
-                return this.client.abort();
+                return client.abort();
 
             default:
                 // 用到未实现的命令时，明确报错而不是静默忽略
@@ -241,6 +322,6 @@ export class PiClient {
     async prompt(text: string): Promise<void> {
         await this.ensureStarted();
         logDebug(`[PiClient] prompt: ${text.slice(0, 80)}`);
-        return this.client.prompt(text);
+        return this.client?.prompt(text);
     }
 }

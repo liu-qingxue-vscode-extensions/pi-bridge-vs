@@ -49,6 +49,13 @@ export class ChatState {
         return { bubbles: this.bubbles, notices: this.notices };
     }
 
+    /** ★ 清空全部气泡（pi 重启后调用）
+     *  为什么？pi 换了新进程 → 它【已经不认识】旧对话了 ✗
+     *  前端若还挂着旧气泡，接着聊会得出错误结果（上下文对不上）✓ */
+    reset(): void {
+        this.bubbles.length = 0;
+    }
+
     /** ★ 设置通知容量（环形缓冲上限）；超出部分【丢最旧的】✓ */
     setNoticeLimit(n: number): void {
         if (!Number.isFinite(n) || n <= 0) return;

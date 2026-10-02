@@ -56,13 +56,18 @@ export function activate(context: vscode.ExtensionContext): void {
     // pi 的额外启动参数（设置项 pi-bridge.launchArgs）
     // 用途：临时禁用扩展（--no-extensions）等 —— 比如守卫扩展会拦住工具执行，
     //       而我们还没做 extension_ui_request 的响应桥时，工具会卡在审批上。
-    const launchArgs = vscode.workspace
-        .getConfiguration("pi-bridge")
-        .get<string[]>("launchArgs", []);
-    if (launchArgs.length > 0) {
-        logInfo(`pi 额外启动参数：${launchArgs.join(" ")}`);
-    }
-    const pi = new PiClient(cwd, { extraArgs: launchArgs });
+    //
+    // ★ 关键：用【回调】而不是“现在读一次”✗
+    //   启动参数只能影响 spawn 时刻 → 改完设置必须重启 pi ✓
+    //   现读后，改完设置点一下 reload 按钮就能用新参数启动 ✓
+    const pi = new PiClient(cwd, {
+        readArgs: () => {
+            const args = vscode.workspace
+                .getConfiguration("pi-bridge")
+                .get<string[]>("launchArgs", []);
+            return Array.isArray(args) ? args.filter((a) => typeof a === "string") : [];
+        },
+    });
     const chatState = new ChatState(); // 插件端权威聊天状态（webview 只是显示器）
     // ★ 通知环形缓冲上限（配置可调；改设置时实时生效 ✓）
     const applyNoticeLimit = (): void => {
@@ -117,6 +122,16 @@ export function activate(context: vscode.ExtensionContext): void {
             if (msg.kind === "noticeClearAll") {
                 chatState.clearNotices();
                 chatView.post("noticesCleared", true); // 让前端清空自己那份镜像 ✓
+                return;
+            }
+            // ★ 重启 pi（应用最新启动参数）—— 也是本地消息 ✓
+            if (msg.kind === "reloadPi") {
+                logInfo("用户请求重启 pi（应用最新启动参数）");
+                await pi.reload();
+                // ★ pi 换了新进程 → 它不认识旧对话了 ✗ → 前端也必须清空 ✓
+                //   （否则上下文对不上，接着聊会得到错误结果）
+                chatState.reset();
+                chatView.post("snapshot", chatState.snapshot()); // 空快照 → 前端重放=清空 ✓
                 return;
             }
             logDebug(`前端消息: ${JSON.stringify(msg)}`);

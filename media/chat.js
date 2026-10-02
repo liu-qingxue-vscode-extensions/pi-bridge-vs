@@ -10,6 +10,7 @@
   var messagesEl = document.getElementById("messages");
   var inputEl = document.getElementById("input");
   var sendBtn = document.getElementById("send");
+  var btnReload = document.getElementById("btn-reload");
   var statusBarEl = document.getElementById("status-bar");
   var sbCost = document.getElementById("sb-cost");
   var sbOut = document.getElementById("sb-out");
@@ -161,6 +162,9 @@
     inputEl.addEventListener("input", autoGrow);
     window.addEventListener("resize", autoGrow);
     autoGrow();
+    btnReload.addEventListener("click", () => {
+      vscode.postMessage({ kind: "reloadPi" });
+    });
   }
 
   // src/webview/noticeboard.ts
