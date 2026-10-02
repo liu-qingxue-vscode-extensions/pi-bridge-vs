@@ -92,6 +92,13 @@ export class DebugPanel {
     /** 面板实例（undefined = 当前没打开） */
     private panel: vscode.WebviewPanel | undefined;
 
+    /**
+     * ★ 面板【上次所在的列】—— 让“靠近打开”真的靠近
+     *   固定用 ViewColumn.Beside 会在【每次关掉再开】时又新开一个组 ✗
+     *   记住列之后：用户拖到哪、下次就去哪 ✓
+     */
+    private lastColumn: vscode.ViewColumn = vscode.ViewColumn.Beside;
+
     /** 后台缓冲：容量 500 条，够调试用（每条带宿主记录的时间戳） */
     private readonly buffer = new RingBuffer<LogEntry>(500);
 
@@ -166,16 +173,23 @@ export class DebugPanel {
     show(): void {
         // 已打开 → 只聚焦，不重复创建
         if (this.panel) {
-            this.panel.reveal();
+            this.panel.reveal(this.panel.viewColumn ?? this.lastColumn);
             return;
         }
 
         this.panel = vscode.window.createWebviewPanel(
             "pi-bridge.debug",      // viewType：同类面板的唯一标识
             "Pi 调试板",             // 标题
-            vscode.ViewColumn.Beside, // 显示位置：当前编辑器旁边
+            // ★ 用【上次所在的列】（用户拖到哪就去哪 ✓）
+            //   原来固定 ViewColumn.Beside → 关掉再开就会又新开一个组 ✗
+            this.lastColumn,
             { enableScripts: true }, // 允许 webview 里跑 JS
         );
+
+        // ★ 用户拖动面板换列 → 记住它（下次“就近”去那里 ✓）
+        this.panel.onDidChangeViewState(() => {
+            if (this.panel?.viewColumn) this.lastColumn = this.panel.viewColumn;
+        });
 
         this.panel.webview.html = loadWebviewHtml(this.extensionUri, "debug.html", this.panel.webview);
 

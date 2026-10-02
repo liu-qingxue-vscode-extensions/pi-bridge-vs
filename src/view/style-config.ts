@@ -60,10 +60,15 @@ export function readStyleVars(): Record<string, string> {
     num("inputMaxRows", "--pi-input-max-rows", "");
     num("inputBottomGap", "--pi-input-bottom-gap");
 
+    // 顶栏（topbar）
+    num("topBarHeight", "--pi-topbar-height");
+
     // 通知面板（B8）—— 展开后的最大高度
     // ★ 单位用 vh 而不是 %：面板的父元素高度由内容决定，百分数会解析失败 ✗
     //   （webview 里的 vh = 视图自身高度 ✓ 正是我们要的“占视图多少”）
     num("noticePanelHeight", "--pi-notice-panel-height", "vh");
+    num("noticeFontSize", "--pi-notice-font-size");
+    raw("noticeItemPadding", "--pi-notice-item-padding");
 
     // 间距
     num("gapTurn", "--pi-gap-turn");

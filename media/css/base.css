@@ -30,7 +30,7 @@
   --pi-input-bottom-gap: 22px;
 
   /* 顶部常驻状态栏（手机式）*/
-  --pi-statusbar-height: 26px;
+  --pi-topbar-height: 26px;
 }
 /* 设置覆盖注入点已移到 chat.html 的 <style>{{styleVars}}</style>
    （CSS 文件不经过 loader 替换，不能在这里放占位符 ✗）*/
@@ -47,7 +47,7 @@ body {
 #messages {
   position: absolute;
   /* ★ 顶部让出状态栏的高度（inset 展开写，方便单独改 top）*/
-  top: var(--pi-statusbar-height);
+  top: var(--pi-topbar-height);
   left: 0;
   right: 0;
   bottom: 0;

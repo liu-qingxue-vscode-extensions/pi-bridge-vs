@@ -27,6 +27,7 @@
   var noticeEmpty = document.getElementById("notice-empty");
   var noticeCount = document.getElementById("notice-count");
   var noticeBell = document.getElementById("notice-bell");
+  var noticeBadge = document.getElementById("notice-badge");
   var noticeCollapse = document.getElementById("notice-collapse");
   var noticeClear = document.getElementById("notice-clear");
   var noticeSettings = document.getElementById("notice-settings");
@@ -186,13 +187,9 @@
     copyBtn.className = "ni-btn";
     copyBtn.textContent = "\u29C9";
     copyBtn.title = "\u590D\u5236";
-    copyBtn.addEventListener("click", async (e) => {
+    copyBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      try {
-        await navigator.clipboard.writeText(n.text);
-      } catch {
-        vscode.postMessage({ kind: "copyText", text: n.text });
-      }
+      void navigator.clipboard.writeText(n.text);
     });
     const closeBtn = document.createElement("button");
     closeBtn.className = "ni-btn";
@@ -206,9 +203,12 @@
     return el;
   }
   function syncBadge() {
-    noticeBell.textContent = ui.noticeUnread > 0 ? "\u{1F514}" : "\u{1F515}";
+    const hasUnread = ui.noticeUnread > 0;
+    noticeBell.textContent = hasUnread ? "\u{1F514}" : "\u{1F515}";
+    noticeBadge.classList.toggle("has-unread", hasUnread);
     noticeCount.textContent = String(ui.notices.length);
     noticeEmpty.style.display = ui.notices.length ? "none" : "";
+    noticeBadge.title = ui.notices.length ? `\u901A\u77E5\uFF08${ui.notices.length} \u6761\uFF09` : "\u901A\u77E5";
   }
   function renderNotices() {
     noticeList.innerHTML = "";

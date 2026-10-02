@@ -56,10 +56,14 @@ export class ChatState {
         this.trimNotices();
     }
 
-    /** ★ 移除单条通知（前端点 ✕ 时由 main.ts 调用）*/
+    /** ★ 移除单条通知（前端点 ✕ 时由 main.ts 调用）
+     *  ★ 必须【广播】给前端：前端只负责发指令、不自己做乐观删除
+     *    （否则前后端两份镜像会不一致 ✗ —— 这正是“点了没反应”的原因）*/
     removeNotice(id: number): void {
         const i = this.notices.findIndex((n) => n.id === id);
-        if (i >= 0) this.notices.splice(i, 1);
+        if (i < 0) return;
+        this.notices.splice(i, 1);
+        this.emit({ kind: "noticeRemove", id });
     }
 
     /** ★ 清空全部通知（面板头部的“清空”按钮）*/

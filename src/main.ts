@@ -131,6 +131,13 @@ export function activate(context: vscode.ExtensionContext): void {
     );
 
     // 5. 注册 VS Code 的贡献点（命令 / 视图）
+
+    // ★ 开发模式（F5 调试）下自动打开调试板：
+    //   写扩展时第一步就是“看数据”，每次手动开太麻烦 ✗
+    //   发布后的正式安装【不】自动开（不能干扰用户 ✓）
+    if (context.extensionMode === vscode.ExtensionMode.Development) {
+        debugPanel.show();
+    }
     context.subscriptions.push(
         // 侧边栏聊天视图
         vscode.window.registerWebviewViewProvider(ChatView.viewId, chatView),

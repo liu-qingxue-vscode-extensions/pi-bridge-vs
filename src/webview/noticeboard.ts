@@ -20,6 +20,7 @@ import {
     noticeEmpty,
     noticeCount,
     noticeBell,
+    noticeBadge,
     noticeCollapse,
     noticeClear,
     noticeSettings,
@@ -57,14 +58,10 @@ function createNoticeItem(n: UiNotice): HTMLElement {
     copyBtn.className = "ni-btn";
     copyBtn.textContent = "⧉";
     copyBtn.title = "复制";
-    copyBtn.addEventListener("click", async (e) => {
+    copyBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        // ★ 走 VS Code 剪贴板（navigator.clipboard 在 webview 里被限制 ✗ → 点了没反应）
-        try {
-            await navigator.clipboard.writeText(n.text);
-        } catch {
-            vscode.postMessage({ kind: "copyText", text: n.text });
-        }
+        // ★ webview 里 navigator.clipboard 是可用的（实测 ✓）
+        void navigator.clipboard.writeText(n.text);
     });
 
     const closeBtn = document.createElement("button");
@@ -81,11 +78,15 @@ function createNoticeItem(n: UiNotice): HTMLElement {
     return el;
 }
 
-/** 刷新头部徽标（未读 / 总数） */
+/** 刷新头部徽标（未读 / 总数）
+ *  ★ 徽标在【顶栏】里（收起时也可见 ✓）→ 用 has-unread 类变色提示 ✓ */
 function syncBadge(): void {
-    noticeBell.textContent = ui.noticeUnread > 0 ? "🔔" : "🔕";
+    const hasUnread = ui.noticeUnread > 0;
+    noticeBell.textContent = hasUnread ? "🔔" : "🔕";
+    noticeBadge.classList.toggle("has-unread", hasUnread);
     noticeCount.textContent = String(ui.notices.length);
     noticeEmpty.style.display = ui.notices.length ? "none" : "";
+    noticeBadge.title = ui.notices.length ? `通知（${ui.notices.length} 条）` : "通知";
 }
 
 /** 全量重绘（重放快照时用） */

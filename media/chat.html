@@ -25,15 +25,18 @@
   <div id="top-area">
     <!-- 第 1 行：按钮容器（★ 只在展开时存在 → ⚙ 日常碰不到 ✓）-->
     <div id="notice-toolbar" class="top-row collapsed">
-      <span id="notice-bell">🔔</span>
-      <span id="notice-count">0</span>
+      <span id="notice-title">通知</span>
       <span class="spacer"></span>
       <button id="notice-clear" title="清空全部通知">清空</button>
       <button id="notice-settings" title="设置（暂未实现）">⚙</button>
     </div>
 
-    <!-- 第 2 行：常驻统计栏（点它展开/收起 ✓）-->
+    <!-- 第 2 行：常驻顶栏（点它展开/收起 ✓；★ 🔔 放这里 → 收起时就看得见未读 ✓）-->
     <div id="status-bar" title="点击展开通知（也可按住下拉 / Ctrl+Alt+N）">
+      <span class="sb-item" id="notice-badge" title="通知">
+        <span id="notice-bell">🔕</span><span id="notice-count">0</span>
+      </span>
+      <span class="sb-sep"></span>
       <span class="sb-item" id="sb-cost" title="本次会话花费">¥ 0</span>
       <span class="sb-sep"></span>
       <span class="sb-item" id="sb-out" title="输出 token">out 0</span>

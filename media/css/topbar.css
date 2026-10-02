@@ -25,7 +25,7 @@
 
 /* 第 1 行：按钮容器（★ 只在展开时存在 → ⚙ 日常碰不到 ✓）*/
 #notice-toolbar {
-  height: var(--pi-statusbar-height);
+  height: var(--pi-topbar-height);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -63,7 +63,7 @@
    数据源：message_end.message.usage / model（每轮对话结束更新一次 ✓）*/
 #status-bar {
   position: relative;          /* ★ 改为 relative：外层 #top-area 已是 absolute ✓ */
-  height: var(--pi-statusbar-height);
+  height: var(--pi-topbar-height);
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -83,6 +83,16 @@
   cursor: pointer;
 }
 #status-bar:hover { color: var(--vscode-foreground); }
+
+/* ★ 🔔 徽标：放顶栏最左端（其余统计项靠右 ✓）*/
+#notice-badge {
+  margin-right: auto;        /* ← 把它自己推到最左，其余内容自然靠右 ✓ */
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+#notice-badge.has-unread { color: var(--vscode-notificationsWarningIcon-foreground, #cca700); }
 .sb-item { display: inline-flex; align-items: center; }
 .sb-sep {
   flex-shrink: 0;

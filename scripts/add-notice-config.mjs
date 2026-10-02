@@ -26,9 +26,29 @@ Object.assign(props, {
     "pi-bridge.style.noticePanelHeight": {
         type: "number",
         default: 40,
-        minimum: 10,
-        maximum: 90,
-        description: "通知面板的最大高度（占聊天视图高度的百分比）。",
+        minimum: 5,
+        maximum: 95,
+        description:
+            "通知面板的【高度】（占聊天视图高度的百分比，vh）。拉下来就是固定这么高，通知多了出滚动条。",
+    },
+    "pi-bridge.style.topBarHeight": {
+        type: "number",
+        default: 26,
+        minimum: 16,
+        maximum: 64,
+        description: "顶栏（显示 花费 / out / cache / 电池 的那一条）的高度（px）。",
+    },
+    "pi-bridge.style.noticeFontSize": {
+        type: "number",
+        default: 12,
+        minimum: 9,
+        maximum: 20,
+        description: "通知列表的字号（px）。",
+    },
+    "pi-bridge.style.noticeItemPadding": {
+        type: "string",
+        default: "6px 8px 6px 10px",
+        description: "通知条目的内边距（CSS 简写，如 6px 8px）。",
     },
 });
 

@@ -2,20 +2,32 @@
    由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
    ★ 改这一块只需动本文件 ✓ */
 
-/* ===== 第 3 行起：通知列表（展开时滑出；高度可配 ✓）===== */
+/* ===== 第 3 行起：通知列表（展开时滑出；高度可配 ✓）=====
+   ★ 【固定】高度，不是 max-height：
+     用 max-height 时，内容不够就够不到设定值 ✗（看起来像“设置没生效”）
+     固定高度后：拉下来就那么高，内容多了出滚动条 ✓ */
 #notice-panel {
   flex-shrink: 0;
-  max-height: var(--pi-notice-panel-height, 40vh);
-  overflow-y: auto;
-  transition: max-height .22s ease, opacity .22s ease;
+  height: var(--pi-notice-panel-height, 40vh);
+  /* ★ 内部用纵向 flex：列表滚动、底部收起热区钉住不动 ✓ */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: height .22s ease, opacity .22s ease;
 }
 #notice-panel.collapsed {
-  max-height: 0;
+  height: 0;
   opacity: 0;
   pointer-events: none;
-  overflow: hidden;
 }
-#notice-list { display: flex; flex-direction: column; }
+#notice-list {
+  display: flex;
+  flex-direction: column;
+  /* ★ 只有列表区滚（热区留在底部 ✓）*/
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
 #notice-empty {
   padding: 10px;
   text-align: center;
@@ -27,9 +39,11 @@
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  padding: 6px 8px 6px 10px;
+  /* ★ 可配（设置：pi-bridge.style.noticeItemPadding）*/
+  padding: var(--pi-notice-item-padding, 6px 8px 6px 10px);
   border-top: 1px solid var(--vscode-panel-border, transparent);
-  font-size: 12px;
+  /* ★ 可配（设置：pi-bridge.style.noticeFontSize）*/
+  font-size: var(--pi-notice-font-size, 12px);
   line-height: 1.45;
 }
 .notice-item .ni-icon { flex-shrink: 0; }
@@ -53,8 +67,13 @@
   cursor: pointer;
   transition: opacity .12s ease;
 }
-.notice-item:hover .ni-btn { opacity: .75; }
-.notice-item .ni-btn:hover { opacity: 1; color: var(--vscode-foreground); }
+.notice-item:hover .ni-btn { opacity: .7; }
+/* ★ 实心背景 + 高不透明度：让两个按钮【一眼可见】（之前太淡看着像没实装 ✗）*/
+.notice-item .ni-btn:hover {
+  opacity: 1;
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .28));
+}
 
 /* 级别颜色（图标）*/
 .notice-item[data-level="error"] .ni-icon { color: var(--vscode-errorForeground); }
@@ -66,7 +85,7 @@
 #notice-collapse {
   text-align: center;
   padding: 4px 0 6px;
-  font-size: 12px;
+  font-size: var(--pi-notice-font-size, 12px);
   color: var(--vscode-descriptionForeground);
   cursor: pointer;
   user-select: none;

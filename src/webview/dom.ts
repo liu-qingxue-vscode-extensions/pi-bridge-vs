@@ -37,6 +37,7 @@ export const noticeList = document.getElementById("notice-list")!;
 export const noticeEmpty = document.getElementById("notice-empty")!;
 export const noticeCount = document.getElementById("notice-count")!;
 export const noticeBell = document.getElementById("notice-bell")!;
+export const noticeBadge = document.getElementById("notice-badge")!;
 export const noticeCollapse = document.getElementById("notice-collapse")!;
 export const noticeClear = document.getElementById("notice-clear")!;
 export const noticeSettings = document.getElementById("notice-settings")!;
