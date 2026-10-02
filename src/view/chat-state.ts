@@ -72,15 +72,22 @@ export class ChatState {
 
             case "endBubble": {
                 const last = this.bubbles.at(-1);
-                // 防御：只有“角色匹配且未封口”才真正封口
-                // 原因：pi 的 toolResult 消息也会发 message_end，不能误封 assistant 气泡
-                if (!last || last.done || last.role !== patch.role) return;
-                last.done = true;
-                // ★ 异常结束原因（length / aborted / error）→ 前端在气泡底部补一行提示
-                if (patch.stopReason) last.stopReason = patch.stopReason;
-                // ★ token 用量 + 模型名（顶部状态栏：输出 token / 缓存命中 / 电池）
+                // ★ 用 break 而不是 return ✗
+                //   原因：return 会跳过函数末尾的 this.emit(patch) → 前端【收不到】这个 patch ✗
+                if (!last) break;
+                // ★ token 用量 + 模型名【不受封口判断影响】✓
+                //   实测：重试时多条 assistant message_end 连续到达，
+                //   只有第一条能封口气泡 ✓ 后续的 last.done === true ✗
+                //   而【成功】那条往往就是后面的 → 若把它丢掉，状态栏就永远显示 0 ✗✗✗
                 if (patch.usage) last.usage = patch.usage;
                 if (patch.model) last.model = patch.model;
+                // 封口：只有“角色匹配且未封口”才封
+                //   （原因：pi 的 toolResult 消息也会发 message_end，不能误封 assistant 气泡）
+                if (!last.done && last.role === patch.role) {
+                    last.done = true;
+                    // ★ 异常结束原因（length / aborted）→ 前端在气泡底部补一行提示
+                    if (patch.stopReason) last.stopReason = patch.stopReason;
+                }
                 break;
             }
 

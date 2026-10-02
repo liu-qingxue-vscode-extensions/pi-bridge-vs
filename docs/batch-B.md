@@ -486,3 +486,82 @@ src/webview/*.ts  →  esbuild  →  media/chat.js（产物）
 ★ 可直接 import type { ChatPatch } from "../view/chat-types.js"
   → 改了契约，前端不跟就【编译报错】✓
 ```
+
+---
+
+## B6：前端工程化（webview 改用 TS + esbuild）
+
+### ① 为什么要做
+
+本批（B5）一共修了 9 个 bug，**大多数源自前端没有工程化** ✗：
+
+```
+media/chat.js  740 行单文件
+  · 无类型    → `p.text` 早就换成对象了，界面默默显示 undefined
+  · 无契约    → 字段名靠人肉对齐（插件端改了，前端不知道）
+  · 无测试    → 只能肉眼看
+  · 状态散乱  → 8 个模块级 let（retryNoticeEl / pendingEl / currentBubble / userAborted …）
+              生命周期靠约定 → 出僵尸气泡 ✗
+```
+
+对比：**TS 层（架构/协议/状态）一直很顺** ✓ —— 因为它在编译期就拦住错误 ✓
+
+### ② 构建链路
+
+```
+src/webview/index.ts   （740 行，从 media/chat.js 机械平移，逻辑未动）
+      ↓ esbuild（2ms，20.3kb）
+media/chat.js          （产物，路径不变 → chat.html 不用改 ✓）
+```
+
+- **`scripts/build-webview.mjs`**：esbuild 配置（`bundle` + `format: "iife"` ✓）
+  - ❌ 不能产 ESM：webview 里没有模块系统，`chat.html` 就是普通 `<script src>`
+  - ✅ 支持 `--watch`（`npm run watch:webview` → 改 TS 自动出产物）
+- **esbuild 不做类型检查** ✗ → 类型检查由 tsc 单独负责 ✓
+
+### ③ tsconfig 双配置
+
+| 文件 | 作用 | 关键点 |
+|---|---|---|
+| `tsconfig.json` | 插件端（Node）| ★ 新增 `exclude: ["src/webview"]` —— 否则 tsc 会把 webview 的 DOM 代码当 Node 代码编译 ✗ |
+| `tsconfig.webview.json` | webview（浏览器）| `lib: ["es2022","dom"]` · `types: []` · `noEmit` · `moduleResolution: "bundler"` |
+
+**npm scripts**：
+```json
+"compile":        "tsc -p ./ && node scripts/build-webview.mjs"
+"watch:webview":  "node scripts/build-webview.mjs --watch"
+```
+
+### ④ 本批修掉的 bug
+
+| # | 现象 | 根因 |
+|---|---|---|
+| 10 | 顶部状态栏 `¥ / out / cache` 恒为 0 | `ChatState.endBubble` 用 **`return`** 提前退出 ✗ → 跳过了函数末尾的 `this.emit(patch)` ✗ → 前端根本收不到 patch；且 usage 也没存进气泡（snapshot 重放也拿不到）<br>**触发条件**：重试时多条 assistant `message_end` 连续到达，只有第一条能过封口判断 ✗，而【成功】那条恰恰在后面 ✗ → 它的 usage 被丢弃<br>**修**：`break` 代替 `return` ✓ + usage/model 移到封口判断【之前】（不受它影响 ✓）|
+
+> ★ **教训**：state 机里用 `return` 跳过副作用的写法很危险 ✗ ——
+> 它同时跳过了“对外广播”。应该用 `break`（只跳过本 case ✓）。
+
+### ⑤ 环境注意
+
+```
+★ npm i <anything> 会重建 node_modules → 把 npm link 的 pi 包符链冲掉 ✗
+  症状：tsc 报 Cannot find module '@earendil-works/pi-coding-agent'
+  修：npm link @earendil-works/pi-coding-agent
+```
+
+### ⑥ 下一步：按语义拆模块
+
+```
+src/webview/
+├─ index.ts      入口（只做接线 + 启动）
+├─ dom.ts        DOM 引用集中 + 小工具（fmtNum / fmtCost / cssNum / scroll）
+├─ state.ts      ★ 所有 UI 状态集中（消灭散落的 8 个 let）
+├─ bubbles.ts    气泡基础（createBubble / createHead / appendSegment）
+├─ thinking.ts   思考气泡
+├─ tool.ts       工具气泡（最大一块：参数键值对 + 结果 parts + 状态）
+├─ notices.ts    提示气泡（重连 + stopReason note + 占位三点）
+├─ topbar.ts     顶部状态栏
+├─ input.ts      输入区（发送/中断/高度自适应）
+└─ apply.ts      宿主消息分发（styleVars / agentState / snapshot / patch）
+```
+依赖【单向】：`index → apply → 各渲染模块 → dom/state`（不循环 ✓）
