@@ -59,24 +59,27 @@ const vscode = acquireVsCodeApi();
 
     /**
      * 折叠条目：【同样是一节完整车厢】—— 有自己的时间戳，不搭别人的车头
-     * （命中忽略列表的类型，只显示 `类型 × 条数`，位置与数量都保留 → 时序不错乱）
+     *
+     * label 可能是：【type】 或更细的 【type › 字段=值】✓
+     * （后者来自 ignored 列表里的“路径=值”规则 —— 这就是“更细的颗粒度” ✓）
      */
-    function renderFolded(type, n, ts) {
+    function renderFolded(label, n, ts) {
       const div = document.createElement("div");
       div.className = "entry folded";
-      div.dataset.cat = categorize(type);
-      div.dataset.fold = type;
+      div.dataset.cat = categorize(String(label).split(" › ")[0]);   // ★ 用 type 部分取色
+      div.dataset.fold = label;
       div.innerHTML =
         '<div class="meta"><span class="ts">' + new Date(ts).toLocaleTimeString() + "</span>" +
-        '<span class="kind">' + escapeHtml(type) + "</span>" +
+        '<span class="kind">' + escapeHtml(label) + "</span>" +
         '<span class="fold-count">×' + n + "</span>" +
         '<span class="fold-hint">（已忽略，仅计数）</span></div>';
       return div;
     }
 
     // ===== 接收宿主消息 =====
-    //   { kind: "debug", payload, ts }              ← 普通条目（原始数据 + 宿主时间戳）
-    //   { kind: "debug-fold", type, count, ts }     ← 折叠条目（命中忽略列表）
+    //   { kind: "debug", payload, ts }                  ← 普通条目（原始数据 + 宿主时间戳）
+    //   { kind: "debug-fold", label, count, ts }        ← 折叠条目（label = type 或 type › 字段=值）
+    //   { kind: "debug-clear" }                         ← 清空（改设置后重放历史前）
     window.addEventListener("message", (event) => {
       const msg = event.data;
 
@@ -90,13 +93,21 @@ const vscode = acquireVsCodeApi();
       if (msg.kind === "debug-fold") {
         bumpCount();
         const last = logEl.lastElementChild;
-        if (last && last.dataset.fold === msg.type) {
+        if (last && last.dataset.fold === msg.label) {
           // 同一折叠段 → 只更新计数（时间戳保持段开始的时刻）
           last.querySelector(".fold-count").textContent = "×" + msg.count;
         } else {
-          logEl.appendChild(renderFolded(msg.type, msg.count, msg.ts));
+          logEl.appendChild(renderFolded(msg.label, msg.count, msg.ts));
         }
         logEl.scrollTop = logEl.scrollHeight;
+        return;
+      }
+
+      // ★ 宿主要求清空（改设置后重放历史时先清 → 避免重复累计 ✓）
+      if (msg.kind === "debug-clear") {
+        logEl.innerHTML = "";
+        count = 0;
+        countEl.textContent = "0 条";
       }
     });
 

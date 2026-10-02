@@ -23,6 +23,24 @@ Object.assign(props, {
         description:
             "通知列表的环形缓冲上限（超出丢最旧的）。通知不进会话文件，窗口重载即清空。",
     },
+    "pi-bridge.debug.enabled": {
+        type: "boolean",
+        default: true,
+        description:
+            "调试板总开关。关掉后【不再接收任何数据】（缓冲为空、也不推给面板）—— 开发结束时可关掉省内存。",
+    },
+    "pi-bridge.debug.collapse": {
+        type: "array",
+        default: [],
+        items: { type: "string" },
+        markdownDescription:
+            "折叠规则（字符串数组）。**目的：精确忽略某一部分数据包**，其余照常完整显示 ✓\n\n" +
+            "格式：`type` 或 `type:字段路径` 或 `type:字段路径=值`\n\n" +
+            "· `\"turn_start\"` → 忽略整个 type\n" +
+            "· `\"message_update:assistantMessageEvent.type=text_delta\"` → 只忽略这一类 ✓\n" +
+            "· `\"tool_execution_start:toolName\"` → 只要取得到值就忽略\n\n" +
+            "命中后【不会消失】，而是折叠成一行 `标签 × 条数`（保住时序位置 ✓）。",
+    },
     "pi-bridge.style.noticePanelHeight": {
         type: "number",
         default: 40,

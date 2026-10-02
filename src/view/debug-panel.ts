@@ -33,7 +33,9 @@ class RingBuffer<T> {
         return [...this.items];
     }
 
-    /** 最后一条（折叠计数用：判断是否与上一条同类型） */
+    /** 最后一条（
+     *  注：旧版本用它做“折叠累加”（已废弃 ✗）—— 现在折叠发生在出口，
+     *  缓冲里永远是完整数据 ✓）*/
     last(): T | undefined {
         return this.items[this.items.length - 1];
     }
@@ -48,21 +50,148 @@ class RingBuffer<T> {
 }
 
 /**
- * 折叠载荷 —— 命中“忽略列表”的数据用计数代替
- *
- * 【为什么不是直接丢弃？】
- * 丢弃会让调试板的时序语义错乱：中间整段消失，看不出“这里发生过什么”。
- * 折叠保留了【位置】和【数量】两个关键信息，只是不存详情。
+ * 取事件的 type（非对象/无 type 返回空串）
  */
-interface FoldedPayload {
-    type: string;
-    folded: true;
-    count: number;
+function typeOf(payload: unknown): string {
+    const t = (payload as { type?: unknown } | null)?.type;
+    return typeof t === "string" ? t : "";
 }
 
-/** 类型守卫：是不是折叠载荷 */
-function isFoldedPayload(x: unknown): x is FoldedPayload {
-    return !!x && typeof x === "object" && (x as { folded?: unknown }).folded === true;
+/**
+ * ★ 折叠规则 —— 把高频事件【按子字段分段计数】
+ *
+ * 【它解决什么？】
+ *   一个 type 内部常常还有子类型：
+ *     message_update 里带 assistantMessageEvent.type = text_delta / thinking_delta / …
+ *   不折叠：刷得飞快，淹没其它事件 ✗
+ *   只按 type 折：message_update ×444 —— 看不出里面是啥 ✗
+ *   按子字段分段：
+ *     message_update › type=text_delta      ×300  ✓
+ *     message_update › type=thinking_delta  × 80  ✓
+ *
+ * 【数学上看】
+ *   限定（type = X）→ 得到一个【子集】
+ *   再按 by 字段分段 → 在子集上做【等价类划分】（= SQL 的 GROUP BY ✓）
+ *
+ * 【三种写法】（字符串形式【能在 VS Code 设置界面直接编辑】✓）
+ *   "turn_start"                                   → 整个 type 折一段
+ *   "message_update:assistantMessageEvent.type"    → 按该字段的值分段（type : 字段路径）
+ *   { type: "…", by: "…" }                         → 对象形式（程序生成时好用 ✓）
+ *
+ * ★ 为什么推荐字符串？
+ *   对象数组在 VS Code 设置界面里【编不了】✗（只能手改 JSON）
+ *   字符串数组可以在设置界面里一条一条加 ✓
+ *
+ * 【相邻判定】两条数据归为同一段，当且仅当：
+ *   ① 它们都被【同一条规则】命中
+ *   ② 按 by 取出的【值串】相等（无 by 时恒等 ✓）
+ */
+interface CollapseRule {
+    /** 锚点1：事件类型（必填） */
+    type: string;
+    /**
+     * 锚点2-a：字段路径（点号，如 "assistantMessageEvent.type"）
+     * ★ 路径本身表达嵌套，不需要“数组套数组”✗
+     */
+    path?: string;
+    /**
+     * 锚点2-b：要求 path 的值【等于】它
+     * ★ 只写 path 不写 value → 只要取得到值就算命中（范围更宽 ✓）
+     */
+    value?: string;
+}
+
+/** 规则在设置里的原始形状（用户可能写错，要宽容处理 ✓） */
+type RawRule = string | { type?: unknown; path?: unknown; value?: unknown; by?: unknown };
+
+/**
+ * 把设置里的原始项解析成规则
+ *
+ * 【字符串形式语法】type[:路径[=值]]
+ *   "turn_start"
+ *   "message_update:assistantMessageEvent.type=text_delta"
+ *   "tool_execution_start:toolName"
+ *
+ * 【对象形式】{ type, path, value }（by 是过渡期别名，一并接受 ✓）
+ *
+ * 解析不了就返回 undefined（跳过而不是报错 ✓）
+ */
+function parseRule(raw: RawRule): CollapseRule | undefined {
+    if (typeof raw === "string") {
+        const s = raw.trim();
+        if (!s) return undefined;
+
+        // ① 切出 type（冒号前）
+        const colon = s.indexOf(":");
+        if (colon < 0) return { type: s };
+        const type = s.slice(0, colon).trim();
+        if (!type) return undefined;
+
+        // ② 切出 路径[=值]（冒号后）
+        const rest = s.slice(colon + 1).trim();
+        if (!rest) return { type };
+        const eq = rest.indexOf("=");
+        if (eq < 0) return { type, path: rest };
+        const path = rest.slice(0, eq).trim();
+        const value = rest.slice(eq + 1).trim();
+        if (!path) return { type };
+        return value ? { type, path, value } : { type, path };
+    }
+
+    if (!raw || typeof raw !== "object") return undefined;
+    const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+    const type = str(raw.type);
+    if (!type) return undefined;
+    // by 是过渡期别名（已改为更准的 path ✓）
+    const path = str(raw.path) || str(raw.by);
+    if (!path) return { type };
+    const value = str(raw.value);
+    return value ? { type, path, value } : { type, path };
+}
+
+/**
+ * 取值：按点号路径深入 payload
+ * @returns 取到的标量值（字符串化）；取不到/不是标量 → undefined
+ *
+ * 特点：不调工具函数、不抛错；中途遇到非对象就返回 undefined ✓
+ */
+function valueAtPath(payload: unknown, path: string): string | undefined {
+    let cur: unknown = payload;
+    for (const seg of path.split(".")) {
+        if (!cur || typeof cur !== "object") return undefined;
+        cur = (cur as Record<string, unknown>)[seg];
+    }
+    // 对象/数组不做串化（会出现难读的 [object Object] ✗）
+    if (cur === undefined || cur === null || typeof cur === "object") return undefined;
+    return String(cur);
+}
+
+/**
+ * 判断一条数据是否被规则命中；命中则返回【折叠段标签】
+ *
+ * 【为什么返回标签而不是 bool？】
+ *   相邻数据的“同一段”判定靠它：标签相等 = 同一段 ✓
+ *
+ * 【两个锚点】
+ *   锚点1：type 必须相等（不等 → 不命中 ✓）
+ *   锚点2：若写了 path，则先取值；写了 value 还得相等 ✓
+ *          取不到值 → 【不命中】（宁可多显示，也不要变成一坨 ? ✗）
+ *
+ * @returns 命中的标签；不命中返回 undefined
+ */
+function labelOf(payload: unknown, rule: CollapseRule): string | undefined {
+    if (typeOf(payload) !== rule.type) return undefined;
+
+    // 只写了锚点1 → 整个 type 折一段（标签就是 type ✓）
+    if (!rule.path) return rule.type;
+
+    const got = valueAtPath(payload, rule.path);
+    if (got === undefined) return undefined;
+    if (rule.value !== undefined && got !== rule.value) return undefined;
+
+    // 标签用【字段末段】而不是全路径（短一点好读 ✓）
+    const leaf = rule.path.split(".").pop() ?? rule.path;
+    return `${rule.type} › ${leaf}=${got}`;
 }
 
 /**
@@ -109,64 +238,161 @@ export class DebugPanel {
     constructor(
         private readonly extensionUri: vscode.Uri,
         private readonly context: vscode.ExtensionContext,
-    ) {}
+    ) {
+        // ★ 监听设置变化 → 重新计算折叠并重推
+        //   这样改 collapse（或 enabled）立即生效 ✓
+        //   （和 styleVars 同一套路；之前就是缺了这一步 ✗）
+        this.configSub = vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration("pi-bridge.debug")) {
+                // ★ 总开关被关掉 → 清空缓冲（“空空的”✓ 不再占内存）
+                if (!this.isEnabled()) this.buffer.clear();
+                this.replayHistory();
+            }
+        });
+    }
+
+    /** 配置监听（需外部 dispose；main.ts 会塞进 subscriptions ✓） */
+    private configSub: vscode.Disposable | undefined;
+
+    dispose(): void {
+        this.configSub?.dispose();
+    }
 
     /**
      * 记录一条数据（由 main.ts 的数据流调用）
-     * - 命中忽略列表 → 【折叠计数】（保住时序，不存详情）
-     * - 无论面板是否打开都进缓冲
-     * - 面板打开时，实时推给前端
+     *
+     * 【★ 本轮的架构修正】
+     *   旧：命中忽略列表 → 【折叠】（详情丢掉 ✗）→ 改配置无法复活历史 ✗
+     *   新：数据【永远完整入库】✓；忽略列表只在【出口】折叠（保住时序位置 ✓）
+     *       → 改黑名单【立即生效】（重放时重新计算折叠）✓
+     *
+     * 【总开关 pi-bridge.debug.enabled】
+     *   关掉后【直接不接】（缓冲不涨、不推前端）→ 开发结束省内存 ✓
      */
     log(payload: unknown): void {
-        const type = (payload as { type?: string } | null)?.type;
-        const ts = Date.now(); // ★ 宿主侧记录时间（前端渲染时刻不准）
+        if (!this.isEnabled()) return; // ★ 总开关：关掉就不再接收任何数据 ✓
 
-        // 命中忽略列表 → 折叠（而不是丢弃）
-        if (type && this.isHidden(type)) {
-            const last = this.buffer.last();
-            if (last && isFoldedPayload(last.payload) && last.payload.type === type) {
-                // 与上一条同类型 → 累加到同一个折叠段（时间戳保持段开始的时刻）
-                last.payload.count++;
-                this.panel?.webview.postMessage({
-                    kind: "debug-fold", type, count: last.payload.count, ts: last.ts,
+        const ts = Date.now(); // ★ 宿主侧记录时间（前端渲染时刻不准）
+        this.buffer.push({ ts, payload }); // ★ 完整入库（永远不折叠详情 ✓）
+
+        if (!this.panel) return;
+
+        // ★ 出口折叠：命中规则 → 只发“标签 × 条数”（同一个折叠段原地累加 ✓）
+        const label = this.foldLabelOf(payload);
+        if (label !== undefined) {
+            if (this.foldType === label) {
+                this.foldCount++;
+                this.panel.webview.postMessage({
+                    kind: "debug-fold", label, count: this.foldCount, ts: this.foldTs,
                 });
             } else {
-                // 开一个新的折叠段（位置就在数据流当前处 ✓ 时序不乱）
-                const folded: FoldedPayload = { type, folded: true, count: 1 };
-                this.buffer.push({ ts, payload: folded });
-                this.panel?.webview.postMessage({ kind: "debug-fold", type, count: 1, ts });
+                this.resetFold(label, ts);
+                this.panel.webview.postMessage({ kind: "debug-fold", label, count: 1, ts });
             }
             return;
         }
 
-        this.buffer.push({ ts, payload });
-        this.panel?.webview.postMessage({ kind: "debug", payload, ts });
+        this.resetFold(); // 普通数据到达 → 折叠段结束 ✓
+        this.panel.webview.postMessage({ kind: "debug", payload, ts });
+    }
+
+    /** 当前折叠段（出口折叠用；与缓冲无关 ✓） */
+    private foldType = "";
+    private foldCount = 0;
+    private foldTs = 0;
+
+    /** 重置折叠段（label 为空 = 关闭当前段） */
+    private resetFold(label = "", ts = 0): void {
+        this.foldType = label;
+        this.foldCount = label ? 1 : 0;
+        this.foldTs = ts;
+    }
+
+    /** 调试板总开关（默认开）—— 关掉 = 不接收任何数据 ✓ */
+    private isEnabled(): boolean {
+        return vscode.workspace
+            .getConfiguration("pi-bridge.debug")
+            .get<boolean>("enabled", true);
     }
 
     /**
-     * 读取忽略列表（★ 归一化）
+     * 重新推一遍历史（配置变化 / 前端刚打开时调用）
      *
-     * 【为什么要归一化？】
-     *   用户在设置里手写数组时很容易带空格（"message_start " ✗）
-     *   而 `includes` 是严格匹配 → 带一个空格的条目就【永远匹配不上】✗
+     * ★ 要【重新计算折叠】：因为缓冲里存的是完整数据，
+     *   忽略列表可能刚被改过 → 哪些该折叠要重算 ✓（这就是“实时生效”的关键 ✓）
      *
-     * 顺带做：去空白字符串 + 去重（同一个 type 写两次没意义）
-     * ★ 不做【自动排序写回】—— 那会边编辑边重写用户的设置，风险大于收益 ✗
-     *   想整理顺序时用命令：pi-bridge: 整理调试板忽略列表 ✓
+     * 为什么不增量补？过滤/折叠是有状态的（隐藏项变了可能要撤回已推的）✗
+     * 全量重推最简单也最不会错 ✓（调试板数据量小，成本可忽略）
      */
-    private readHiddenTypes(): string[] {
-        const raw = vscode.workspace
-            .getConfiguration("pi-bridge.debug")
-            .get<string[]>("hiddenTypes", []);
-        const cleaned = raw
-            .map((t) => (typeof t === "string" ? t.trim() : ""))
-            .filter((t) => t !== "");
-        return [...new Set(cleaned)];
+    private replayHistory(): void {
+        if (!this.panel) return;
+        const webview = this.panel.webview;
+        webview.postMessage({ kind: "debug-clear" });
+
+        const rules = this.readRules();
+        this.resetFold(); // 重算折叠段 ✓
+
+        for (const entry of this.buffer.snapshot()) {
+            const label = this.foldLabelOf(entry.payload, rules);
+            if (label !== undefined) {
+                // 折叠：连续同标签合并成一段（与 log() 的实时行为一致 ✓）
+                if (this.foldType === label) {
+                    this.foldCount++;
+                } else {
+                    this.foldType = label;
+                    this.foldCount = 1;
+                    this.foldTs = entry.ts;
+                    webview.postMessage({
+                        kind: "debug-fold", label, count: 1, ts: entry.ts,
+                    });
+                    continue;
+                }
+                // 累加同段 → 只更新计数（时间戳保持段开始时刻 ✓）
+                webview.postMessage({
+                    kind: "debug-fold", label, count: this.foldCount, ts: this.foldTs,
+                });
+            } else {
+                this.resetFold();
+                webview.postMessage({ kind: "debug", payload: entry.payload, ts: entry.ts });
+            }
+        }
     }
 
-    /** 是否命中忽略列表（每次都读配置 → 改设置立即生效） */
-    private isHidden(type: string): boolean {
-        return this.readHiddenTypes().includes(type);
+    /**
+     * 读取并解析折叠规则（每次现读配置 → 改设置立即生效 ✓）
+     *
+     * 【配置名】pi-bridge.debug.collapse（字符串数组，设置界面可直接编辑 ✓）
+     *
+     * ★ 不做【自动排序写回】—— 那会边编辑边重写用户的设置，风险大于收益 ✗
+     */
+    private readRules(): CollapseRule[] {
+        const raw = vscode.workspace
+            .getConfiguration("pi-bridge.debug")
+            .get<RawRule[]>("collapse", []);
+        const out: CollapseRule[] = [];
+        const seen = new Set<string>();
+        for (const item of raw ?? []) {
+            const rule = parseRule(item);
+            if (!rule) continue;
+            // 去重（完全相同的规则写两次没意义 ✓）
+            const key = rule.type + "|" + (rule.path ?? "") + "=" + (rule.value ?? "");
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push(rule);
+        }
+        return out;
+    }
+
+    /**
+     * 这条数据该折叠吗？该则返回折叠段标签
+     * @param rules 可选用已解析的规则（重放时避免重复解析 ✓）
+     */
+    private foldLabelOf(payload: unknown, rules?: CollapseRule[]): string | undefined {
+        for (const rule of rules ?? this.readRules()) {
+            const label = labelOf(payload, rule);
+            if (label !== undefined) return label; // 先匹配到的先生效 ✓
+        }
+        return undefined;
     }
 
     /** 命令入口：打开（或聚焦）调试板 */
@@ -196,24 +422,8 @@ export class DebugPanel {
         // 接收前端（调试板 HTML）发来的消息
         this.panel.webview.onDidReceiveMessage((msg) => {
             if (msg.kind === "debug-ready") {
-                // 前端刚打开：把缓冲里的历史刷给它
-                // （折叠条目要还原成 debug-fold 协议，而不是当普通数据发）
-                for (const entry of this.buffer.snapshot()) {
-                    if (isFoldedPayload(entry.payload)) {
-                        this.panel?.webview.postMessage({
-                            kind: "debug-fold",
-                            type: entry.payload.type,
-                            count: entry.payload.count,
-                            ts: entry.ts,
-                        });
-                    } else {
-                        this.panel?.webview.postMessage({
-                            kind: "debug",
-                            payload: entry.payload,
-                            ts: entry.ts,
-                        });
-                    }
-                }
+                // 前端刚打开：把缓冲里的历史刷给它（统一走 replayHistory ✓）
+                this.replayHistory();
             }
             if (msg.kind === "clear") {
                 this.buffer.clear();

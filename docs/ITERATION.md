@@ -30,13 +30,13 @@
 | 项 | 值 |
 |---|---|
 | 当前批次 | **B**（UI 迭代）|
-| 当前工作单元 | **B11** = reload 按钮 + `launchArgs` 懒读 |
-| 状态 | 代码完成，**待验证 / 待提交** |
+| 当前工作单元 | **B12** = 调试板升级（折叠规则 / 实时生效 / 总开关）|
+| 状态 | 代码完成，**待验证 / 待提交**（与 B11 一起 ✓）|
 | 消灭进度 | 常规字段 **7/7** ✅ · 非常规 **6/7** ✅ |
 | 字段消费 | ★ 已完成 ✓（13 个 type：12 进 UI，`turn_*` 不做 ✗）|
-| 路线图 | **B12** 调试板升级（颗粒度下钻 + hiddenTypes 实时生效）→ **B13** 会话列表（完成后删「临时会话参数」UI）→ **B14** 模型切换 |
-| ★ 重要参考 | pi 的 **36 个命令** 在 [batches/B10.md](./batches/B10.md) ⑥；**9 种 `extension_ui_request` method** 在 [batches/B11.md](./batches/B11.md) ⑦；`response` 字段还没消费 |
-| ★ 压缩后恢复 | 先读：本文件“当前位置” → [batches/B11.md](./batches/B11.md)⑦（路线图）→ [batches/B10.md](./batches/B10.md)⑥（命令清单）→ FACTS.md |
+| 路线图 | **B12 ⑤** 调试板 [🙈] 按钮（未做）→ **B13** 会话列表（完成后删「临时会话参数」UI）→ **B14** 模型切换 → 预留：`extension_ui_request` 的 select/confirm 回复桥 |
+| ★ 重要参考 | **36 个命令** 在 [B10](./batches/B10.md)⑥；**9 种 extension_ui_request method** 在 [B11](./batches/B11.md)⑦；**折叠语法定稿** 在 [B12](./batches/B12.md)④ |
+| ★ 压缩后恢复 | 先读：本文件“当前位置” → [B12](./batches/B12.md)⑦（下一步）→ [B11](./batches/B11.md)⑦⑧ → FACTS.md |
 
 ## 提交历史
 

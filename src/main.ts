@@ -179,6 +179,9 @@ export function activate(context: vscode.ExtensionContext): void {
                 void pi.stop();
             },
         },
+
+        // 调试板的配置监听（改 hiddenTypes / enabled 时重推历史 ✓）
+        debugPanel,
     );
 
     logInfo("pi-bridge-vs 激活完成（pi 将在首条消息时启动）");
