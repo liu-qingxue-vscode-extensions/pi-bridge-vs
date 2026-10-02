@@ -7,9 +7,14 @@
 | 文档 | 内容 | 性质 |
 |---|---|---|
 | **[FACTS.md](./FACTS.md)** | 架构决议 · pi 数据契约 · 实测事实 · 重大问题存档 | **不变量**（不随迭代漂移）|
+| **[PROTOCOL.md](./PROTOCOL.md)** | 协议字段手册（13 个 type 的字段）（可用 `scripts/schema-debug.mjs` 重新生成）| 参考 |
 | **[batch-A.md](./batch-A.md)** | 批次 A：框架修正 | 已完成 ✓ |
-| **[batch-B.md](./batch-B.md)** | 批次 B：UI 迭代（顶部有"消灭进度表"）| **进行中** |
+| **[batch-B.md](./batch-B.md)** | 批次 B：**总览台账**（消灭进度表 + 各批次链接）| **进行中** |
+| **[batches/B1.md](./batches/B1.md) … [B8.md](./batches/B8.md)** | 批次 B 各轮的**详细记录**（802 行单文件拆分）| 按需查阅 |
 | **[batch-CD.md](./batch-CD.md)** | 批次 C / D / E + 可选项 | 未来 |
+
+> 文档也会膨胀：`batch-B.md` 曾到 802 行 ✗ → 已按批次拆到 `docs/batches/`，
+> 这里只留台账与索引 ✓（拆分脚本：`scripts/split-docs.mjs`）
 
 ## 约定
 
@@ -25,12 +30,12 @@
 | 项 | 值 |
 |---|---|
 | 当前批次 | **B**（UI 迭代）|
-| 当前工作单元 | **B8** = 通知板（消灭 `stderr` + `extension_ui_request`）+ **CSS 拆分**（738 → 6 文件）|
-| 状态 | 代码完成，**待验证 / 待提交** |
+| 当前工作单元 | **B9** = 拆 webview TS（965 行 → 14 模块）|
+| 状态 | 代码完成，**待验证 / 待提交**（与 B8 一起提交 ✓）|
 | 消灭进度 | 常规字段 **7/7** ✅ · 非常规 **6/7** ✅（thinking_* · agent_* · tool_execution_* · auto_retry_* · stderr · extension_ui_request）|
 | 剩什么 | 只剩 `turn_*`（用户明确不做 ✗）→ 消灭任务基本完结 ✓ |
-| 下一步 | **B9**：拆 webview TS（965 行 → ~11 模块）；然后做 B8⑦ 的待优化清单（🔔 位置 / 配置项 / ✕⧉ 两个 bug / 调试板就近打开）|
-| ★ 压缩后恢复 | 先读：本文件“当前位置” → batch-B.md 的 **B8⑦（待优化清单）+ B8⑧（术语）+ B8⑨⑩** → FACTS.md（不变式）|
+| 下一步 | 做 B8⑦ 的待优化清单（🔔 位置 / 配置项 / ✕⧉ 两个 bug / 调试板自动+就近打开）；然后引入前端按钮 |
+| ★ 压缩后恢复 | 先读：本文件“当前位置” → [batches/B9.md](./batches/B9.md)（模块结构）→ [batches/B8.md](./batches/B8.md) 的 **⑥⑦⑧**（已定决策 / 待优化清单 / 术语）→ FACTS.md |
 
 ## 提交历史
 

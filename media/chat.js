@@ -1,7 +1,12 @@
 "use strict";
 (() => {
-  // src/webview/index.ts
+  // src/webview/vscode-api.ts
   var vscode = acquireVsCodeApi();
+  function post(kind, payload) {
+    vscode.postMessage(payload === void 0 ? { kind } : { kind, payload });
+  }
+
+  // src/webview/dom.ts
   var messagesEl = document.getElementById("messages");
   var inputEl = document.getElementById("input");
   var sendBtn = document.getElementById("send");
@@ -14,16 +19,58 @@
   var sbBatteryPct = document.getElementById("sb-battery-pct");
   var footModel = document.getElementById("foot-model");
   var footCwd = document.getElementById("foot-cwd");
+  var inputAreaEl = document.getElementById("input-area");
   var topArea = document.getElementById("top-area");
   var noticeToolbar = document.getElementById("notice-toolbar");
   var noticePanel = document.getElementById("notice-panel");
   var noticeList = document.getElementById("notice-list");
   var noticeEmpty = document.getElementById("notice-empty");
   var noticeCount = document.getElementById("notice-count");
+  var noticeBell = document.getElementById("notice-bell");
   var noticeCollapse = document.getElementById("notice-collapse");
   var noticeClear = document.getElementById("notice-clear");
   var noticeSettings = document.getElementById("notice-settings");
-  var modelLimits = {};
+
+  // src/webview/state.ts
+  var ui = {
+    // ── 渲染模型（每个内容段 = 一个独立气泡）──
+    /** 当前消息角色（决定对齐） */
+    role: "assistant",
+    /** 当前正在流式追加的气泡元素 */
+    bubble: null,
+    /** 最近一个思考气泡（thinking_end 时用它改文案 ✓） */
+    lastThinkBubble: null,
+    /** 思考开始时间（0 = 未在思考） */
+    thinkStartAt: 0,
+    /** 占位三点（发送后、首个数据包到达前） */
+    pendingEl: null,
+    /** 重连提示气泡（同一气泡原地更新 ✓） */
+    retryNoticeEl: null,
+    // ── 行为开关 ──
+    /** 自动滚到底（用户往上翻时自动关闭 ✓） */
+    autoScroll: true,
+    /** 用户是否主动中断过当前任务
+     *  ★ 用途：auto_retry_end 的 success 无法区分【被中断】和【真连上】✗
+     *    实测两者都是 { success:true, attempt:N }（无 finalError）—— 结构一模一样 ✗ */
+    userAborted: false,
+    // ── 由设置驱动（applyStyleVars 时更新）──
+    /** 默认折叠·思考 */
+    defaultThinkCollapsed: false,
+    /** 默认折叠·工具 */
+    defaultToolCollapsed: false,
+    // ── 顶栏 ──
+    /** modelId → contextWindow（宿主推送；查不到则电池显示 "?"） */
+    modelLimits: {},
+    // ── 通知板（B8）──
+    /** 通知镜像（权威在插件端 ✓ 这里只负责显示） */
+    notices: [],
+    /** 面板是否已展开 */
+    panelExpanded: false,
+    /** 未读数（收起状态下新到的通知数） */
+    noticeUnread: 0
+  };
+
+  // src/webview/format.ts
   function fmtNum(n) {
     const v = Number(n) || 0;
     if (v >= 1e6) return (v / 1e6).toFixed(1) + "M";
@@ -41,41 +88,221 @@
     const n = max || 40;
     return p.length <= n ? p : "\u2026" + p.slice(-(n - 1));
   }
-  function updateStatusBar(usage, model) {
-    const u = usage || {};
-    if (model) {
-      footModel.textContent = model;
-      footModel.title = "\u5F53\u524D\u6A21\u578B\uFF1A" + model;
+  function cssNum(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  function lineHeightOf(el) {
+    const cs = getComputedStyle(el);
+    return parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.45;
+  }
+
+  // src/webview/input.ts
+  function send() {
+    const text = inputEl.value.trim();
+    if (!text) return;
+    ui.userAborted = false;
+    vscode.postMessage({ kind: "prompt", text });
+    inputEl.value = "";
+    autoGrow();
+  }
+  function syncPadding() {
+    messagesEl.style.paddingBottom = inputAreaEl.offsetHeight + 8 + "px";
+  }
+  function autoGrow() {
+    const lineH = lineHeightOf(inputEl);
+    const minH = cssNum("--pi-input-min-rows", 1) * lineH;
+    const maxH = Math.max(cssNum("--pi-input-max-rows", 8) * lineH, minH);
+    inputEl.style.height = "auto";
+    inputEl.style.height = Math.min(Math.max(inputEl.scrollHeight, minH), maxH) + "px";
+    inputEl.style.overflowY = inputEl.scrollHeight > maxH ? "auto" : "hidden";
+    syncPadding();
+  }
+  function setAgentState(state) {
+    const busy = state === "working";
+    sendBtn.classList.toggle("busy", busy);
+    sendBtn.title = busy ? "\u70B9\u51FB\u4E2D\u65AD" : "\u53D1\u9001 (Enter)";
+  }
+  function showCwd(p) {
+    footCwd.textContent = shortenPath(p, 40);
+    footCwd.title = p;
+  }
+  function applyStyleVars(vars) {
+    const root = document.documentElement;
+    const names = [];
+    for (let i = 0; i < root.style.length; i++) names.push(root.style[i]);
+    for (const n of names) {
+      if (n.startsWith("--pi-")) root.style.removeProperty(n);
     }
-    sbCost.textContent = "\xA5 " + fmtCost(u.cost && u.cost.total);
-    sbOut.textContent = "out " + fmtNum(u.output);
-    const inp = Number(u.input) || 0;
-    const cr = Number(u.cacheRead) || 0;
-    const hit = inp + cr > 0 ? Math.round(cr / (inp + cr) * 100) : 0;
-    sbCache.textContent = "cache " + hit + "%";
-    const total = Number(u.totalTokens) || 0;
-    const limit = model ? modelLimits[model] : void 0;
-    if (typeof limit === "number" && limit > 0) {
-      const usedPct = Math.max(0, Math.min(100, Math.round(total / limit * 100)));
-      const remain = 100 - usedPct;
-      statusBarEl.classList.remove("no-limit");
-      sbBatteryFill.style.width = remain + "%";
-      sbBatteryPct.textContent = String(remain);
-      sbBattery.classList.toggle("low", remain <= 25);
-      sbBattery.classList.toggle("empty", remain <= 5);
-    } else {
-      statusBarEl.classList.add("no-limit");
-      sbBatteryPct.textContent = "?";
+    for (const [k, v] of Object.entries(vars ?? {})) {
+      root.style.setProperty(k, v);
+    }
+    root.classList.toggle("centered", !!vars && vars["--pi-centered-mode"] === "on");
+    ui.defaultThinkCollapsed = !!vars && vars["--pi-think-collapsed"] === "on";
+    ui.defaultToolCollapsed = !!vars && vars["--pi-tool-collapsed"] === "on";
+  }
+  function setupInput() {
+    sendBtn.addEventListener("click", () => {
+      if (sendBtn.classList.contains("busy")) {
+        ui.userAborted = true;
+        vscode.postMessage({ kind: "abort" });
+      } else {
+        send();
+      }
+    });
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        send();
+      }
+    });
+    inputEl.addEventListener("input", autoGrow);
+    window.addEventListener("resize", autoGrow);
+    autoGrow();
+  }
+
+  // src/webview/noticeboard.ts
+  var NOTICE_ICON = {
+    info: "\u24D8",
+    success: "\u2713",
+    warn: "\u26A0",
+    error: "\u2716"
+  };
+  function createNoticeItem(n) {
+    const el = document.createElement("div");
+    el.className = "notice-item";
+    el.dataset.level = n.level;
+    el.dataset.id = String(n.id);
+    const icon = document.createElement("span");
+    icon.className = "ni-icon";
+    icon.textContent = NOTICE_ICON[n.level] ?? "\u24D8";
+    const text = document.createElement("span");
+    text.className = "ni-text";
+    text.textContent = n.text;
+    text.addEventListener("click", () => {
+    });
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "ni-btn";
+    copyBtn.textContent = "\u29C9";
+    copyBtn.title = "\u590D\u5236";
+    copyBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(n.text);
+      } catch {
+        vscode.postMessage({ kind: "copyText", text: n.text });
+      }
+    });
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "ni-btn";
+    closeBtn.textContent = "\u2715";
+    closeBtn.title = "\u5173\u95ED";
+    closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ kind: "noticeRemove", id: n.id });
+    });
+    el.append(icon, text, copyBtn, closeBtn);
+    return el;
+  }
+  function syncBadge() {
+    noticeBell.textContent = ui.noticeUnread > 0 ? "\u{1F514}" : "\u{1F515}";
+    noticeCount.textContent = String(ui.notices.length);
+    noticeEmpty.style.display = ui.notices.length ? "none" : "";
+  }
+  function renderNotices() {
+    noticeList.innerHTML = "";
+    for (const n of ui.notices) noticeList.appendChild(createNoticeItem(n));
+    syncBadge();
+  }
+  function appendNotice(n) {
+    ui.notices.push(n);
+    noticeList.appendChild(createNoticeItem(n));
+    if (!ui.panelExpanded) ui.noticeUnread++;
+    syncBadge();
+  }
+  function removeNotice(id) {
+    ui.notices = ui.notices.filter((n) => n.id !== id);
+    noticeList.querySelector('.notice-item[data-id="' + id + '"]')?.remove();
+    syncBadge();
+  }
+  function resetNotices(list) {
+    ui.notices = Array.isArray(list) ? list.slice() : [];
+    ui.noticeUnread = 0;
+    renderNotices();
+    setExpanded(false);
+  }
+  function clearNotices() {
+    ui.notices = [];
+    renderNotices();
+  }
+  function setExpanded(next) {
+    ui.panelExpanded = typeof next === "boolean" ? next : !ui.panelExpanded;
+    topArea.classList.toggle("expanded", ui.panelExpanded);
+    noticeToolbar.classList.toggle("collapsed", !ui.panelExpanded);
+    noticePanel.classList.toggle("collapsed", !ui.panelExpanded);
+    if (ui.panelExpanded) {
+      ui.noticeUnread = 0;
+      syncBadge();
     }
   }
-  var currentRole = "assistant";
-  var currentBubble = null;
+  function setupNoticeBoard() {
+    statusBarEl.addEventListener("click", () => setExpanded());
+    noticeCollapse.addEventListener("click", () => setExpanded(false));
+    noticeClear.addEventListener("click", (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ kind: "noticeClearAll" });
+    });
+    noticeSettings.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+    setupDragGesture();
+    syncBadge();
+  }
+  function setupDragGesture() {
+    let dragStartY = 0;
+    let dragging = false;
+    const THRESHOLD = 28;
+    statusBarEl.addEventListener("pointerdown", (e) => {
+      if (ui.panelExpanded) return;
+      dragging = true;
+      dragStartY = e.clientY;
+      statusBarEl.setPointerCapture(e.pointerId);
+    });
+    noticeCollapse.addEventListener("pointerdown", (e) => {
+      dragging = true;
+      dragStartY = e.clientY;
+      noticeCollapse.setPointerCapture(e.pointerId);
+    });
+    statusBarEl.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      if (e.clientY - dragStartY >= THRESHOLD) {
+        dragging = false;
+        setExpanded(true);
+      }
+    });
+    noticeCollapse.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      if (e.clientY - dragStartY >= THRESHOLD) {
+        dragging = false;
+        setExpanded(false);
+      }
+    });
+    const stop = () => {
+      dragging = false;
+    };
+    statusBarEl.addEventListener("pointerup", stop);
+    noticeCollapse.addEventListener("pointerup", stop);
+    statusBarEl.addEventListener("pointercancel", stop);
+    noticeCollapse.addEventListener("pointercancel", stop);
+  }
+
+  // src/webview/bubbles.ts
   function scrollToBottom() {
-    if (autoScroll) messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (ui.autoScroll) messagesEl.scrollTop = messagesEl.scrollHeight;
   }
-  var autoScroll = true;
   messagesEl.addEventListener("scroll", () => {
-    autoScroll = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
+    ui.autoScroll = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
   });
   function createBubble(kind) {
     const div = document.createElement("div");
@@ -84,10 +311,6 @@
     scrollToBottom();
     return div;
   }
-  var defaultThinkCollapsed = false;
-  var defaultToolCollapsed = false;
-  var lastThinkBubble = null;
-  var thinkStartAt = 0;
   var CARET_SVG = '<svg class="head-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
   function createHead(labelText, onToggle) {
     const head = document.createElement("div");
@@ -106,10 +329,27 @@
     head.appendChild(actions);
     return head;
   }
+  function showPending() {
+    if (ui.pendingEl) return;
+    const el = document.createElement("div");
+    el.className = "bubble pending";
+    el.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
+    messagesEl.appendChild(el);
+    ui.pendingEl = el;
+    scrollToBottom();
+  }
+  function removePending() {
+    if (ui.pendingEl) {
+      ui.pendingEl.remove();
+      ui.pendingEl = null;
+    }
+  }
+
+  // src/webview/thinking.ts
   function createThinkingBubble(label) {
     const div = document.createElement("div");
     div.className = "bubble thinking";
-    div.dataset.open = defaultThinkCollapsed ? "false" : "true";
+    div.dataset.open = ui.defaultThinkCollapsed ? "false" : "true";
     const head = createHead(label || "\u6B63\u5728\u601D\u8003\u2026", () => {
       div.dataset.open = div.dataset.open === "true" ? "false" : "true";
     });
@@ -120,51 +360,40 @@
     div.appendChild(body);
     messagesEl.appendChild(div);
     scrollToBottom();
-    lastThinkBubble = div;
+    ui.lastThinkBubble = div;
     return div;
   }
   function markThinkDone() {
-    if (!lastThinkBubble) return;
-    const sec = thinkStartAt ? ((Date.now() - thinkStartAt) / 1e3).toFixed(1) : null;
-    const label = lastThinkBubble.querySelector(".think-label");
+    if (!ui.lastThinkBubble) return;
+    const sec = ui.thinkStartAt ? ((Date.now() - ui.thinkStartAt) / 1e3).toFixed(1) : null;
+    const label = ui.lastThinkBubble.querySelector(".think-label");
     if (label) label.textContent = sec ? `\u5DF2\u601D\u8003\uFF08\u7528\u65F6 ${sec} \u79D2\uFF09` : "\u5DF2\u601D\u8003";
   }
-  var pendingEl = null;
-  function showPending() {
-    if (pendingEl) return;
-    pendingEl = document.createElement("div");
-    pendingEl.className = "bubble pending";
-    pendingEl.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
-    messagesEl.appendChild(pendingEl);
-    scrollToBottom();
-  }
-  function removePending() {
-    if (pendingEl) {
-      pendingEl.remove();
-      pendingEl = null;
-    }
-  }
+
+  // src/webview/segments.ts
   function appendSegment(kind, text) {
     removePending();
     if (kind === "thinking") {
-      if (!currentBubble || !currentBubble.classList.contains("thinking")) {
-        currentBubble = createThinkingBubble();
-        if (!thinkStartAt) thinkStartAt = Date.now();
+      if (!ui.bubble || !ui.bubble.classList.contains("thinking")) {
+        ui.bubble = createThinkingBubble();
+        if (!ui.thinkStartAt) ui.thinkStartAt = Date.now();
       }
-      currentBubble.querySelector(".think-body").textContent += text;
+      ui.bubble.querySelector(".think-body").textContent += text;
     } else {
-      if (!currentBubble || !currentBubble.classList.contains(kind)) {
-        currentBubble = createBubble(kind);
+      if (!ui.bubble || !ui.bubble.classList.contains(kind)) {
+        ui.bubble = createBubble(kind);
       }
-      currentBubble.textContent += text;
+      ui.bubble.textContent += text;
     }
     scrollToBottom();
   }
+
+  // src/webview/tool.ts
   function createToolBubble(callId, toolName) {
     const div = document.createElement("div");
     div.className = "bubble tool";
     div.dataset.callId = callId;
-    div.dataset.open = defaultToolCollapsed ? "false" : "true";
+    div.dataset.open = ui.defaultToolCollapsed ? "false" : "true";
     const head = createHead("\u{1F527} " + (toolName || "tool"), () => {
       div.dataset.open = div.dataset.open === "true" ? "false" : "true";
     });
@@ -178,74 +407,14 @@
     body.appendChild(call);
     div.appendChild(head);
     div.appendChild(body);
-    messagesEl.appendChild(div);
-    currentBubble = div;
+    document.getElementById("messages").appendChild(div);
+    ui.bubble = div;
     scrollToBottom();
     return div;
   }
   function markStreamingDone(bubble) {
     const host = bubble.querySelector(".tool-result");
     if (host) host.dataset.streaming = "false";
-  }
-  var retryNoticeEl = null;
-  var userAborted = false;
-  function showRetryNotice(p) {
-    removePending();
-    let el = retryNoticeEl;
-    if (!el || el.dataset.final === "true") {
-      el = document.createElement("div");
-      el.className = "bubble notice retry";
-      el.dataset.final = "false";
-      messagesEl.appendChild(el);
-      retryNoticeEl = el;
-    }
-    const isFinal = p.final === true;
-    el.dataset.final = isFinal ? "true" : "false";
-    const aborted = isFinal && userAborted;
-    const ok = isFinal && p.success === true && !aborted;
-    el.classList.toggle("failed", aborted || isFinal && !ok);
-    el.classList.toggle("retrying", !isFinal);
-    el.classList.toggle("ok", ok);
-    const attempt = p.attempt && p.maxAttempts ? p.attempt + "/" + p.maxAttempts : p.attempt ? String(p.attempt) : "";
-    let text;
-    if (isFinal) {
-      if (aborted) {
-        text = "\u5DF2\u4E2D\u65AD";
-      } else if (ok) {
-        text = "\u91CD\u8FDE\u6210\u529F" + (attempt ? "\uFF08\u7B2C " + attempt + " \u6B21\u5C1D\u8BD5\uFF09" : "");
-      } else {
-        text = "\u91CD\u8FDE\u5931\u8D25" + (attempt ? "\uFF08\u5DF2\u5C1D\u8BD5 " + attempt + " \u6B21\uFF09" : "") + "\uFF1A" + (p.message || "\u672A\u77E5\u9519\u8BEF");
-      }
-    } else {
-      const parts = ["\u8FDE\u63A5\u4E2D\u65AD\uFF0C\u6B63\u5728\u91CD\u8BD5"];
-      if (attempt) parts.push("\uFF08" + attempt + "\uFF09");
-      if (p.message) parts.push(" \xB7 " + p.message);
-      if (p.delayMs) parts.push(" \xB7 " + Math.round(p.delayMs / 1e3) + " \u79D2\u540E");
-      text = parts.join("");
-    }
-    const icon = isFinal ? aborted ? '<span class="notice-mark">\u25A0</span>' : ok ? '<span class="notice-mark">\u2713</span>' : '<span class="notice-mark">\u2716</span>' : '<span class="retry-spin"></span>';
-    el.innerHTML = icon + '<span class="notice-text"></span>';
-    el.querySelector(".notice-text").textContent = text;
-    scrollToBottom();
-  }
-  function appendStopNote(reason) {
-    const all = messagesEl.querySelectorAll(
-      ".bubble:not(.user):not(.pending):not(.notice)"
-    );
-    const target = all[all.length - 1];
-    if (!target) return;
-    if (target.querySelector(".bubble-note")) return;
-    const MAP = {
-      length: { icon: "\u26A0", text: "\u8F93\u51FA\u8FBE\u5230\u957F\u5EA6\u4E0A\u9650\uFF0C\u5DF2\u622A\u65AD", cls: "warn" },
-      aborted: { icon: "\u25A0", text: "\u5DF2\u4E2D\u65AD", cls: "info" },
-      error: { icon: "\u2716", text: "\u751F\u6210\u51FA\u9519", cls: "error" }
-    };
-    const m = MAP[reason] ?? { icon: "\u2022", text: reason, cls: "info" };
-    const el = document.createElement("div");
-    el.className = "bubble-note " + m.cls;
-    el.textContent = m.icon + " " + m.text;
-    target.appendChild(el);
-    scrollToBottom();
   }
   function setToolState(bubble, state) {
     let el = bubble.querySelector(".tool-state");
@@ -320,7 +489,7 @@
     const body = host.querySelector(".result-body");
     body.innerHTML = "";
     for (const p of parts || []) {
-      const t = p && p.type;
+      const t = p?.type;
       if (t === "text") {
         const el = document.createElement("div");
         el.className = "part-text";
@@ -331,7 +500,8 @@
         img.className = "part-image";
         img.alt = "\u56FE\u50CF\u8F93\u51FA";
         const mime = p.mimeType || "image/png";
-        if (typeof p.data === "string") img.src = "data:" + mime + ";base64," + p.data;
+        const data = p.data;
+        if (typeof data === "string") img.src = "data:" + mime + ";base64," + data;
         body.appendChild(img);
       } else {
         const pre = document.createElement("pre");
@@ -343,352 +513,296 @@
     if (!body.childElementCount) body.textContent = streaming ? "" : "\uFF08\u65E0\u8F93\u51FA\uFF09";
     scrollToBottom();
   }
-  function send() {
-    const text = inputEl.value.trim();
-    if (!text) return;
-    userAborted = false;
-    vscode.postMessage({ kind: "prompt", text });
-    inputEl.value = "";
-    autoGrow();
-  }
-  var inputAreaEl = document.getElementById("input-area");
-  function cssNum(name, fallback) {
-    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    const n = parseFloat(v);
-    return Number.isFinite(n) ? n : fallback;
-  }
-  function inputLineHeight() {
-    const cs = getComputedStyle(inputEl);
-    return parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.45;
-  }
-  function syncPadding() {
-    messagesEl.style.paddingBottom = inputAreaEl.offsetHeight + 8 + "px";
-  }
-  function autoGrow() {
-    const lineH = inputLineHeight();
-    const minH = cssNum("--pi-input-min-rows", 1) * lineH;
-    const maxH = Math.max(cssNum("--pi-input-max-rows", 8) * lineH, minH);
-    inputEl.style.height = "auto";
-    inputEl.style.height = Math.min(Math.max(inputEl.scrollHeight, minH), maxH) + "px";
-    inputEl.style.overflowY = inputEl.scrollHeight > maxH ? "auto" : "hidden";
-    syncPadding();
-  }
-  inputEl.addEventListener("input", autoGrow);
-  window.addEventListener("resize", autoGrow);
-  autoGrow();
-  function setAgentState(state) {
-    const busy = state === "working";
-    sendBtn.classList.toggle("busy", busy);
-    sendBtn.title = busy ? "\u70B9\u51FB\u4E2D\u65AD" : "\u53D1\u9001 (Enter)";
-  }
-  sendBtn.addEventListener("click", () => {
-    if (sendBtn.classList.contains("busy")) {
-      userAborted = true;
-      vscode.postMessage({ kind: "abort" });
-    } else {
-      send();
+
+  // src/webview/notices.ts
+  function showRetryNotice(p) {
+    removePending();
+    let el = ui.retryNoticeEl;
+    if (!el || el.dataset.final === "true") {
+      el = document.createElement("div");
+      el.className = "bubble notice retry";
+      el.dataset.final = "false";
+      messagesEl.appendChild(el);
+      ui.retryNoticeEl = el;
     }
-  });
-  inputEl.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
-  });
-  function applyStyleVars(vars) {
-    const root = document.documentElement;
-    const names = [];
-    for (let i = 0; i < root.style.length; i++) names.push(root.style[i]);
-    for (const n of names) {
-      if (n.startsWith("--pi-")) root.style.removeProperty(n);
-    }
-    for (const [k, v] of Object.entries(vars ?? {})) {
-      root.style.setProperty(k, v);
-    }
-    root.classList.toggle("centered", !!vars && vars["--pi-centered-mode"] === "on");
-    defaultThinkCollapsed = !!vars && vars["--pi-think-collapsed"] === "on";
-    defaultToolCollapsed = !!vars && vars["--pi-tool-collapsed"] === "on";
-  }
-  var notices = [];
-  var panelExpanded = false;
-  var noticeUnread = 0;
-  var NOTICE_ICON = { info: "\u24D8", success: "\u2713", warn: "\u26A0", error: "\u2716" };
-  function createNoticeItem(n) {
-    const el = document.createElement("div");
-    el.className = "notice-item";
-    el.dataset.level = n.level;
-    el.dataset.id = String(n.id);
-    const icon = document.createElement("span");
-    icon.className = "ni-icon";
-    icon.textContent = NOTICE_ICON[n.level] ?? "\u24D8";
-    const text = document.createElement("span");
-    text.className = "ni-text";
-    text.textContent = n.text;
-    text.addEventListener("click", () => {
-    });
-    const copyBtn = document.createElement("button");
-    copyBtn.className = "ni-btn";
-    copyBtn.textContent = "\u29C9";
-    copyBtn.title = "\u590D\u5236";
-    copyBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      void navigator.clipboard.writeText(n.text);
-    });
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "ni-btn";
-    closeBtn.textContent = "\u2715";
-    closeBtn.title = "\u5173\u95ED";
-    closeBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      vscode.postMessage({ kind: "noticeRemove", id: n.id });
-    });
-    el.append(icon, text, copyBtn, closeBtn);
-    return el;
-  }
-  function syncBadge() {
-    const bell = document.getElementById("notice-bell");
-    bell.textContent = noticeUnread > 0 ? "\u{1F514}" : "\u{1F515}";
-    noticeCount.textContent = String(notices.length);
-    noticeEmpty.style.display = notices.length ? "none" : "";
-  }
-  function renderNotices() {
-    noticeList.innerHTML = "";
-    for (const n of notices) noticeList.appendChild(createNoticeItem(n));
-    syncBadge();
-  }
-  function appendNotice(n) {
-    notices.push(n);
-    noticeList.appendChild(createNoticeItem(n));
-    if (!panelExpanded) noticeUnread++;
-    syncBadge();
-  }
-  function removeNotice(id) {
-    notices = notices.filter((n) => n.id !== id);
-    const el = noticeList.querySelector('.notice-item[data-id="' + id + '"]');
-    el?.remove();
-    syncBadge();
-  }
-  function setExpanded(next) {
-    panelExpanded = typeof next === "boolean" ? next : !panelExpanded;
-    topArea.classList.toggle("expanded", panelExpanded);
-    noticeToolbar.classList.toggle("collapsed", !panelExpanded);
-    noticePanel.classList.toggle("collapsed", !panelExpanded);
-    if (panelExpanded) {
-      noticeUnread = 0;
-      syncBadge();
-    }
-  }
-  statusBarEl.addEventListener("click", () => setExpanded());
-  noticeCollapse.addEventListener("click", () => setExpanded(false));
-  noticeClear.addEventListener("click", (e) => {
-    e.stopPropagation();
-    vscode.postMessage({ kind: "noticeClearAll" });
-  });
-  noticeSettings.addEventListener("click", (e) => {
-    e.stopPropagation();
-  });
-  (function setupDragGesture() {
-    let dragStartY = 0;
-    let dragging = false;
-    const THRESHOLD = 28;
-    statusBarEl.addEventListener("pointerdown", (e) => {
-      if (panelExpanded) return;
-      dragging = true;
-      dragStartY = e.clientY;
-      statusBarEl.setPointerCapture(e.pointerId);
-    });
-    noticeCollapse.addEventListener("pointerdown", (e) => {
-      dragging = true;
-      dragStartY = e.clientY;
-      noticeCollapse.setPointerCapture(e.pointerId);
-    });
-    statusBarEl.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      if (e.clientY - dragStartY >= THRESHOLD) {
-        dragging = false;
-        setExpanded(true);
-      }
-    });
-    noticeCollapse.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      if (e.clientY - dragStartY >= THRESHOLD) {
-        dragging = false;
-        setExpanded(false);
-      }
-    });
-    const stop = () => {
-      dragging = false;
-    };
-    statusBarEl.addEventListener("pointerup", stop);
-    noticeCollapse.addEventListener("pointerup", stop);
-    statusBarEl.addEventListener("pointercancel", stop);
-    noticeCollapse.addEventListener("pointercancel", stop);
-  })();
-  window.addEventListener("message", (event) => {
-    const data = event.data ?? {};
-    if (data.kind === "styleVars") {
-      applyStyleVars(data.payload);
-      autoGrow();
-      return;
-    }
-    if (data.kind === "modelLimits") {
-      modelLimits = data.payload ?? {};
-      return;
-    }
-    if (data.kind === "cwd") {
-      const p = String(data.payload ?? "");
-      footCwd.textContent = shortenPath(p, 40);
-      footCwd.title = p;
-      return;
-    }
-    if (data.kind === "toggleNotices") {
-      setExpanded();
-      return;
-    }
-    if (data.kind === "noticesCleared") {
-      notices = [];
-      renderNotices();
-      return;
-    }
-    if (data.kind === "agentState") {
-      setAgentState(data.payload);
-      if (data.payload === "working") {
-        showPending();
+    const isFinal = p.final === true;
+    el.dataset.final = isFinal ? "true" : "false";
+    const aborted = isFinal && ui.userAborted;
+    const ok = isFinal && p.success === true && !aborted;
+    el.classList.toggle("failed", aborted || isFinal && !ok);
+    el.classList.toggle("retrying", !isFinal);
+    el.classList.toggle("ok", ok);
+    const attempt = p.attempt && p.maxAttempts ? p.attempt + "/" + p.maxAttempts : p.attempt ? String(p.attempt) : "";
+    let text;
+    if (isFinal) {
+      if (aborted) {
+        text = "\u5DF2\u4E2D\u65AD";
+      } else if (ok) {
+        text = "\u91CD\u8FDE\u6210\u529F" + (attempt ? "\uFF08\u7B2C " + attempt + " \u6B21\u5C1D\u8BD5\uFF09" : "");
       } else {
-        userAborted = false;
-        removePending();
+        text = "\u91CD\u8FDE\u5931\u8D25" + (attempt ? "\uFF08\u5DF2\u5C1D\u8BD5 " + attempt + " \u6B21\uFF09" : "") + "\uFF1A" + (p.message || "\u672A\u77E5\u9519\u8BEF");
       }
-      return;
+    } else {
+      const parts = ["\u8FDE\u63A5\u4E2D\u65AD\uFF0C\u6B63\u5728\u91CD\u8BD5"];
+      if (attempt) parts.push("\uFF08" + attempt + "\uFF09");
+      if (p.message) parts.push(" \xB7 " + p.message);
+      if (p.delayMs) parts.push(" \xB7 " + Math.round(p.delayMs / 1e3) + " \u79D2\u540E");
+      text = parts.join("");
     }
-    if (data.kind === "snapshot") {
-      const snap = data.payload ?? {};
-      const bubbles = Array.isArray(snap.bubbles) ? snap.bubbles : [];
-      messagesEl.innerHTML = "";
-      currentBubble = null;
-      pendingEl = null;
-      lastThinkBubble = null;
-      notices = Array.isArray(snap.notices) ? snap.notices.slice() : [];
-      noticeUnread = 0;
-      renderNotices();
-      setExpanded(false);
-      for (const b of bubbles) {
-        currentRole = b.role;
-        if (b.role === "user") {
-          const el = createBubble("user");
-          el.textContent = b.blocks.map((x) => x.text).join("");
-          currentBubble = null;
-          continue;
-        }
-        let last = null;
-        for (const blk of b.blocks) {
-          if (blk.type === "tool") {
-            last = createToolBubble(blk.toolCallId || "", blk.toolName);
-            renderArgs(last, blk.args);
-            if (blk.resultParts !== void 0) {
-              renderResultParts(last, blk.resultParts, blk.resultIsError === true, false);
-              setToolState(last, blk.resultIsError ? "error" : "ok");
-            } else if (blk.partialParts !== void 0) {
-              renderResultParts(last, blk.partialParts, false, blk.executing === true);
-              setToolState(last, blk.executing ? "running" : "ok");
-              if (blk.executing) ensureResultHost(last).dataset.streaming = "true";
-            } else {
-              setToolState(last, blk.executing ? "running" : "ok");
-            }
-          } else if (blk.type === "thinking") {
-            if (!last || !last.classList.contains("thinking")) {
-              last = createThinkingBubble("\u5DF2\u601D\u8003");
-            }
-            last.querySelector(".think-body").textContent += blk.text;
+    const icon = isFinal ? aborted ? '<span class="notice-mark">\u25A0</span>' : ok ? '<span class="notice-mark">\u2713</span>' : '<span class="notice-mark">\u2716</span>' : '<span class="retry-spin"></span>';
+    el.innerHTML = icon + '<span class="notice-text"></span>';
+    el.querySelector(".notice-text").textContent = text;
+    scrollToBottom();
+  }
+  function appendStopNote(reason) {
+    const all = messagesEl.querySelectorAll(".bubble:not(.user):not(.pending):not(.notice)");
+    const target = all[all.length - 1];
+    if (!target) return;
+    if (target.querySelector(".bubble-note")) return;
+    const MAP = {
+      length: { icon: "\u26A0", text: "\u8F93\u51FA\u8FBE\u5230\u957F\u5EA6\u4E0A\u9650\uFF0C\u5DF2\u622A\u65AD", cls: "warn" },
+      aborted: { icon: "\u25A0", text: "\u5DF2\u4E2D\u65AD", cls: "info" },
+      error: { icon: "\u2716", text: "\u751F\u6210\u51FA\u9519", cls: "error" }
+    };
+    const m = MAP[reason] ?? { icon: "\u2022", text: reason, cls: "info" };
+    const el = document.createElement("div");
+    el.className = "bubble-note " + m.cls;
+    el.textContent = m.icon + " " + m.text;
+    target.appendChild(el);
+    scrollToBottom();
+  }
+
+  // src/webview/topbar.ts
+  function updateStatusBar(usage, model) {
+    const u = usage || {};
+    if (model) {
+      footModel.textContent = model;
+      footModel.title = "\u5F53\u524D\u6A21\u578B\uFF1A" + model;
+    }
+    sbCost.textContent = "\xA5 " + fmtCost(u.cost && u.cost.total);
+    sbOut.textContent = "out " + fmtNum(u.output);
+    const inp = Number(u.input) || 0;
+    const cr = Number(u.cacheRead) || 0;
+    const hit = inp + cr > 0 ? Math.round(cr / (inp + cr) * 100) : 0;
+    sbCache.textContent = "cache " + hit + "%";
+    const total = Number(u.totalTokens) || 0;
+    const limit = model ? ui.modelLimits[model] : void 0;
+    if (typeof limit === "number" && limit > 0) {
+      const usedPct = Math.max(0, Math.min(100, Math.round(total / limit * 100)));
+      const remain = 100 - usedPct;
+      statusBarEl.classList.remove("no-limit");
+      sbBatteryFill.style.width = remain + "%";
+      sbBatteryPct.textContent = String(remain);
+      sbBattery.classList.toggle("low", remain <= 25);
+      sbBattery.classList.toggle("empty", remain <= 5);
+    } else {
+      statusBarEl.classList.add("no-limit");
+      sbBatteryPct.textContent = "?";
+    }
+  }
+
+  // src/webview/apply.ts
+  function replaySnapshot(payload) {
+    const snap = payload ?? {};
+    const bubbles = Array.isArray(snap.bubbles) ? snap.bubbles : [];
+    messagesEl.innerHTML = "";
+    ui.bubble = null;
+    ui.pendingEl = null;
+    ui.lastThinkBubble = null;
+    resetNotices(snap.notices ?? []);
+    for (const b of bubbles) {
+      ui.role = b.role;
+      if (b.role === "user") {
+        const el = createBubble("user");
+        el.textContent = b.blocks.map((x) => x.text ?? "").join("");
+        ui.bubble = null;
+        continue;
+      }
+      let last = null;
+      for (const blk of b.blocks) {
+        if (blk.type === "tool") {
+          last = createToolBubble(blk.toolCallId || "", blk.toolName);
+          renderArgs(last, blk.args);
+          if (blk.resultParts !== void 0) {
+            renderResultParts(last, blk.resultParts, blk.resultIsError === true, false);
+            setToolState(last, blk.resultIsError ? "error" : "ok");
+          } else if (blk.partialParts !== void 0) {
+            renderResultParts(last, blk.partialParts, false, blk.executing === true);
+            setToolState(last, blk.executing ? "running" : "ok");
+            if (blk.executing) ensureResultHost(last).dataset.streaming = "true";
           } else {
-            if (!last || !last.classList.contains("text")) {
-              last = createBubble("text");
-            }
-            last.textContent += blk.text;
+            setToolState(last, blk.executing ? "running" : "ok");
           }
-          currentBubble = last;
+        } else if (blk.type === "thinking") {
+          if (!last || !last.classList.contains("thinking")) {
+            last = createThinkingBubble("\u5DF2\u601D\u8003");
+          }
+          last.querySelector(".think-body").textContent += blk.text ?? "";
+        } else {
+          if (!last || !last.classList.contains("text")) {
+            last = createBubble("text");
+          }
+          last.textContent += blk.text ?? "";
         }
+        ui.bubble = last;
       }
-      for (let i = bubbles.length - 1; i >= 0; i--) {
-        if (bubbles[i].usage) {
-          updateStatusBar(bubbles[i].usage, bubbles[i].model);
-          break;
-        }
-      }
-      scrollToBottom();
-      return;
     }
-    if (data.kind === "patch") {
-      const p = data.payload;
-      if (p.kind === "startBubble") {
-        currentRole = p.role;
-        currentBubble = null;
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      if (bubbles[i].usage) {
+        updateStatusBar(bubbles[i].usage, bubbles[i].model);
+        break;
+      }
+    }
+  }
+  function applyPatch(p) {
+    const kind = p.kind;
+    switch (kind) {
+      case "startBubble": {
+        ui.role = p.role;
+        ui.bubble = null;
         if (p.role === "user" && p.text) {
           const el = createBubble("user");
           el.textContent = p.text;
-          currentBubble = el;
-          if (pendingEl) messagesEl.appendChild(pendingEl);
+          ui.bubble = el;
+          if (ui.pendingEl) messagesEl.appendChild(ui.pendingEl);
         }
-      } else if (p.kind === "append") {
+        return;
+      }
+      case "append":
         appendSegment(p.block, p.text);
-      } else if (p.kind === "endBubble") {
-        if (p.stopReason === "aborted" && retryNoticeEl && retryNoticeEl.dataset.final !== "true") {
-        } else if (p.stopReason) {
-          appendStopNote(p.stopReason);
+        return;
+      case "endBubble": {
+        const stopReason = p.stopReason;
+        if (stopReason === "aborted" && ui.retryNoticeEl?.dataset.final !== "true") {
+        } else if (stopReason) {
+          appendStopNote(stopReason);
         }
-        if (p.usage || p.model) updateStatusBar(p.usage, p.model);
-        currentBubble = null;
-      } else if (p.kind === "retryNotice") {
+        if (p.usage || p.model) {
+          updateStatusBar(p.usage, p.model);
+        }
+        ui.bubble = null;
+        return;
+      }
+      case "retryNotice":
         showRetryNotice(p);
-      } else if (p.kind === "toolStart") {
+        return;
+      case "toolStart":
         removePending();
         setToolState(createToolBubble(p.callId, p.name), "running");
-      } else if (p.kind === "thinkStart") {
+        return;
+      case "thinkStart":
         removePending();
-        thinkStartAt = Date.now();
-      } else if (p.kind === "thinkEnd") {
+        ui.thinkStartAt = Date.now();
+        return;
+      case "thinkEnd":
         markThinkDone();
-        thinkStartAt = 0;
-      } else if (p.kind === "toolArgs") {
-        const host = currentBubble && currentBubble.querySelector(".tool-args");
+        ui.thinkStartAt = 0;
+        return;
+      case "toolArgs": {
+        const host = ui.bubble?.querySelector(".tool-args");
         if (host) {
           host.dataset.raw = (host.dataset.raw || "") + p.text;
           host.textContent = host.dataset.raw;
         }
-        scrollToBottom();
-      } else if (p.kind === "toolEnd") {
-        if (currentBubble) renderArgs(currentBubble, p.args);
-      } else if (p.kind === "toolResult") {
-        const bubble = messagesEl.querySelector('.bubble.tool[data-call-id="' + p.callId + '"]');
+        return;
+      }
+      case "toolEnd":
+        if (ui.bubble) renderArgs(ui.bubble, p.args);
+        return;
+      case "toolResult": {
+        const bubble = findTool(p.callId);
         if (bubble) {
-          renderResultParts(bubble, p.parts, p.isError, false);
+          renderResultParts(bubble, p.parts, p.isError === true, false);
           setToolState(bubble, p.isError ? "error" : "ok");
           markStreamingDone(bubble);
         }
-      } else if (p.kind === "toolExecStart") {
-        const bubble = messagesEl.querySelector('.bubble.tool[data-call-id="' + p.callId + '"]');
+        return;
+      }
+      case "toolExecStart": {
+        const bubble = findTool(p.callId);
         if (bubble) {
           setToolState(bubble, "running");
           ensureResultHost(bubble).dataset.streaming = "true";
         }
-      } else if (p.kind === "toolExecUpdate") {
-        const bubble = messagesEl.querySelector('.bubble.tool[data-call-id="' + p.callId + '"]');
+        return;
+      }
+      case "toolExecUpdate": {
+        const bubble = findTool(p.callId);
         if (bubble) {
-          const host = ensureResultHost(bubble);
-          host.dataset.streaming = "true";
+          ensureResultHost(bubble).dataset.streaming = "true";
           renderResultParts(bubble, p.parts, false, true);
         }
-      } else if (p.kind === "toolExecEnd") {
-        const bubble = messagesEl.querySelector('.bubble.tool[data-call-id="' + p.callId + '"]');
+        return;
+      }
+      case "toolExecEnd": {
+        const bubble = findTool(p.callId);
         if (bubble) {
           markStreamingDone(bubble);
           setToolState(bubble, p.isError ? "error" : "ok");
         }
-      } else if (p.kind === "notice") {
-        appendNotice({ id: p.id, text: p.text, level: p.level, time: p.time });
-      } else if (p.kind === "noticeRemove") {
-        removeNotice(p.id);
+        return;
       }
+      case "notice":
+        appendNotice({
+          id: p.id,
+          text: p.text,
+          level: p.level,
+          time: p.time
+        });
+        return;
+      case "noticeRemove":
+        removeNotice(p.id);
+        return;
     }
-  });
-  vscode.postMessage({ kind: "ready" });
+  }
+  function findTool(callId) {
+    return messagesEl.querySelector(
+      '.bubble.tool[data-call-id="' + callId + '"]'
+    );
+  }
+  function setupHostBridge() {
+    window.addEventListener("message", (event) => {
+      const data = event.data ?? {};
+      switch (data.kind) {
+        case "styleVars":
+          applyStyleVars(data.payload);
+          autoGrow();
+          return;
+        case "modelLimits":
+          ui.modelLimits = data.payload ?? {};
+          return;
+        case "cwd":
+          showCwd(String(data.payload ?? ""));
+          return;
+        case "agentState": {
+          setAgentState(String(data.payload));
+          if (data.payload === "working") {
+            showPending();
+          } else {
+            ui.userAborted = false;
+            removePending();
+          }
+          return;
+        }
+        case "snapshot":
+          replaySnapshot(data.payload);
+          return;
+        case "patch":
+          applyPatch(data.payload ?? {});
+          return;
+        case "toggleNotices":
+          setExpanded();
+          return;
+        case "noticesCleared":
+          clearNotices();
+          return;
+      }
+    });
+  }
+
+  // src/webview/index.ts
+  setupInput();
+  setupNoticeBoard();
+  setupHostBridge();
+  post("ready");
 })();
