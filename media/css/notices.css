@@ -1,0 +1,74 @@
+/* ===== 通知面板（手机式下拉） =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
+   ★ 改这一块只需动本文件 ✓ */
+
+/* ===== 第 3 行起：通知列表（展开时滑出；高度可配 ✓）===== */
+#notice-panel {
+  flex-shrink: 0;
+  max-height: var(--pi-notice-panel-height, 40vh);
+  overflow-y: auto;
+  transition: max-height .22s ease, opacity .22s ease;
+}
+#notice-panel.collapsed {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+#notice-list { display: flex; flex-direction: column; }
+#notice-empty {
+  padding: 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.notice-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 6px 8px 6px 10px;
+  border-top: 1px solid var(--vscode-panel-border, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.notice-item .ni-icon { flex-shrink: 0; }
+.notice-item .ni-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  /* ★ 点击本体 → 留接口（暂不绑行为 ✓）；给个可点手感 */
+  cursor: pointer;
+}
+.notice-item .ni-text:hover { text-decoration: underline; }
+.notice-item .ni-btn {
+  flex-shrink: 0;
+  opacity: 0;                  /* 平时隐藏 → hover 才显出 ✓ */
+  border: none;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font: inherit;
+  padding: 0 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity .12s ease;
+}
+.notice-item:hover .ni-btn { opacity: .75; }
+.notice-item .ni-btn:hover { opacity: 1; color: var(--vscode-foreground); }
+
+/* 级别颜色（图标）*/
+.notice-item[data-level="error"] .ni-icon { color: var(--vscode-errorForeground); }
+.notice-item[data-level="warn"] .ni-icon { color: var(--vscode-editorWarning-foreground, #cca700); }
+.notice-item[data-level="success"] .ni-icon { color: var(--vscode-testing-iconPassed, #73c991); }
+.notice-item[data-level="info"] .ni-icon { color: var(--vscode-descriptionForeground); }
+
+/* 底部：点击收起热区 */
+#notice-collapse {
+  text-align: center;
+  padding: 4px 0 6px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  user-select: none;
+}
+#notice-collapse:hover { color: var(--vscode-foreground); }

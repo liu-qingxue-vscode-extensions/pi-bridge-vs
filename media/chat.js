@@ -14,6 +14,15 @@
   var sbBatteryPct = document.getElementById("sb-battery-pct");
   var footModel = document.getElementById("foot-model");
   var footCwd = document.getElementById("foot-cwd");
+  var topArea = document.getElementById("top-area");
+  var noticeToolbar = document.getElementById("notice-toolbar");
+  var noticePanel = document.getElementById("notice-panel");
+  var noticeList = document.getElementById("notice-list");
+  var noticeEmpty = document.getElementById("notice-empty");
+  var noticeCount = document.getElementById("notice-count");
+  var noticeCollapse = document.getElementById("notice-collapse");
+  var noticeClear = document.getElementById("notice-clear");
+  var noticeSettings = document.getElementById("notice-settings");
   var modelLimits = {};
   function fmtNum(n) {
     const v = Number(n) || 0;
@@ -400,6 +409,121 @@
     defaultThinkCollapsed = !!vars && vars["--pi-think-collapsed"] === "on";
     defaultToolCollapsed = !!vars && vars["--pi-tool-collapsed"] === "on";
   }
+  var notices = [];
+  var panelExpanded = false;
+  var noticeUnread = 0;
+  var NOTICE_ICON = { info: "\u24D8", success: "\u2713", warn: "\u26A0", error: "\u2716" };
+  function createNoticeItem(n) {
+    const el = document.createElement("div");
+    el.className = "notice-item";
+    el.dataset.level = n.level;
+    el.dataset.id = String(n.id);
+    const icon = document.createElement("span");
+    icon.className = "ni-icon";
+    icon.textContent = NOTICE_ICON[n.level] ?? "\u24D8";
+    const text = document.createElement("span");
+    text.className = "ni-text";
+    text.textContent = n.text;
+    text.addEventListener("click", () => {
+    });
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "ni-btn";
+    copyBtn.textContent = "\u29C9";
+    copyBtn.title = "\u590D\u5236";
+    copyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void navigator.clipboard.writeText(n.text);
+    });
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "ni-btn";
+    closeBtn.textContent = "\u2715";
+    closeBtn.title = "\u5173\u95ED";
+    closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ kind: "noticeRemove", id: n.id });
+    });
+    el.append(icon, text, copyBtn, closeBtn);
+    return el;
+  }
+  function syncBadge() {
+    const bell = document.getElementById("notice-bell");
+    bell.textContent = noticeUnread > 0 ? "\u{1F514}" : "\u{1F515}";
+    noticeCount.textContent = String(notices.length);
+    noticeEmpty.style.display = notices.length ? "none" : "";
+  }
+  function renderNotices() {
+    noticeList.innerHTML = "";
+    for (const n of notices) noticeList.appendChild(createNoticeItem(n));
+    syncBadge();
+  }
+  function appendNotice(n) {
+    notices.push(n);
+    noticeList.appendChild(createNoticeItem(n));
+    if (!panelExpanded) noticeUnread++;
+    syncBadge();
+  }
+  function removeNotice(id) {
+    notices = notices.filter((n) => n.id !== id);
+    const el = noticeList.querySelector('.notice-item[data-id="' + id + '"]');
+    el?.remove();
+    syncBadge();
+  }
+  function setExpanded(next) {
+    panelExpanded = typeof next === "boolean" ? next : !panelExpanded;
+    topArea.classList.toggle("expanded", panelExpanded);
+    noticeToolbar.classList.toggle("collapsed", !panelExpanded);
+    noticePanel.classList.toggle("collapsed", !panelExpanded);
+    if (panelExpanded) {
+      noticeUnread = 0;
+      syncBadge();
+    }
+  }
+  statusBarEl.addEventListener("click", () => setExpanded());
+  noticeCollapse.addEventListener("click", () => setExpanded(false));
+  noticeClear.addEventListener("click", (e) => {
+    e.stopPropagation();
+    vscode.postMessage({ kind: "noticeClearAll" });
+  });
+  noticeSettings.addEventListener("click", (e) => {
+    e.stopPropagation();
+  });
+  (function setupDragGesture() {
+    let dragStartY = 0;
+    let dragging = false;
+    const THRESHOLD = 28;
+    statusBarEl.addEventListener("pointerdown", (e) => {
+      if (panelExpanded) return;
+      dragging = true;
+      dragStartY = e.clientY;
+      statusBarEl.setPointerCapture(e.pointerId);
+    });
+    noticeCollapse.addEventListener("pointerdown", (e) => {
+      dragging = true;
+      dragStartY = e.clientY;
+      noticeCollapse.setPointerCapture(e.pointerId);
+    });
+    statusBarEl.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      if (e.clientY - dragStartY >= THRESHOLD) {
+        dragging = false;
+        setExpanded(true);
+      }
+    });
+    noticeCollapse.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      if (e.clientY - dragStartY >= THRESHOLD) {
+        dragging = false;
+        setExpanded(false);
+      }
+    });
+    const stop = () => {
+      dragging = false;
+    };
+    statusBarEl.addEventListener("pointerup", stop);
+    noticeCollapse.addEventListener("pointerup", stop);
+    statusBarEl.addEventListener("pointercancel", stop);
+    noticeCollapse.addEventListener("pointercancel", stop);
+  })();
   window.addEventListener("message", (event) => {
     const data = event.data ?? {};
     if (data.kind === "styleVars") {
@@ -417,6 +541,15 @@
       footCwd.title = p;
       return;
     }
+    if (data.kind === "toggleNotices") {
+      setExpanded();
+      return;
+    }
+    if (data.kind === "noticesCleared") {
+      notices = [];
+      renderNotices();
+      return;
+    }
     if (data.kind === "agentState") {
       setAgentState(data.payload);
       if (data.payload === "working") {
@@ -428,11 +561,17 @@
       return;
     }
     if (data.kind === "snapshot") {
+      const snap = data.payload ?? {};
+      const bubbles = Array.isArray(snap.bubbles) ? snap.bubbles : [];
       messagesEl.innerHTML = "";
       currentBubble = null;
       pendingEl = null;
       lastThinkBubble = null;
-      for (const b of data.payload) {
+      notices = Array.isArray(snap.notices) ? snap.notices.slice() : [];
+      noticeUnread = 0;
+      renderNotices();
+      setExpanded(false);
+      for (const b of bubbles) {
         currentRole = b.role;
         if (b.role === "user") {
           const el = createBubble("user");
@@ -469,9 +608,9 @@
           currentBubble = last;
         }
       }
-      for (let i = data.payload.length - 1; i >= 0; i--) {
-        if (data.payload[i].usage) {
-          updateStatusBar(data.payload[i].usage, data.payload[i].model);
+      for (let i = bubbles.length - 1; i >= 0; i--) {
+        if (bubbles[i].usage) {
+          updateStatusBar(bubbles[i].usage, bubbles[i].model);
           break;
         }
       }
@@ -544,6 +683,10 @@
           markStreamingDone(bubble);
           setToolState(bubble, p.isError ? "error" : "ok");
         }
+      } else if (p.kind === "notice") {
+        appendNotice({ id: p.id, text: p.text, level: p.level, time: p.time });
+      } else if (p.kind === "noticeRemove") {
+        removeNotice(p.id);
       }
     }
   });

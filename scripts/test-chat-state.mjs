@@ -62,7 +62,7 @@ await mock.close();
 // ===== 报告 =====
 console.log(`\nbehavior=${behavior} · 产生 ${patches} 个 patch\n`);
 console.log("=== ChatState 里的气泡结构 ===");
-for (const [i, b] of chat.snapshot().entries()) {
+for (const [i, b] of chat.snapshot().bubbles.entries()) {
     console.log(
         `\n气泡[${i}] role=${b.role} done=${b.done} blocks=${b.blocks.length}` +
             (b.stopReason ? `  ⚠ stopReason=${b.stopReason}` : ""),

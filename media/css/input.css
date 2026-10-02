@@ -1,0 +1,129 @@
+/* ===== 输入区：悬浮框 + 下方极简栏 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
+   ★ 改这一块只需动本文件 ✓ */
+
+/* ===== 输入区：悬浮在底部（圆角 + 悬空 + 与消息流无缝）=====
+   · 渐变遮罩：消息滚到框后面时自然淡出
+   · pointer-events: none 只作用于遮罩层（不挡鼠标），框本身可交互 ✓ */
+#input-area {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px var(--pi-side-gap, 12px) var(--pi-input-bottom-gap, 22px);
+  background: linear-gradient(
+    to top,
+    var(--vscode-sideBar-background) 62%,
+    transparent
+  );
+  pointer-events: none;
+}
+#input-box {
+  pointer-events: auto;
+  width: var(--pi-input-width, 100%);
+  margin: 0 auto;                                        /* 调窄后居中 */
+  border-radius: var(--pi-input-radius, 14px);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+  padding: 8px 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.18);
+  transition: border-color 0.15s;
+}
+#input-box:focus-within { border-color: var(--vscode-focusBorder); }
+
+/* ===== 输入区下方极简栏（工作目录，居中）=====
+   ★ 定位在 #input-area 的【padding 留白】里（bottom:0 + 高度 = 留白高度）
+     → 不会额外撑高整个输入区 ✓
+   ★ 垂直居中用的是【配置的高度】（改 inputBottomGap 会跟着居中 ✓）*/
+#foot-bar {
+  position: absolute;
+  left: var(--pi-side-gap, 12px);
+  right: var(--pi-side-gap, 12px);
+  bottom: 0;
+  height: var(--pi-input-bottom-gap, 22px);
+  display: flex;
+  align-items: center;          /* ★ 垂直居中 ✓ */
+  justify-content: center;      /* ★ 水平居中 ✓ */
+  pointer-events: auto;         /* #input-area 是 none → 这里恢复 ✓ */
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--vscode-descriptionForeground);
+  user-select: text;            /* 路径要能选中复制 ✓ */
+}
+#foot-cwd {
+  max-width: 100%;
+  min-width: 0;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#input {
+  border: none;
+  background: transparent;
+  color: var(--vscode-input-foreground);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+  min-height: 20px;
+  max-height: 180px;         /* ★ 最大高度：超过后出现滚动条（JS 控制）*/
+  overflow-y: hidden;
+}
+
+/* 固定栏：左=模型名（将来是按钮）· 右=发送按钮 */
+#input-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+}
+#foot-model {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+#send {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  transition: background 0.15s;
+}
+#send svg { width: 62%; height: 62%; }   /* 箭头占圆的比例（要粗、要大）*/
+#send:not(.busy):hover { background: var(--vscode-button-hoverBackground); }
+/* 工作中：隐藏箭头，变成一个转圈 */
+#send.busy {
+  background: transparent;
+  cursor: pointer;              /* ★ 转圈时点击 = 中断 ✓ */
+  position: relative;
+}
+#send.busy:hover { background: var(--vscode-toolbar-hoverBackground); }
+#send.busy svg { display: none; }
+#send.busy::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 2.5px solid var(--vscode-descriptionForeground);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

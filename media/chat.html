@@ -16,20 +16,44 @@
 <style>{{styleVars}}</style>
 </head>
 <body>
-  <!-- ★ 顶部常驻状态栏（手机式）——数据来自 message_end.message 的 usage / model -->
-  <div id="status-bar">
-    <span class="sb-item" id="sb-cost" title="本次会话花费">¥ 0</span>
-    <span class="sb-sep"></span>
-    <span class="sb-item" id="sb-out" title="输出 token">out 0</span>
-    <span class="sb-sep"></span>
-    <span class="sb-item" id="sb-cache" title="缓存命中率 = cacheRead / (input + cacheRead)">cache 0%</span>
-    <span class="sb-sep"></span>
-    <span class="sb-item" id="sb-ctx" title="对话长度（显示【剩余】占比）">
-      <span class="battery" id="sb-battery">
-        <span class="battery-fill" id="sb-battery-fill"></span>
-        <span class="battery-pct" id="sb-battery-pct">?</span>
+  <!--
+    ★ 顶部区域（手机式）：三层结构
+      【收起】只有 #status-bar 露在外面（= 现在的样子 ✓ 没按钮）
+      【展开】容器从上方“撑开”、面板从下方滑出 → 统计栏自然落到第 2 行 ✓
+    整个 #status-bar 就是展开/收起的点击热区 ✓（也可按住下拉 / 用快捷键）
+  -->
+  <div id="top-area">
+    <!-- 第 1 行：按钮容器（★ 只在展开时存在 → ⚙ 日常碰不到 ✓）-->
+    <div id="notice-toolbar" class="top-row collapsed">
+      <span id="notice-bell">🔔</span>
+      <span id="notice-count">0</span>
+      <span class="spacer"></span>
+      <button id="notice-clear" title="清空全部通知">清空</button>
+      <button id="notice-settings" title="设置（暂未实现）">⚙</button>
+    </div>
+
+    <!-- 第 2 行：常驻统计栏（点它展开/收起 ✓）-->
+    <div id="status-bar" title="点击展开通知（也可按住下拉 / Ctrl+Alt+N）">
+      <span class="sb-item" id="sb-cost" title="本次会话花费">¥ 0</span>
+      <span class="sb-sep"></span>
+      <span class="sb-item" id="sb-out" title="输出 token">out 0</span>
+      <span class="sb-sep"></span>
+      <span class="sb-item" id="sb-cache" title="缓存命中率 = cacheRead / (input + cacheRead)">cache 0%</span>
+      <span class="sb-sep"></span>
+      <span class="sb-item" id="sb-ctx" title="对话长度（显示【剩余】占比）">
+        <span class="battery" id="sb-battery">
+          <span class="battery-fill" id="sb-battery-fill"></span>
+          <span class="battery-pct" id="sb-battery-pct">?</span>
+        </span>
       </span>
-    </span>
+    </div>
+
+    <!-- 第 3 行起：通知列表（展开时滑出 ✓）-->
+    <div id="notice-panel" class="collapsed">
+      <div id="notice-list"></div>
+      <div id="notice-empty">暂无通知</div>
+      <div id="notice-collapse" title="点击收起">⌃</div>
+    </div>
   </div>
 
   <div id="messages"></div>

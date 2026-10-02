@@ -1,0 +1,111 @@
+/* ===== 基础：可调变量 + 对话区 + 滚动条 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
+   ★ 改这一块只需动本文件 ✓ */
+
+/* ===== 可调参数（CSS 变量）=====
+   这些是默认值；扩展会从 VS Code 设置生成覆盖（留空 = 用这里/主题变量）*/
+:root {
+  --pi-bubble-width: 88%;
+  --pi-bubble-radius: 6px;
+  --pi-bubble-padding: 8px 12px;
+
+  /* 气泡之间的竖直间距（挂 margin-top，不叠加）*/
+  --pi-gap-turn: 10px;
+  --pi-gap-user-first: 12px;
+  --pi-gap-thinking-text: 4px;
+  --pi-gap-thinking-tool: 4px;
+  --pi-gap-text-tool: 6px;
+  --pi-gap-tool-text: 4px;
+  --pi-gap-tool-thinking: 4px;
+  --pi-gap-text-thinking: 4px;
+
+  --pi-rail-width: 2px;
+  --pi-border-w: 1px;
+
+  /* 输入框 */
+  --pi-input-radius: 14px;
+  --pi-input-width: 100%;
+  --pi-input-min-rows: 1;
+  --pi-input-max-rows: 8;
+  --pi-input-bottom-gap: 22px;
+
+  /* 顶部常驻状态栏（手机式）*/
+  --pi-statusbar-height: 26px;
+}
+/* 设置覆盖注入点已移到 chat.html 的 <style>{{styleVars}}</style>
+   （CSS 文件不经过 loader 替换，不能在这里放占位符 ✗）*/
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  position: relative;        /* 给底部悬浮的输入区定位 */
+  height: 100vh;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-sideBar-background);
+}
+#messages {
+  position: absolute;
+  /* ★ 顶部让出状态栏的高度（inset 展开写，方便单独改 top）*/
+  top: var(--pi-statusbar-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-y: auto;
+  /* 底部留白由 JS 动态同步（= 输入区实际高度）*/
+  /* 左右用 sideGap：控制气泡与视图左右边界的间距 */
+  padding: 12px var(--pi-side-gap, 12px) 120px;
+  /* 用 flex 纵向布局：靠左/靠右用 align-self —— 比 margin:auto 可靠得多 */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;   /* 默认靠左 */
+  /* ★ 顶部渐隐：与底部（输入区遮罩）对称 ✓
+     把状态栏的【硬下边框】换成这个 → 内容滚到顶时自然朦胧淡出 ✓ */
+  mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
+}
+
+/* ===== 滚动条美化（对话区 + 输入框 统一）=====
+   ★ 默认【完全透明】（系统默认滚动条很突兀 ✗）
+   ★ 只在鼠标悬停该区域时才显出（朦胧 ✓）
+   ★ 用 border + background-clip 做内缩 → 视觉更细 ✓ */
+#messages,
+#input {
+  scrollbar-width: thin;                                   /* Firefox */
+  scrollbar-color: transparent transparent;
+}
+#messages:hover,
+#input:hover {
+  scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, 0.35)) transparent;
+}
+#messages::-webkit-scrollbar,
+#input::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+#messages::-webkit-scrollbar-track,
+#input::-webkit-scrollbar-track {
+  background: transparent;
+}
+#messages::-webkit-scrollbar-thumb,
+#input::-webkit-scrollbar-thumb {
+  background: transparent;                                 /* 默认隐形 ✓ */
+  background-clip: content-box;                            /* ★ 只填 content 区 → 内缩 ✓ */
+  border: 4px solid transparent;                           /* ★ 4px 内缩 → 滑块更细 ✓ */
+  border-radius: 999px;
+}
+#messages:hover::-webkit-scrollbar-thumb,
+#input:hover::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, 0.35));
+}
+#messages::-webkit-scrollbar-thumb:hover,
+#input::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground, rgba(128, 128, 128, 0.55));
+}
+#messages::-webkit-scrollbar-thumb:active,
+#input::-webkit-scrollbar-thumb:active {
+  background: var(--vscode-scrollbarSlider-activeBackground, rgba(128, 128, 128, 0.7));
+}
+#messages::-webkit-scrollbar-corner,
+#input::-webkit-scrollbar-corner {
+  background: transparent;
+}

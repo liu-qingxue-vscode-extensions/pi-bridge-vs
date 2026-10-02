@@ -15,6 +15,10 @@ export type FrontendMessage =
     | { kind: "prompt"; text: string }
     // ★ 主动中断：对应发送按钮的“转圈”形态（点击转圈 = 中断 ✓）
     | { kind: "abort" }
+    // ★ 通知板的【本地】消息 —— ★ 不是发给 pi 的，由 main.ts 直接处理，不进本层 ✓
+    //   （唯一一条前端 → 插件的通知指令流 ✓）
+    | { kind: "noticeRemove"; id: number }
+    | { kind: "noticeClearAll" }
     // 以后在这里增加，例如：
     // | { kind: "setModel"; provider: string; modelId: string }
     ;
@@ -37,6 +41,10 @@ const formatMap: Partial<Record<FrontendMessage["kind"], FrontendFormatter>> = {
 /**
  * 统一入口：前端消息 → RpcCommand
  * 未知 kind 抛错（白名单语义）
+ *
+ * ★ 注意：通知板的 `noticeRemove` / `noticeClearAll` 【不在这里注册】
+ *   （它们不是给 pi 的命令，而是给插件自己的；main.ts 会先拦下来 ✓）
+ *   若不小心漏到这儿，白名单会报错 —— 正是我们想要的“早暴露”行为 ✓
  */
 export function toRpcCommand(msg: FrontendMessage): RpcCommand {
     const formatter = formatMap[msg.kind];

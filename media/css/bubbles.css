@@ -1,0 +1,182 @@
+/* ===== 气泡：基础 / 用户 / 思考 / 占位三点 / 异常与重连提示 / 间距 / 居中列 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
+   ★ 改这一块只需动本文件 ✓ */
+
+/* ===== 气泡（每个内容段 = 一个气泡）=====
+   ★ 间距只用 margin-top（相邻兄弟），避免和 margin-bottom 叠加 */
+.bubble {
+  width: var(--pi-bubble-width, 88%);   /* AI 气泡：固定宽度（流式无法预测）*/
+  padding: var(--pi-bubble-padding, 8px 12px);
+  border-radius: var(--pi-bubble-radius, 6px);
+  /* ★ 默认透明：各类型自己指定背景，避免“改一处动全部” */
+  background: transparent;
+  border: var(--pi-border-w, 1px) solid var(--pi-border-bubble, transparent);
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* ★★ 关键：禁止 flex 压缩 —— 否则内容变多时气泡会被挤成一条线 ✗
+     （#messages 是 flex 纵向容器，item 默认 flex-shrink: 1）*/
+  flex-shrink: 0;
+}
+/* 默认间距（相邻气泡之间）*/
+.bubble + .bubble { margin-top: var(--pi-gap-turn, 10px); }
+
+/* ---- 用户消息：靠右 + 【自适应宽度】（不固定）---- */
+.bubble.user {
+  align-self: flex-end;                     /* ★ 可靠右对齐 */
+  width: auto;                              /* 内容多宽就多宽 */
+  min-width: var(--pi-user-min-width, 48px); /* 短消息不会缩成一条线 */
+  max-width: var(--pi-bubble-width, 88%);   /* 超过上限就换行 */
+  background: var(--pi-bg-user, var(--vscode-button-background));
+  color: var(--vscode-button-foreground);
+  border-color: var(--pi-border-user, var(--pi-border-bubble, transparent));
+}
+/* 用户消息 → AI 第一个气泡（覆盖默认间距）*/
+.bubble.user + .bubble { margin-top: var(--pi-gap-user-first, 12px); }
+
+/* ---- 思考气泡：可折叠（点头部切换）---- */
+/* ===== 通用折叠头（思考 / 工具共用）=====
+   左：【名字串】整体是一个按钮（点击折叠）· 右：操作区（未来放复制等按钮）*/
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 12px;
+}
+.head-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.head-toggle:hover { color: var(--vscode-foreground); }
+/* 箭头用 SVG：尺寸可控、和文字同高（之前用字符太小 ✗）*/
+.head-caret {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: transform 0.15s;
+}
+[data-open="false"] .head-caret { transform: rotate(-90deg); }
+/* 右侧操作区（未来的按钮位）*/
+.head-actions { margin-left: auto; display: inline-flex; gap: 6px; }
+
+/* ---- 思考气泡 ---- */
+.bubble.thinking {
+  background: var(--pi-bg-thinking, transparent);
+  border-left: none;
+  padding: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.95em;
+}
+.bubble.thinking .head { padding: 2px 0; }
+.think-body {
+  border-left: var(--pi-rail-width, 2px) solid
+    var(--pi-rail-color-thinking, var(--vscode-panel-border));
+  padding: 2px 0 2px 10px;
+  margin: 2px 0 2px 4px;
+  font-style: italic;
+}
+.bubble.thinking[data-open="false"] .think-body { display: none; }
+
+/* ---- 占位三点（发送后、等第一个数据包）---- */
+.bubble.pending {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  width: auto;
+  color: var(--vscode-descriptionForeground);
+}
+.dots { display: inline-flex; gap: 4px; align-items: center; height: 1.1em; }
+.dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: dotPulse 1.2s infinite;
+}
+.dots i:nth-child(2) { animation-delay: 0.15s; }
+.dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes dotPulse {
+  0%, 60%, 100% { opacity: 0.3; }
+  30% { opacity: 1; }
+}
+
+/* ---- 正文气泡 ---- */
+/* ===== 异常结束提示（截断 / 中断 / 出错）=====
+   ★ 突发情况 → 【正常字号、正常颜色】，不做弱化 ✓ */
+.bubble-note {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+.bubble-note.warn { color: var(--vscode-editorWarning-foreground, #cca700); }
+.bubble-note.error { color: var(--vscode-errorForeground, #f48771); }
+.bubble-note.info { color: inherit; }
+
+/* ===== 重连提示气泡（auto_retry_start / auto_retry_end）=====
+   不进快照 → webview 重建后自然消失（和字段语义一致 ✓）*/
+.bubble.notice {
+  /* ★ 不写 width / align-self，而是【继承 .bubble】：
+     · 宽度 → var(--pi-bubble-width) ✓
+     · 对齐 → 跟正文一样靠左（与 #messages 的 align-items 一致）✓
+     · 间距 → .bubble + .bubble 的 --pi-gap-turn ✓ */
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  display: flex;                 /* 图标 + 文字横排 ✓ */
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--vscode-panel-border, transparent);
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-descriptionForeground);
+}
+/* 重试中：红色 + 转圈图标（比三个点更明确 ✓）*/
+.bubble.notice.retrying {
+  color: var(--vscode-errorForeground, #f48771);
+  border-color: currentColor;
+}
+.retry-spin {
+  flex-shrink: 0;
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;   /* 缺口 → 看得见在转 ✓ */
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+/* 最终结果 */
+.bubble.notice.failed { color: var(--vscode-errorForeground, #f48771); }
+.bubble.notice.ok { color: var(--vscode-charts-green, #4caf50); }
+.notice-mark { flex-shrink: 0; }
+.notice-text { min-width: 0; word-break: break-word; }
+
+/* ===== 气泡之间的间距（按【前 → 后】分别控制；只写 margin-top，不叠加）===== */
+.bubble.thinking + .bubble.text { margin-top: var(--pi-gap-thinking-text, 4px); }
+.bubble.thinking + .bubble.tool { margin-top: var(--pi-gap-thinking-tool, 4px); }
+.bubble.text + .bubble.tool { margin-top: var(--pi-gap-text-tool, 6px); }
+.bubble.tool + .bubble.text { margin-top: var(--pi-gap-tool-text, 4px); }
+.bubble.tool + .bubble.thinking { margin-top: var(--pi-gap-tool-thinking, 4px); }
+.bubble.text + .bubble.thinking { margin-top: var(--pi-gap-text-thinking, 4px); }
+
+/* ===== 居中内容列模式（centerColumn = true）=====
+   原理：把左右 padding 设为 (100% - 列宽)/2 → 自动形成居中的内容列
+   然后所有气泡占满内容列、用户气泡右对齐到列右边、输入框同宽 ✓ */
+:root.centered #messages {
+  padding-left: calc((100% - var(--pi-bubble-width, 88%)) / 2);
+  padding-right: calc((100% - var(--pi-bubble-width, 88%)) / 2);
+}
+:root.centered #input-area {
+  padding-left: calc((100% - var(--pi-bubble-width, 88%)) / 2);
+  padding-right: calc((100% - var(--pi-bubble-width, 88%)) / 2);
+}
+:root.centered .bubble { width: 100%; }                 /* 占满内容列 */
+:root.centered .bubble.user { width: auto; max-width: 100%; align-self: flex-end; }
+:root.centered #input-box { width: 100%; margin: 0; }   /* 输入框与气泡同宽 ✓ */

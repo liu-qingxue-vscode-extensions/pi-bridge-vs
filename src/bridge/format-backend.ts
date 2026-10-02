@@ -243,6 +243,40 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
             success: ev.success === true,
         };
     },
+
+    /**
+     * ★ pi 扩展的 UI 请求 → 通知列列
+     *
+     * 实测只有两种 method（2026-10-02）：
+     *   notify    : { message, notifyType }        ← 有正文 ✓ 进通知列表
+     *   setStatus : { statusKey }                  ★ 只有 key、没有正文 ✗ → 暂不处理
+     *
+     * （真正需要【回复】的是 select / confirm / input 那类审批，
+     *   目前样本里没出现过；以后遇到再扩展 ✓）
+     */
+    extension_ui_request: (raw) => {
+        const ev = raw as { method?: unknown; message?: unknown; notifyType?: unknown };
+        if (ev.method !== "notify") return undefined;
+        const text = typeof ev.message === "string" ? ev.message.trim() : "";
+        if (!text) return undefined;
+        const t = ev.notifyType;
+        const level = t === "success" || t === "warn" || t === "error" ? t : "info";
+        return { kind: "notice", text, level };
+    },
+
+    /**
+     * ★ pi 进程的 stderr → 通知
+     *
+     * 【为何归为 warn 而不是 error？】
+     *   stderr 在实践里啥都有（如 “[deepseek-reasoning-chain] active …” 明明是信息 ✗）
+     *   一律当 error 会干扰用户判断；用 warn（黄）更中性 ✓
+     */
+    stderr: (raw) => {
+        const ev = raw as { text?: unknown };
+        const text = typeof ev.text === "string" ? ev.text.trim() : "";
+        if (!text) return undefined;
+        return { kind: "notice", text, level: "warn" };
+    },
 };
 
 /**

@@ -13,14 +13,25 @@
  *   webview 重建 → 发 "ready" → ChatView 用 snapshot() 重放全量
  */
 
-import type { Block, Bubble, ChatPatch, ChatRole } from "./chat-types.js";
+import type { Block, Bubble, ChatPatch, ChatRole, Notice } from "./chat-types.js";
 
 // 对外保持兼容：旧的 `from "./chat-state.js"` 导入仍然可用
-export type { Block, BlockType, Bubble, ChatPatch, ChatRole } from "./chat-types.js";
+export type { Block, BlockType, Bubble, ChatPatch, ChatRole, Notice, NoticeLevel } from "./chat-types.js";
 
 export class ChatState {
     /** 所有气泡（权威状态） */
     private readonly bubbles: Bubble[] = [];
+
+    /**
+     * ★ 通知环形缓冲（★ 不进会话文件 → 独立于 bubbles ✓）
+     *   为什么单独存？因为通知是“过程状态”，无法从 pi 重放（它就不在文件里 ✗）
+     *   但视图重开时要能恢复 → 所以放进 snapshot ✓（插件重启才清除 ✓）
+     */
+    private readonly notices: Notice[] = [];
+    /** 通知序号（自增；用于关闭单条 / 前端渲染 key）*/
+    private noticeSeq = 1;
+    /** 环形缓冲上限（由配置 pi-bridge.notice.bufferSize 决定 ✓）*/
+    private noticeLimit = 50;
 
     /** 状态变化的订阅者（ChatView 订阅它，把变化推给 webview） */
     private readonly listeners = new Set<(patch: ChatPatch) => void>();
@@ -33,9 +44,32 @@ export class ChatState {
         };
     }
 
-    /** 全量快照（webview 重建时重放用） */
-    snapshot(): readonly Bubble[] {
-        return this.bubbles;
+    /** 全量快照（webview 重建时重放用）★ 通知一起带出去 ✓ */
+    snapshot(): { bubbles: readonly Bubble[]; notices: readonly Notice[] } {
+        return { bubbles: this.bubbles, notices: this.notices };
+    }
+
+    /** ★ 设置通知容量（环形缓冲上限）；超出部分【丢最旧的】✓ */
+    setNoticeLimit(n: number): void {
+        if (!Number.isFinite(n) || n <= 0) return;
+        this.noticeLimit = Math.floor(n);
+        this.trimNotices();
+    }
+
+    /** ★ 移除单条通知（前端点 ✕ 时由 main.ts 调用）*/
+    removeNotice(id: number): void {
+        const i = this.notices.findIndex((n) => n.id === id);
+        if (i >= 0) this.notices.splice(i, 1);
+    }
+
+    /** ★ 清空全部通知（面板头部的“清空”按钮）*/
+    clearNotices(): void {
+        this.notices.length = 0;
+    }
+
+    /** 环形缓冲裁剪：超过上限就丢最早的 */
+    private trimNotices(): void {
+        while (this.notices.length > this.noticeLimit) this.notices.shift();
     }
 
     /**
@@ -163,6 +197,35 @@ export class ChatState {
             //    这样 webview 重建后它自然消失，和语义一致 ✓）
             case "retryNotice":
                 break;
+
+            // ★ 通知：分配 id + 时间，入环形缓冲，然后【带 id 广播】✓
+            case "notice": {
+                const notice: Notice = {
+                    id: this.noticeSeq++,
+                    text: patch.text,
+                    level: patch.level,
+                    time: Date.now(),
+                };
+                this.notices.push(notice);
+                this.trimNotices();
+                // ★ 用带 id 的版本广播（前端靠它做“关闭单条” ✓）
+                //   → 必须 return：否则末尾还会 emit 一次【没 id 的】原 patch ✗
+                this.emit({
+                    kind: "notice",
+                    text: notice.text,
+                    level: notice.level,
+                    id: notice.id,
+                    time: notice.time,
+                });
+                return;
+            }
+
+            // ★ 关闭单条通知（前端点 ✕）
+            case "noticeRemove": {
+                const i = this.notices.findIndex((n) => n.id === patch.id);
+                if (i >= 0) this.notices.splice(i, 1);
+                break;
+            }
         }
         this.emit(patch);
     }

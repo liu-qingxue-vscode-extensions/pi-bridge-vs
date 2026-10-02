@@ -13,6 +13,16 @@ const vscode = acquireVsCodeApi();
     // 输入区下方极简栏
     const footModel = document.getElementById("foot-model");
     const footCwd = document.getElementById("foot-cwd");
+    // ★ 通知板（B8）
+    const topArea = document.getElementById("top-area");
+    const noticeToolbar = document.getElementById("notice-toolbar");
+    const noticePanel = document.getElementById("notice-panel");
+    const noticeList = document.getElementById("notice-list");
+    const noticeEmpty = document.getElementById("notice-empty");
+    const noticeCount = document.getElementById("notice-count");
+    const noticeCollapse = document.getElementById("notice-collapse");
+    const noticeClear = document.getElementById("notice-clear");
+    const noticeSettings = document.getElementById("notice-settings");
 
     /** modelId → contextWindow（由宿主推送；查不到则电池显示 "?"）*/
     let modelLimits = {};
@@ -578,6 +588,168 @@ const vscode = acquireVsCodeApi();
       defaultToolCollapsed = !!vars && vars["--pi-tool-collapsed"] === "on";
     }
 
+    // ===== 通知板（B8）：手机式下拉面板 =====
+    //
+    // 【数据来源】extension_ui_request.notify + stderr（★ 都不进会话文件 ✓）
+    //   权威数据在插件端（ChatState.notices 环形缓冲）
+    //   这里只是【镜像】；重开视图时会从 snapshot 恢复 ✓
+    //
+    // 【交互】三种展开/收起：点击统计栅 ✓ / 按住下拉 ✓ / 快捷键 ✓
+
+    /** 通知镜像（权威在插件端 ✓）*/
+    let notices = [];
+    /** 面板是否已展开 */
+    let panelExpanded = false;
+    /** 未读数（收起状态下新到的通知数）*/
+    let noticeUnread = 0;
+
+    const NOTICE_ICON = { info: "ⓘ", success: "✓", warn: "⚠", error: "✖" };
+
+    /** 建一条通知 DOM（图标 + 文本 + ⧉ 复制 + ✕ 关闭）*/
+    function createNoticeItem(n) {
+      const el = document.createElement("div");
+      el.className = "notice-item";
+      el.dataset.level = n.level;
+      el.dataset.id = String(n.id);
+
+      const icon = document.createElement("span");
+      icon.className = "ni-icon";
+      icon.textContent = NOTICE_ICON[n.level] ?? "ⓘ";
+
+      const text = document.createElement("span");
+      text.className = "ni-text";
+      text.textContent = n.text;
+      // ★ 点击本体 → 【留接口】（用户要求：暂不绑行为 ✓）
+      text.addEventListener("click", () => {
+        /* TODO: 将来的通知点击动作（如跳到出错工具 / 打开设置页）*/
+      });
+
+      const copyBtn = document.createElement("button");
+      copyBtn.className = "ni-btn";
+      copyBtn.textContent = "⧉";
+      copyBtn.title = "复制";
+      copyBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void navigator.clipboard.writeText(n.text);
+      });
+
+      const closeBtn = document.createElement("button");
+      closeBtn.className = "ni-btn";
+      closeBtn.textContent = "✕";
+      closeBtn.title = "关闭";
+      closeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        // ★ 发给插件端（唯一一条 前端 → 插件 的通知指令 ✓）
+        vscode.postMessage({ kind: "noticeRemove", id: n.id });
+      });
+
+      el.append(icon, text, copyBtn, closeBtn);
+      return el;
+    }
+
+    /** 刷新头部徽标（未读 / 总数）*/
+    function syncBadge() {
+      const bell = document.getElementById("notice-bell");
+      bell.textContent = noticeUnread > 0 ? "🔔" : "🔕";
+      noticeCount.textContent = String(notices.length);
+      noticeEmpty.style.display = notices.length ? "none" : "";
+    }
+
+    /** 全量重绘（重放快照式用）*/
+    function renderNotices() {
+      noticeList.innerHTML = "";
+      for (const n of notices) noticeList.appendChild(createNoticeItem(n));
+      syncBadge();
+    }
+
+    /** 追加一条（增量 ✓ 避免全量重绘）*/
+    function appendNotice(n) {
+      notices.push(n);
+      noticeList.appendChild(createNoticeItem(n));
+      if (!panelExpanded) noticeUnread++;
+      syncBadge();
+    }
+
+    /** 从列表移除一条 */
+    function removeNotice(id) {
+      notices = notices.filter((n) => n.id !== id);
+      const el = noticeList.querySelector('.notice-item[data-id="' + id + '"]');
+      el?.remove();
+      syncBadge();
+    }
+
+    /** 设置展开 / 收起（next 可强制指定）*/
+    function setExpanded(next) {
+      panelExpanded = typeof next === "boolean" ? next : !panelExpanded;
+      topArea.classList.toggle("expanded", panelExpanded);
+      noticeToolbar.classList.toggle("collapsed", !panelExpanded);
+      noticePanel.classList.toggle("collapsed", !panelExpanded);
+      if (panelExpanded) {
+        noticeUnread = 0;   // 展开就视为看过 ✓（★ 不落盘 → 无需记录已读）
+        syncBadge();
+      }
+    }
+
+    // ① 整栏点击 → 展开/收起 ✓
+    statusBarEl.addEventListener("click", () => setExpanded());
+    // ① 面板底部热区 → 收起 ✓
+    noticeCollapse.addEventListener("click", () => setExpanded(false));
+    // 清空全部（本地清 → 逐个告诉插件端 ✗ 太多消息 → 直接让插件端清）
+    noticeClear.addEventListener("click", (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ kind: "noticeClearAll" });
+    });
+    // ⚙ 设置 → 留接口（暂不实现 ✓）
+    noticeSettings.addEventListener("click", (e) => {
+      e.stopPropagation();
+      /* TODO: 打开设置页 */
+    });
+
+    // ② 鼠标按住下拉 / 上推 → 跟手拖动 + 松手吸附 ✓
+    (function setupDragGesture() {
+      let dragStartY = 0;
+      let dragging = false;
+      const THRESHOLD = 28;   // 拖过多少像素就切换状态
+
+      statusBarEl.addEventListener("pointerdown", (e) => {
+        // 只在收起时允许“下拉展开”（展开时下拉无用 ✗）
+        if (panelExpanded) return;
+        dragging = true;
+        dragStartY = e.clientY;
+        statusBarEl.setPointerCapture(e.pointerId);
+      });
+
+      noticeCollapse.addEventListener("pointerdown", (e) => {
+        dragging = true;
+        dragStartY = e.clientY;
+        noticeCollapse.setPointerCapture(e.pointerId);
+      });
+
+      statusBarEl.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        if (e.clientY - dragStartY >= THRESHOLD) {
+          dragging = false;
+          setExpanded(true);
+        }
+      });
+
+      noticeCollapse.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        if (e.clientY - dragStartY >= THRESHOLD) {
+          dragging = false;
+          setExpanded(false);
+        }
+      });
+
+      const stop = () => { dragging = false; };
+      statusBarEl.addEventListener("pointerup", stop);
+      noticeCollapse.addEventListener("pointerup", stop);
+      statusBarEl.addEventListener("pointercancel", stop);
+      noticeCollapse.addEventListener("pointercancel", stop);
+    })();
+
+    // ③ 快捷键由 VS Code 转发消息（见上方 "toggleNotices" 分支 ✓）
+
     // ===== 接收宿主消息 =====
     window.addEventListener("message", (event) => {
       const data = event.data ?? {};
@@ -602,7 +774,20 @@ const vscode = acquireVsCodeApi();
         return;
       }
 
-      if (data.kind === "agentState") {
+      // ③ 快捷键（由 VS Code keybinding → 命令 ctrl+alt+n → 扩展宿主转发过来 ✓）
+    if (data.kind === "toggleNotices") {
+      setExpanded();
+      return;
+    }
+
+    if (data.kind === "noticesCleared") {
+      // 插件端已清空权威数据 → 前端也清掉镜像 ✓
+      notices = [];
+      renderNotices();
+      return;
+    }
+
+    if (data.kind === "agentState") {
         setAgentState(data.payload);
         // 任务开始 → 立刻显示占位三点（不要空荡荡地等第一个数据包）
         if (data.payload === "working") {
@@ -618,11 +803,19 @@ const vscode = acquireVsCodeApi();
 
       if (data.kind === "snapshot") {
         // 全量重放（webview 重建后恢复画面）
+        // ★ 载荷形状：{ bubbles, notices }（通知一起带出来 ✓）
+        const snap = data.payload ?? {};
+        const bubbles = Array.isArray(snap.bubbles) ? snap.bubbles : [];
         messagesEl.innerHTML = "";
         currentBubble = null;
         pendingEl = null;        // ★ 重建后不保留旧占位引用
         lastThinkBubble = null;
-        for (const b of data.payload) {
+        // ★ 通知也重放（权威在插件端 ✓ 插件重启才消失 ✓）
+        notices = Array.isArray(snap.notices) ? snap.notices.slice() : [];
+        noticeUnread = 0;
+        renderNotices();
+        setExpanded(false);      // 重建/重开视图后默认收起 ✓
+        for (const b of bubbles) {
           currentRole = b.role;
           // ★ 用户消息：整条消息就是一个 user 气泡（不走 segment 逻辑）
           if (b.role === "user") {
@@ -663,9 +856,9 @@ const vscode = acquireVsCodeApi();
           }
         }
         // ★ 顶部状态栏也从快照恢复（取最后一条带 usage 的气泡）
-        for (let i = data.payload.length - 1; i >= 0; i--) {
-          if (data.payload[i].usage) {
-            updateStatusBar(data.payload[i].usage, data.payload[i].model);
+        for (let i = bubbles.length - 1; i >= 0; i--) {
+          if (bubbles[i].usage) {
+            updateStatusBar(bubbles[i].usage, bubbles[i].model);
             break;
           }
         }
@@ -757,6 +950,12 @@ const vscode = acquireVsCodeApi();
             // 状态先按 exec 的 isError 定；若随后 toolResult 到达会再覆盖一次 ✓
             setToolState(bubble, p.isError ? "error" : "ok");
           }
+        } else if (p.kind === "notice") {
+          // ★ 新通知（extension_ui_request.notify / stderr）
+          appendNotice({ id: p.id, text: p.text, level: p.level, time: p.time });
+        } else if (p.kind === "noticeRemove") {
+          // ★ 插件端确认移除（回显）—— 只在本地还有时才动 ✓
+          removeNotice(p.id);
         }
       }
     });

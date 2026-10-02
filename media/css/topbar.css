@@ -1,0 +1,138 @@
+/* ===== 顶栏（topbar）：按钮容器 + 统计栏 + 电池 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
+   ★ 改这一块只需动本文件 ✓ */
+
+/* ===== 顶部区域（手机式三层：容器 / 统计栏 / 通知列表）=====
+   ★ 收起时只有 #status-bar 露在外面（= 原来的样子 ✓ 没有按钮 ✓）
+   ★ 展开时容器从上方撑开、列表从下方滑出 → 统计栏自然落到第 2 行 ✓
+   ★ 它是 absolute + 不透明底色 → 【盖住】对话区（不推挤 ✗ 不会跳动 ✓）*/
+#top-area {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-sideBar-background);
+  /* 收起 → 展开时，圆角与阴影跟着淡入 ✓ */
+  transition: border-radius .22s ease, box-shadow .22s ease;
+}
+#top-area.expanded {
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .32);
+}
+
+/* 第 1 行：按钮容器（★ 只在展开时存在 → ⚙ 日常碰不到 ✓）*/
+#notice-toolbar {
+  height: var(--pi-statusbar-height);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-top: 1px solid var(--vscode-panel-border, transparent);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--vscode-descriptionForeground);
+  user-select: none;
+  overflow: hidden;
+  transition: height .22s ease, opacity .22s ease;
+}
+#notice-toolbar.collapsed {
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+#notice-toolbar .spacer { flex: 1; }
+#notice-toolbar button {
+  border: none;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font: inherit;
+  padding: 2px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+#notice-toolbar button:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .2));
+  color: var(--vscode-foreground);
+}
+#notice-settings { font-size: 13px; }
+
+/* ===== 顶部常驻状态栏（手机式）=====
+   数据源：message_end.message.usage / model（每轮对话结束更新一次 ✓）*/
+#status-bar {
+  position: relative;          /* ★ 改为 relative：外层 #top-area 已是 absolute ✓ */
+  height: var(--pi-statusbar-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;   /* 右对齐：电池在最右端 ✓ */
+  gap: 9px;
+  padding: 0 10px;
+  /* ★ 上边框：把本栅与 VS Code 自己的顶部栅分开（否则看着像一体的 ✗）*/
+  border-top: 1px solid var(--vscode-panel-border, transparent);
+  /* ★ 下边框【去掉】：硬线生硬 ✗ → 改用 #messages 的顶部 mask 做朦胧过渡 ✓ */
+  font-size: 12px;
+  line-height: 1;
+  color: var(--vscode-descriptionForeground);
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  /* ★ 整个栏就是展开/收起的点击热区 ✓ */
+  cursor: pointer;
+}
+#status-bar:hover { color: var(--vscode-foreground); }
+.sb-item { display: inline-flex; align-items: center; }
+.sb-sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 13px;
+  background: var(--vscode-panel-border, currentColor);
+  opacity: 0.6;
+}
+
+/* 电池：一个外形 + 内部填充 + 内部数字（显示【剩余】占比 ✓）*/
+.battery {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 16px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+}
+.battery::after {          /* 电池正极小凸起 */
+  content: "";
+  position: absolute;
+  right: -4px;
+  top: 4.5px;
+  width: 2px;
+  height: 6px;
+  background: currentColor;
+  border-radius: 0 1px 1px 0;
+}
+.battery-fill {
+  position: absolute;
+  left: 1px;
+  top: 1px;
+  bottom: 1px;
+  width: 0%;
+  background: currentColor;
+  opacity: 0.42;             /* ★ 半透明：内部的数字才看得清 ✓ */
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.battery-pct {
+  position: relative;        /* 在填充之上 ✓ */
+  font-size: 11px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;   /* 等宽数字：跳动时不抽 ✗ */
+}
+/* 剩余不多 → 变色提醒（阈值是【剩余】语义 ✓）*/
+.battery.low { color: var(--vscode-editorWarning-foreground, #cca700); }
+.battery.empty { color: var(--vscode-errorForeground, #f48771); }
+/* 拿不到上下文窗口大小 → 整个电池区变成一个问号 ✓ */
+#status-bar.no-limit .battery { display: none; }
+#status-bar.no-limit #sb-battery-pct { font-size: 12px; }

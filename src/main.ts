@@ -64,6 +64,18 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const pi = new PiClient(cwd, { extraArgs: launchArgs });
     const chatState = new ChatState(); // 插件端权威聊天状态（webview 只是显示器）
+    // ★ 通知环形缓冲上限（配置可调；改设置时实时生效 ✓）
+    const applyNoticeLimit = (): void => {
+        chatState.setNoticeLimit(
+            vscode.workspace.getConfiguration("pi-bridge.notice").get<number>("bufferSize", 50),
+        );
+    };
+    applyNoticeLimit();
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration("pi-bridge.notice")) applyNoticeLimit();
+        }),
+    );
 
     // 3. 数据流 ①：pi 事件 → 两个【独立】订阅者（扇出）
     //    订阅者 1（调试板）：收【原始数据】—— 诊断用，保持原样不翻译
@@ -97,6 +109,16 @@ export function activate(context: vscode.ExtensionContext): void {
         context.extensionUri,
         chatState,
         async (msg: FrontendMessage) => {
+            // ★ 通知板的【本地消息】—— 不发给 pi，直接作用于权威状态（先拦下来 ✓）
+            if (msg.kind === "noticeRemove") {
+                chatState.removeNotice(msg.id);
+                return;
+            }
+            if (msg.kind === "noticeClearAll") {
+                chatState.clearNotices();
+                chatView.post("noticesCleared", true); // 让前端清空自己那份镜像 ✓
+                return;
+            }
             logDebug(`前端消息: ${JSON.stringify(msg)}`);
             try {
                 const cmd = toRpcCommand(msg); // 表驱动：前端消息 → RpcCommand
@@ -116,6 +138,12 @@ export function activate(context: vscode.ExtensionContext): void {
         // ctrl+alt+d / 命令面板 → 打开调试板
         vscode.commands.registerCommand("pi-bridge.showDebug", () => {
             debugPanel.show();
+        }),
+
+        // ★ ctrl+alt+n → 展开/收起通知板
+        //   （只把消息转给 webview，具体动画/状态由前端处理 ✓ 插件端不操心 UI）
+        vscode.commands.registerCommand("pi-bridge.toggleNotices", () => {
+            chatView.post("toggleNotices", true);
         }),
 
         // 测试命令（验证扩展是否激活）

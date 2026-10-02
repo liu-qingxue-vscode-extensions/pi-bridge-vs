@@ -92,6 +92,28 @@ export interface Bubble {
     model?: string;
 }
 
+/** 通知级别（决定图标与颜色）★ 与 pi 的 notifyType 一一对应 */
+export type NoticeLevel = "info" | "success" | "warn" | "error";
+
+/**
+ * 一条通知（来自 extension_ui_request.notify / stderr）
+ *
+ * 【★ 关键：它不进会话文件】
+ *   FACTS.md 实测：extension_ui_request / stderr / auto_retry_* 都是【过程状态】而非对话内容
+ *   → 不落盘 ✓ 只活在插件进程内存里 ✓ 窗口重载即清空 ✓
+ *   （所以不需要记录“已读/未读”——反正活不过重载）
+ */
+export interface Notice {
+    /** 序号（由 ChatState 分配，用于关闭单条 / 前端 key）*/
+    id: number;
+    /** 正文 */
+    text: string;
+    /** 级别 */
+    level: NoticeLevel;
+    /** 时间戳（ms）*/
+    time: number;
+}
+
 /**
  * 渲染指令 —— ChatState 的输入，也是推给 webview 的载荷
  *
@@ -137,4 +159,10 @@ export type ChatPatch =
     // 思考生命周期（thinking_start / thinking_end）—— 不改数据，只转发给前端
     // （前端用它控制"正在思考…" → "已思考（用时 X 秒）"与计时）
     | { kind: "thinkStart" }
-    | { kind: "thinkEnd" };
+    | { kind: "thinkEnd" }
+    // ★ 通知（extension_ui_request.notify / stderr）—— 不进气泡列表
+    //   生命周期：进入 ChatState 的 notices 环形缓冲 → 前端逐条渲染 ✓
+    //   （id / time 由 format 层产出时为空，ChatState 补上后再广播 ✓）
+    | { kind: "notice"; text: string; level: NoticeLevel; id?: number; time?: number }
+    // 关闭单条通知（前端点 ✕）—— 唯一一条【前端 → 插件】的通知指令 ✓
+    | { kind: "noticeRemove"; id: number };

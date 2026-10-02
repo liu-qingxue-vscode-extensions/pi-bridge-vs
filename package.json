@@ -37,12 +37,22 @@
                 "command": "pi-bridge.showDebug",
                 "title": "打开调试板",
                 "category": "pi-bridge"
+            },
+            {
+                "command": "pi-bridge.toggleNotices",
+                "title": "展开/收起通知板",
+                "category": "pi-bridge"
             }
         ],
         "keybindings": [
             {
                 "command": "pi-bridge.showDebug",
                 "key": "ctrl+alt+d"
+            },
+            {
+                "command": "pi-bridge.toggleNotices",
+                "key": "ctrl+alt+n",
+                "when": "view == pi-bridge.chatView"
             }
         ],
         "viewsContainers": {
@@ -298,6 +308,19 @@
                     "minimum": 0,
                     "maximum": 400,
                     "markdownDescription": "**你的消息气泡**的最小宽度（px）。默认 48。\n\n你的消息是【自适应宽度】的（内容多宽就多宽，超过上限换行），这个值保证短消息不会缩成一条线 ✓"
+                },
+                "pi-bridge.notice.bufferSize": {
+                    "type": "number",
+                    "default": 50,
+                    "minimum": 1,
+                    "description": "通知列表的环形缓冲上限（超出丢最旧的）。通知不进会话文件，窗口重载即清空。"
+                },
+                "pi-bridge.style.noticePanelHeight": {
+                    "type": "number",
+                    "default": 40,
+                    "minimum": 10,
+                    "maximum": 90,
+                    "description": "通知面板的最大高度（占聊天视图高度的百分比）。"
                 }
             }
         }

@@ -1,0 +1,123 @@
+/* ===== 工具气泡：外框 / 参数键值对 / 结果 / 状态图标 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
+   ★ 改这一块只需动本文件 ✓ */
+
+.bubble.text {
+  background: var(--pi-bg-text, var(--vscode-textBlockQuote-background));
+}
+
+/* ---- 工具气泡：外框 + 上下两部分（调用 / 结果），中间无线 ----
+   ★ 一个外框画出全部四条边 → 视觉上是【一个】气泡 ✓
+   ★ overflow: hidden → 内部背景被外框圆角裁剪 ✓ */
+.bubble.tool {
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  border: var(--pi-border-w, 1px) solid var(--pi-border-tool, var(--vscode-panel-border));
+  border-left: var(--pi-rail-width, 2px) solid
+    var(--pi-rail-color-tool, var(--vscode-charts-orange));
+}
+.bubble.tool .tool-body .tool-call,
+.bubble.tool .tool-body .tool-result {
+  padding: 6px 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.bubble.tool .head { color: var(--vscode-charts-orange); }
+.bubble.tool .tool-call {
+  background: var(--pi-bg-tool-call, var(--vscode-textBlockQuote-background));
+}
+/* 折叠：收起时隐藏整个内容体 */
+.bubble.tool[data-open="false"] .tool-body { display: none; }
+.bubble.tool .tool-result {
+  background: var(--pi-bg-tool-result, var(--vscode-textBlockQuote-background));
+  max-height: 220px;
+  overflow-y: auto;
+}
+.bubble.tool .tool-result .result-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  margin-bottom: 3px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--vscode-charts-orange);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-align: left;
+}
+/* ★ 结果区标题文字可配置（留空则不显示）*/
+.result-label::before { content: var(--pi-result-label, "结果"); }
+/* ★ 执行中 → 头部标签变成“执行中…”（比“结果”更准确 ✓）*/
+.bubble.tool .tool-result[data-streaming="true"] .result-label::before { content: "执行中…"; }
+.bubble.tool .tool-result.error .result-toggle { color: var(--vscode-charts-red); }
+.bubble.tool .tool-result.error .result-label::before { content: var(--pi-result-label, "结果") "（出错）"; }
+/* 收起结果 → 隐藏内容体 */
+.bubble.tool .tool-result[data-open="false"] .result-body { display: none; }
+
+/* ===== 工具：参数键值对（通用渲染）=====
+   用 grid → 多行值的续行自动对齐到第二列 ✓ */
+.arg-row {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 10px;
+  /* ★ 不能用 baseline：左侧是 inline-flex（箭头+名字），
+     其 baseline 会取【第一个 item（SVG）】的 baseline → 名字被抬高 ✗ */
+  align-items: start;
+}
+/* 箭头 + 参数名 = 一个按钮（点它收起该参数，只显示第一行）*/
+.arg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+/* 所有可折叠头 → 统一的 hover 反馈：文字下划线 ✓ */
+.head-toggle:hover .head-label,
+.result-toggle:hover .result-label,
+.arg-toggle:hover .arg-key { text-decoration: underline; }
+.arg-key { color: var(--vscode-charts-orange); }
+.arg-key::after { content: ":"; }
+.arg-val { white-space: pre-wrap; word-break: break-word; }
+/* 收起参数 → 只显示第一行 */
+.arg-row[data-open="false"] .arg-val {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ===== 工具：结果部分（按 type 分发）===== */
+.part-text { white-space: pre-wrap; word-break: break-word; }
+.part-image { display: block; max-width: 100%; border-radius: 4px; margin: 4px 0; }
+.part-unknown { white-space: pre-wrap; opacity: 0.7; font-size: 0.9em; }
+
+/* ===== 工具：状态图标（转圈 / 勾 / 叉）===== */
+.tool-state {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.95em;
+  line-height: 1;
+}
+.tool-state.running {
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+.tool-state.ok { color: var(--vscode-charts-green, #4caf50); }
+.tool-state.error { color: var(--vscode-charts-red, #f44336); }

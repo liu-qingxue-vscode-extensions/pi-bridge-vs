@@ -25,10 +25,12 @@
 | 项 | 值 |
 |---|---|
 | 当前批次 | **B**（UI 迭代）|
-| 当前工作单元 | **B7** = UI 打磨（输入区下方栏 / 滚动条 / 渐隐遮罩 / hiddenTypes 归一化）+ 修 emit bug |
-| 状态 | 代码完成，**待提交** |
-| 消灭进度 | 常规字段 **7/7** ✅ · 非常规 **4/7** ✅（thinking_* · agent_* · tool_execution_* · auto_retry_*）|
-| 下一步 | **B8**：通知板（消灭 `stderr` + `extension_ui_request`，约 400 行）；之后引入新按钮 |
+| 当前工作单元 | **B8** = 通知板（消灭 `stderr` + `extension_ui_request`）+ **CSS 拆分**（738 → 6 文件）|
+| 状态 | 代码完成，**待验证 / 待提交** |
+| 消灭进度 | 常规字段 **7/7** ✅ · 非常规 **6/7** ✅（thinking_* · agent_* · tool_execution_* · auto_retry_* · stderr · extension_ui_request）|
+| 剩什么 | 只剩 `turn_*`（用户明确不做 ✗）→ 消灭任务基本完结 ✓ |
+| 下一步 | **B9**：拆 webview TS（965 行 → ~11 模块）；然后做 B8⑦ 的待优化清单（🔔 位置 / 配置项 / ✕⧉ 两个 bug / 调试板就近打开）|
+| ★ 压缩后恢复 | 先读：本文件“当前位置” → batch-B.md 的 **B8⑦（待优化清单）+ B8⑧（术语）+ B8⑨⑩** → FACTS.md（不变式）|
 
 ## 提交历史
 
