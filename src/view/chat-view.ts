@@ -36,6 +36,8 @@ export class ChatView implements vscode.WebviewViewProvider {
         private readonly extensionUri: vscode.Uri,
         private readonly chatState: ChatState,
         private readonly onMessage: (msg: FrontendMessage) => void | Promise<void>,
+        /** pi 的工作目录（= VS Code 工作区目录）→ 显示在输入区下方的极简栏 ✓ */
+        private readonly cwd: string,
     ) {
         // 状态变化 → 增量推给 webview
         // （view 不存在时 post() 静默丢弃；重建时会在 resolveWebviewView 里重放全量）
@@ -84,6 +86,8 @@ export class ChatView implements vscode.WebviewViewProvider {
                 this.post("styleVars", readStyleVars());
                 // ★ 模型上下文窗口表（顶部状态栏的电池分母；查不到则前端显示 "?"）
                 this.post("modelLimits", getModelContextWindowsObject());
+                // ★ 工作目录（输入区下方极简栏）
+                this.post("cwd", this.cwd);
                 this.post("snapshot", this.chatState.snapshot());
                 return;
             }

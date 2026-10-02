@@ -55,6 +55,55 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;   /* 默认靠左 */
+    /* ★ 顶部渐隐：与底部（输入区遮罩）对称 ✓
+       把状态栏的【硬下边框】换成这个 → 内容滚到顶时自然朦胧淡出 ✓ */
+    mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
+  }
+
+  /* ===== 滚动条美化（对话区 + 输入框 统一）=====
+     ★ 默认【完全透明】（系统默认滚动条很突兀 ✗）
+     ★ 只在鼠标悬停该区域时才显出（朦胧 ✓）
+     ★ 用 border + background-clip 做内缩 → 视觉更细 ✓ */
+  #messages,
+  #input {
+    scrollbar-width: thin;                                   /* Firefox */
+    scrollbar-color: transparent transparent;
+  }
+  #messages:hover,
+  #input:hover {
+    scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, 0.35)) transparent;
+  }
+  #messages::-webkit-scrollbar,
+  #input::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  #messages::-webkit-scrollbar-track,
+  #input::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  #messages::-webkit-scrollbar-thumb,
+  #input::-webkit-scrollbar-thumb {
+    background: transparent;                                 /* 默认隐形 ✓ */
+    background-clip: content-box;                            /* ★ 只填 content 区 → 内缩 ✓ */
+    border: 4px solid transparent;                           /* ★ 4px 内缩 → 滑块更细 ✓ */
+    border-radius: 999px;
+  }
+  #messages:hover::-webkit-scrollbar-thumb,
+  #input:hover::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, 0.35));
+  }
+  #messages::-webkit-scrollbar-thumb:hover,
+  #input::-webkit-scrollbar-thumb:hover {
+    background: var(--vscode-scrollbarSlider-hoverBackground, rgba(128, 128, 128, 0.55));
+  }
+  #messages::-webkit-scrollbar-thumb:active,
+  #input::-webkit-scrollbar-thumb:active {
+    background: var(--vscode-scrollbarSlider-activeBackground, rgba(128, 128, 128, 0.7));
+  }
+  #messages::-webkit-scrollbar-corner,
+  #input::-webkit-scrollbar-corner {
+    background: transparent;
   }
 
   /* ===== 顶部常驻状态栏（手机式）=====
@@ -73,7 +122,7 @@
     padding: 0 10px;
     /* ★ 上边框：把本栅与 VS Code 自己的顶部栅分开（否则看着像一体的 ✗）*/
     border-top: 1px solid var(--vscode-panel-border, transparent);
-    border-bottom: 1px solid var(--vscode-panel-border, transparent);
+    /* ★ 下边框【去掉】：硬线生硬 ✗ → 改用 #messages 的顶部 mask 做朦胧过渡 ✓ */
     background: var(--vscode-sideBar-background);
     font-size: 12px;
     line-height: 1;
@@ -467,6 +516,34 @@
   }
   #input-box:focus-within { border-color: var(--vscode-focusBorder); }
 
+  /* ===== 输入区下方极简栏（工作目录，居中）=====
+     ★ 定位在 #input-area 的【padding 留白】里（bottom:0 + 高度 = 留白高度）
+       → 不会额外撑高整个输入区 ✓
+     ★ 垂直居中用的是【配置的高度】（改 inputBottomGap 会跟着居中 ✓）*/
+  #foot-bar {
+    position: absolute;
+    left: var(--pi-side-gap, 12px);
+    right: var(--pi-side-gap, 12px);
+    bottom: 0;
+    height: var(--pi-input-bottom-gap, 22px);
+    display: flex;
+    align-items: center;          /* ★ 垂直居中 ✓ */
+    justify-content: center;      /* ★ 水平居中 ✓ */
+    pointer-events: auto;         /* #input-area 是 none → 这里恢复 ✓ */
+    font-size: 12px;
+    line-height: 1.2;
+    color: var(--vscode-descriptionForeground);
+    user-select: text;            /* 路径要能选中复制 ✓ */
+  }
+  #foot-cwd {
+    max-width: 100%;
+    min-width: 0;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   #input {
     border: none;
     background: transparent;
@@ -481,8 +558,24 @@
     overflow-y: hidden;
   }
 
-  /* 固定栏：右对齐的发送按钮 */
-  #input-bar { display: flex; align-items: center; justify-content: flex-end; min-height: 26px; }
+  /* 固定栏：左=模型名（将来是按钮）· 右=发送按钮 */
+  #input-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 26px;
+  }
+  #foot-model {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+  }
   #send {
     flex-shrink: 0;
     width: 28px;

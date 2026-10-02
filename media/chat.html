@@ -38,6 +38,8 @@
     <div id="input-box">
       <textarea id="input" rows="1" placeholder="给 pi 发送消息（Enter 发送，Shift+Enter 换行）"></textarea>
       <div id="input-bar">
+        <!-- ★ 模型名（将来会变成按钮）：与发送按钮同一排、最左端 ✓ -->
+        <span id="foot-model" title="当前模型"></span>
         <button id="send" title="发送 (Enter)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8"
                stroke-linecap="round" stroke-linejoin="round">
@@ -45,6 +47,10 @@
           </svg>
         </button>
       </div>
+    </div>
+    <!-- ★ 输入区下方极简栏：工作目录（居中）-->
+    <div id="foot-bar">
+      <span id="foot-cwd" title="工作目录"></span>
     </div>
   </div>
 

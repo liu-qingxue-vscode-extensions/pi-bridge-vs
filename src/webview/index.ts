@@ -10,6 +10,9 @@ const vscode = acquireVsCodeApi();
     const sbBattery = document.getElementById("sb-battery");
     const sbBatteryFill = document.getElementById("sb-battery-fill");
     const sbBatteryPct = document.getElementById("sb-battery-pct");
+    // 输入区下方极简栏
+    const footModel = document.getElementById("foot-model");
+    const footCwd = document.getElementById("foot-cwd");
 
     /** modelId → contextWindow（由宿主推送；查不到则电池显示 "?"）*/
     let modelLimits = {};
@@ -32,11 +35,26 @@ const vscode = acquireVsCodeApi();
     }
 
     /**
+     * 路径太长 → 保留【尾部】（前面的目录省略 ✓ 像终端那样）
+     * ★ 不用 CSS 的 direction:rtl —— 那会让路径里的 / 显示位置错乱 ✗
+     */
+    function shortenPath(p, max) {
+      const n = max || 40;
+      return p.length <= n ? p : "…" + p.slice(-(n - 1));
+    }
+
+    /**
      * 刷新顶部状态栏（数据源：message_end.message.usage / model）
      * 四列（视觉左→右）：花费 · 输出 token · 缓存命中率 · 电池（对话长度）
      */
     function updateStatusBar(usage, model) {
       const u = usage || {};
+
+      // ★ 输入区下方：当前模型
+      if (model) {
+        footModel.textContent = model;
+        footModel.title = "当前模型：" + model;
+      }
 
       // 花费
       sbCost.textContent = "¥ " + fmtCost(u.cost && u.cost.total);
@@ -573,6 +591,14 @@ const vscode = acquireVsCodeApi();
       if (data.kind === "modelLimits") {
         // ★ 模型上下文窗口表（电池的分母）
         modelLimits = data.payload ?? {};
+        return;
+      }
+
+      if (data.kind === "cwd") {
+        // ★ 工作目录（输入区下方极简栏；完整路径放 title ✓）
+        const p = String(data.payload ?? "");
+        footCwd.textContent = shortenPath(p, 40);
+        footCwd.title = p;
         return;
       }
 

@@ -93,15 +93,20 @@ export function activate(context: vscode.ExtensionContext): void {
     });
 
     // 4. 数据流 ②：聊天视图的消息 → format 表（白名单）→ pi
-    const chatView = new ChatView(context.extensionUri, chatState, async (msg: FrontendMessage) => {
-        logDebug(`前端消息: ${JSON.stringify(msg)}`);
-        try {
-            const cmd = toRpcCommand(msg); // 表驱动：前端消息 → RpcCommand
-            await pi.send(cmd);            // send 内部 ensureStarted()：懒启动 + 幂等
-        } catch (err) {
-            logError(`处理前端消息失败: ${toErrorMessage(err)}`);
-        }
-    });
+    const chatView = new ChatView(
+        context.extensionUri,
+        chatState,
+        async (msg: FrontendMessage) => {
+            logDebug(`前端消息: ${JSON.stringify(msg)}`);
+            try {
+                const cmd = toRpcCommand(msg); // 表驱动：前端消息 → RpcCommand
+                await pi.send(cmd);            // send 内部 ensureStarted()：懒启动 + 幂等
+            } catch (err) {
+                logError(`处理前端消息失败: ${toErrorMessage(err)}`);
+            }
+        },
+        cwd, // ★ 输入区下方极简栏要显示它 ✓
+    );
 
     // 5. 注册 VS Code 的贡献点（命令 / 视图）
     context.subscriptions.push(

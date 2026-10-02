@@ -136,12 +136,30 @@ export class DebugPanel {
         this.panel?.webview.postMessage({ kind: "debug", payload, ts });
     }
 
-    /** 是否命中忽略列表（每次都读配置 → 改设置立即生效） */
-    private isHidden(type: string): boolean {
-        const hidden = vscode.workspace
+    /**
+     * 读取忽略列表（★ 归一化）
+     *
+     * 【为什么要归一化？】
+     *   用户在设置里手写数组时很容易带空格（"message_start " ✗）
+     *   而 `includes` 是严格匹配 → 带一个空格的条目就【永远匹配不上】✗
+     *
+     * 顺带做：去空白字符串 + 去重（同一个 type 写两次没意义）
+     * ★ 不做【自动排序写回】—— 那会边编辑边重写用户的设置，风险大于收益 ✗
+     *   想整理顺序时用命令：pi-bridge: 整理调试板忽略列表 ✓
+     */
+    private readHiddenTypes(): string[] {
+        const raw = vscode.workspace
             .getConfiguration("pi-bridge.debug")
             .get<string[]>("hiddenTypes", []);
-        return hidden.includes(type);
+        const cleaned = raw
+            .map((t) => (typeof t === "string" ? t.trim() : ""))
+            .filter((t) => t !== "");
+        return [...new Set(cleaned)];
+    }
+
+    /** 是否命中忽略列表（每次都读配置 → 改设置立即生效） */
+    private isHidden(type: string): boolean {
+        return this.readHiddenTypes().includes(type);
     }
 
     /** 命令入口：打开（或聚焦）调试板 */

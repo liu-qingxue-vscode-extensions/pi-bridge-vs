@@ -25,10 +25,10 @@
 | 项 | 值 |
 |---|---|
 | 当前批次 | **B**（UI 迭代）|
-| 当前工作单元 | **B6** = 前端工程化（webview 改用 TS + esbuild）|
-| 状态 | 步骤 1（构建链）完成，**待提交**；步骤 2（拆模块）待做 |
+| 当前工作单元 | **B7** = UI 打磨（输入区下方栏 / 滚动条 / 渐隐遮罩 / hiddenTypes 归一化）+ 修 emit bug |
+| 状态 | 代码完成，**待提交** |
 | 消灭进度 | 常规字段 **7/7** ✅ · 非常规 **4/7** ✅（thinking_* · agent_* · tool_execution_* · auto_retry_*）|
-| 下一步 | B6 步骤 2：按语义拆 `src/webview/`（10 个模块 + 状态集中）；或先做通知板（stderr / extension_ui_request）|
+| 下一步 | **B8**：通知板（消灭 `stderr` + `extension_ui_request`，约 400 行）；之后引入新按钮 |
 
 ## 提交历史
 

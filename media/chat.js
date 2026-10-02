@@ -12,6 +12,8 @@
   var sbBattery = document.getElementById("sb-battery");
   var sbBatteryFill = document.getElementById("sb-battery-fill");
   var sbBatteryPct = document.getElementById("sb-battery-pct");
+  var footModel = document.getElementById("foot-model");
+  var footCwd = document.getElementById("foot-cwd");
   var modelLimits = {};
   function fmtNum(n) {
     const v = Number(n) || 0;
@@ -26,8 +28,16 @@
     if (v < 1) return v.toFixed(4);
     return v.toFixed(2);
   }
+  function shortenPath(p, max) {
+    const n = max || 40;
+    return p.length <= n ? p : "\u2026" + p.slice(-(n - 1));
+  }
   function updateStatusBar(usage, model) {
     const u = usage || {};
+    if (model) {
+      footModel.textContent = model;
+      footModel.title = "\u5F53\u524D\u6A21\u578B\uFF1A" + model;
+    }
     sbCost.textContent = "\xA5 " + fmtCost(u.cost && u.cost.total);
     sbOut.textContent = "out " + fmtNum(u.output);
     const inp = Number(u.input) || 0;
@@ -399,6 +409,12 @@
     }
     if (data.kind === "modelLimits") {
       modelLimits = data.payload ?? {};
+      return;
+    }
+    if (data.kind === "cwd") {
+      const p = String(data.payload ?? "");
+      footCwd.textContent = shortenPath(p, 40);
+      footCwd.title = p;
       return;
     }
     if (data.kind === "agentState") {
