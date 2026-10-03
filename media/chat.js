@@ -591,6 +591,47 @@ ${s.path}`;
     box.appendChild(copy);
     return box;
   }
+  function refreshForkButtons() {
+    const wraps = Array.from(messagesEl.querySelectorAll(".bubble-wrap"));
+    const groupTail = /* @__PURE__ */ new Map();
+    let userCount = 0;
+    for (const w of wraps) {
+      if (w.classList.contains("user")) {
+        userCount++;
+        continue;
+      }
+      if (w.classList.contains("text") || w.classList.contains("thinking") || w.classList.contains("tool")) {
+        groupTail.set(userCount, w);
+      }
+    }
+    const totalUsers = userCount;
+    for (const [n, w] of groupTail) {
+      if (n >= totalUsers) continue;
+      if (w.querySelector(".bubble-action-fork")) continue;
+      const box = w.querySelector(".bubble-actions");
+      if (box) addForkButtons(box, n);
+    }
+  }
+  function addForkButtons(box, afterUserCount) {
+    const clone = document.createElement("button");
+    clone.className = "bubble-action bubble-action-clone";
+    clone.textContent = "\u514B\u9686";
+    clone.title = "\u514B\u9686\u6574\u4E2A\u4F1A\u8BDD\uFF08\u4ECE\u7B2C\u4E00\u6761\u6D88\u606F\u5F00\u59CB\u590D\u5236\u6210\u4E00\u4E2A\u65B0\u4F1A\u8BDD\uFF09";
+    clone.addEventListener("click", () => {
+      clone.textContent = "\u514B\u9686\u4E2D\u2026";
+      post("cloneSession");
+    });
+    const fork = document.createElement("button");
+    fork.className = "bubble-action bubble-action-fork";
+    fork.textContent = "\u5206\u53C9";
+    fork.title = "\u4ECE\u8FD9\u91CC\u5206\u53C9\uFF1A\u4FDD\u7559\u8FD9\u6761\u6D88\u606F\u53CA\u5176\u4E4B\u524D\u7684\u6240\u6709\u5185\u5BB9\uFF0C\u4E4B\u540E\u7684\u5185\u5BB9\u4E22\u5F03";
+    fork.addEventListener("click", () => {
+      fork.textContent = "\u5206\u53C9\u4E2D\u2026";
+      post("forkSession", { userIndex: afterUserCount });
+    });
+    box.appendChild(clone);
+    box.appendChild(fork);
+  }
   var CARET_SVG = '<svg class="head-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
   function createHead(labelText, onToggle) {
     const head = document.createElement("div");
@@ -644,6 +685,7 @@ ${s.path}`;
     div.appendChild(head);
     div.appendChild(body);
     wrap.appendChild(div);
+    wrap.appendChild(makeActions(div));
     messagesEl.appendChild(wrap);
     scrollToBottom();
     ui.lastThinkBubble = div;
@@ -696,6 +738,7 @@ ${s.path}`;
     div.appendChild(head);
     div.appendChild(body);
     wrap.appendChild(div);
+    wrap.appendChild(makeActions(div));
     messagesEl.appendChild(wrap);
     ui.bubble = div;
     scrollToBottom();
@@ -1132,9 +1175,11 @@ ${s.path}`;
         }
         case "snapshot":
           replaySnapshot(data.payload);
+          refreshForkButtons();
           return;
         case "patch":
           applyPatch(data.payload ?? {});
+          refreshForkButtons();
           return;
         case "toggleNotices":
           setExpanded();

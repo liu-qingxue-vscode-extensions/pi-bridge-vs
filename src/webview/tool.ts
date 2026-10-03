@@ -10,7 +10,7 @@
  */
 import { messagesEl } from "./dom.js";
 import { ui } from "./state.js";
-import { CARET_SVG, createHead, scrollToBottom } from "./bubbles.js";
+import { CARET_SVG, createHead, makeActions, scrollToBottom } from "./bubbles.js";
 
 /** 新建工具气泡（外框 + 上半调用 + 下半结果占位）
  *
@@ -45,6 +45,9 @@ export function createToolBubble(callId: string, toolName?: string): HTMLElement
     div.appendChild(head);
     div.appendChild(body);
     wrap.appendChild(div);
+    // ★ 动作区（用户实测报的：工具气泡也要有克隆/分叉 ✓）
+    //   是不是“组尾”由 refreshForkButtons 事后判 ✓
+    wrap.appendChild(makeActions(div));
     messagesEl.appendChild(wrap);
     ui.bubble = div;
     scrollToBottom();

@@ -34,6 +34,12 @@ export type FrontendMessage =
     | { kind: "refreshSessions" }
     // ★ 切换会话（同 cwd → 直接切；跨 cwd → 宿主会先重载 ✓）
     | { kind: "switchSession"; path: string; cwd: string }
+    // ★ 克隆会话（B19）：整个会话复制成一个新文件 ✓ 无参数 ✓ 本地处理（不发 pi）
+    | { kind: "cloneSession" }
+    // ★ 分叉（B19）：从【某个 AI 组末尾】切一刀 ✓
+    //   userIndex = 该气泡前面有【几个】用户气泡（= get_fork_messages 的下标 ✓）
+    //   ★ 注意：这不是“第几条用户消息”，而是【锚点下标】✓ 见 main.ts 的实现 ✓
+    | { kind: "forkSession"; payload: { userIndex: number } }
     // ★ 点输入区下方的 cwd → 改工作目录（宿主弹原生输入框 ✓）
     | { kind: "changeCwd" }
     // 以后在这里增加，例如：

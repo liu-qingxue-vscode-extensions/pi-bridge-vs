@@ -295,6 +295,17 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
+            // ★ 克隆 / 分叉（B19）—— 都是本地处理（不走 formatMap ✓）
+            //
+            // 【为什么要在宿主侧做而不是前端直接发？】
+            //   ① 分叉需要【先取 get_fork_messages】拿到 entryId ✗
+            //      → 前端不知道 entryId ✓（get_messages 不返回 id ✓ 实测确认 ✓）
+            //   ② 切完会话要【重放历史 + 刷新列表 + 改标题】✗ 这些都是宿主能力 ✓
+            if (msg.kind === "cloneSession" || msg.kind === "forkSession") {
+                await doSessionBranch(msg);
+                return;
+            }
+
             // ★ 改工作目录（cwd 是启动参数 → 必须重启子进程才生效 ✓）
             //
             // 【为什么用宿主弹原生输入框？】
@@ -477,8 +488,76 @@ export function activate(context: vscode.ExtensionContext): void {
     //
     // 数据源：pi 的 get_messages ✓
     //   ★ 它返回的 message 结构与事件流里的一致 → 直接复用我们的气泡逻辑 ✓
-    async function replaySessionMessages(): Promise<void> {
-        const resp = (await pi.sendRaw({ type: "get_messages" })) as {
+    /**
+     * ★ 克隆 / 分叉会话（B19）
+     *
+     * 【clone】无参数 ✓ 整会话复制成一个新文件 ✓ pi 会【自动切过去】✓
+     * 【fork】 需要一个 entryId ✓ 但它是【用户消息】的 id ✗ 不是气泡的 ✗
+     *
+     *   ★ 用户的比喻：气泡底下那把按钮“就像一把刀，切一刀，前面的保留”✓
+     *   → 刀挂在【某个 AI 气泡】下面（该 AI 组的末尾 ✓）
+     *   → 要保留到它为止 → 需要【它后面那条用户消息】作锚点 ✓
+     *   → 而前端的 userIndex 就是“这个气泡前面有几个用户气泡”✓
+     *     = 那个锚点的下标 ✓（0-based ✓ 正好就是 get_fork_messages 的下标 ✓）
+     *
+     *   ★ 最后一组【没有下一个用户气泡】→ 前端不会给它加按钮 ✓（正好 ✓）
+     *
+     * 【为什么每次都重新取 get_fork_messages？】
+     *   fork 之后【旧 entryId 会失效】✗（实测确认 ✓）
+     *   → 不能缓存，每次现取 ✓
+     */
+    async function doSessionBranch(
+        msg: { kind: "cloneSession" } | { kind: "forkSession"; payload: { userIndex: number } },
+    ): Promise<void> {
+        const isFork = msg.kind === "forkSession";
+        const label = isFork ? "分叉" : "克隆";
+        try {
+            const cmd: Record<string, unknown> = { type: isFork ? "fork" : "clone" };
+            if (isFork) {
+                const fm = (await pi.sendRaw({ type: "get_fork_messages" })) as {
+                    data?: { messages?: { entryId: string; text: string }[] };
+                };
+                const list = fm?.data?.messages ?? [];
+                const target = list[msg.payload.userIndex];
+                if (!target) {
+                    logWarn(`分叉失败：没有下标为 ${msg.payload.userIndex} 的用户消息（共 ${list.length} 条）`);
+                    void vscode.window.showWarningMessage("分叉失败：找不到对应的分界点");
+                    return;
+                }
+                logInfo(`分叉锚点 [${msg.payload.userIndex}]：${target.text.slice(0, 40)}`);
+                cmd.entryId = target.entryId;
+            }
+
+            const res = (await pi.sendRaw(cmd as never)) as {
+                success?: boolean;
+                data?: { cancelled?: boolean };
+                error?: string;
+            };
+            if (res?.success === false) throw new Error(res.error ?? "未知错误");
+            if (res?.data?.cancelled) {
+                logInfo(`${label}被取消`);
+                return;
+            }
+
+            // ★ 切到了新会话（自动的 ✓）→ 和 switchSession 一样收尾 ✓
+            chatState.reset();
+            await replaySessionMessages();
+            chatState.clearNotices();
+            chatView.post("cwd", pi.getCwd());
+            chatView.post("noticesCleared", true);
+            chatView.post("snapshot", chatState.snapshot());
+            // ★ 列表要重扫：新文件刚生成 ✓
+            await postSessionList();
+            void pushCurrentSessionTitle();
+            logInfo(`${label}完成`);
+            void vscode.window.showInformationMessage(`已${label}为新会话`);
+        } catch (err) {
+            logError(`${label}失败: ${toErrorMessage(err)}`);
+            void vscode.window.showErrorMessage(`${label}失败：${toErrorMessage(err)}`);
+        }
+    }
+
+    async function replaySessionMessages(): Promise<void> {        const resp = (await pi.sendRaw({ type: "get_messages" })) as {
             data?: { messages?: ReplayMessage[] };
         };
         const messages = resp?.data?.messages;

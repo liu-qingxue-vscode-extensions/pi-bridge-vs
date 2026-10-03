@@ -71,7 +71,11 @@
     user-select: none;
 }
 .bubble-wrap:hover .bubble-actions { opacity: 1; }
+/* ★ 空动作区不占位（思考/工具气泡都建了动作区 ✗ 但非组尾时是空的 ✓）*/
+.bubble-actions:empty { display: none; }
 /* ★ 用户气泡：动作区【右对齐】（左到右第一个也是复制 ✓ 靠右端 ✓）*/
+/* ★ 用户气泡单独调右对齐（用户定的 ✓）
+   它只有【复制】✗ 没有克隆/分叉（那两个只属于 AI 组末尾 ✓ 由 refreshForkButtons 控制 ✓）*/
 .bubble-wrap.user .bubble-actions { justify-content: flex-end; }
 
 .bubble-action {

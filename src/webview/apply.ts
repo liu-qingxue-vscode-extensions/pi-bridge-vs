@@ -15,8 +15,7 @@
  */
 import { messagesEl } from "./dom.js";
 import { ui } from "./state.js";
-import { createBubble, removePending, showPending } from "./bubbles.js";
-import { appendSegment } from "./segments.js";
+import { createBubble, refreshForkButtons, removePending, showPending } from "./bubbles.js";import { appendSegment } from "./segments.js";
 import { createThinkingBubble, markThinkDone } from "./thinking.js";
 import { createToolBubble, ensureResultHost, markStreamingDone, renderArgs, renderResultParts, setToolState } from "./tool.js";
 import { appendStopNote, showRetryNotice } from "./notices.js";
@@ -336,9 +335,13 @@ export function setupHostBridge(): void {
             }
             case "snapshot":
                 replaySnapshot(data.payload);
+                // ★ 重建完后补上“分叉刀”（每条 AI 组的末尾一把 ✓）
+                refreshForkButtons();
                 return;
             case "patch":
                 applyPatch((data.payload ?? {}) as Record<string, unknown>);
+                // ★ 每批增量后扫一次（幂等 ✓ 新到的用户消息会把上一组的刀补上 ✓）
+                refreshForkButtons();
                 return;
             case "toggleNotices":
                 setExpanded();

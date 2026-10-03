@@ -7,7 +7,7 @@
  */
 import { messagesEl } from "./dom.js";
 import { ui } from "./state.js";
-import { createHead, scrollToBottom } from "./bubbles.js";
+import { createHead, makeActions, scrollToBottom } from "./bubbles.js";
 
 /** 建思考气泡（可折叠：点头部切展开/收起） */
 export function createThinkingBubble(label?: string): HTMLElement {
@@ -29,6 +29,9 @@ export function createThinkingBubble(label?: string): HTMLElement {
     div.appendChild(head);
     div.appendChild(body);
     wrap.appendChild(div);
+    // ★ 动作区（用户实测报的：思考气泡也要有克隆/分叉 ✓）
+    //   它是不是“组尾”由 refreshForkButtons 事后判定 ✓
+    wrap.appendChild(makeActions(div));
     messagesEl.appendChild(wrap);
     scrollToBottom();
     ui.lastThinkBubble = div; // ★ 记气泡本体（改文案时用 ✓）
