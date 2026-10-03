@@ -19,6 +19,7 @@
  *   ★ 数据从哪来？打开面板时向宿主要（listSessions ✓）—— 不预先扫描 ✗
  */
 import { vscode, log } from "./vscode-api.js";
+import { showContextMenu } from "./context-menu.js";
 import {
     btnSessions,
     btnNewSession,
@@ -240,6 +241,44 @@ export function renderSessions(list: SessionInfo[]): void {
                 vscode.postMessage({ kind: "switchSession", path: s.path, cwd: key });
                 // ★ 切换后【立刻收起面板】（用户要求 ✓）
                 setSessionsExpanded(false);
+            });
+            // ★ 右键菜单（B21）：删除 / 重命名 / 复制路径
+            //
+            // 【注意：注意不要和【click】打架 ✗】
+            //   · contextmenu 不会触发 click ✓（右键与左键是不同事件 ✓）
+            //   · 但【右键后点菜单项】会先触发 document 的 click ✓（用来关菜单 ✓）
+            //     → 菜单项自己的 handler 已经 stopPropagation 了 ✓ 不会重复 ✓
+            //
+            // 【为什么要有【重命名】？】
+            //   · 它原本在按钮行上（改【当前】会话 ✓）
+            //   · 而右键的是【任意一条】✓ → 后端必须支持“改指定会话”✓
+            //     （set_session_name 只能改当前的 ✗ → 见 main.ts 的说明 ✓）
+            //   · ★ 第一版先只上【删除】+【复制路径】✗
+            //     重命名还是放按钮行（改当前的 ✓ 语义清楚 ✓）
+            row.addEventListener("contextmenu", (ev) => {
+                showContextMenu(ev, [
+                    {
+                        label: "导出会话…",
+                        onClick: () =>
+                            vscode.postMessage({ kind: "exportSession", path: s.path, name: s.name }),
+                    },
+                    {
+                        // ★ 导入其实是“对目录”的操作 ✗ 不依赖具体哪条会话 ✓
+                        //   放在右键单里只是因为这里最顺手 ✓（用户定的 ✓）
+                        label: "导入会话…",
+                        onClick: () => vscode.postMessage({ kind: "importSession" }),
+                    },
+                    {
+                        label: "复制路径",
+                        onClick: () => void navigator.clipboard.writeText(s.path),
+                    },
+                    {
+                        label: "删除会话",
+                        danger: true,
+                        onClick: () =>
+                            vscode.postMessage({ kind: "deleteSession", path: s.path, name: s.name }),
+                    },
+                ]);
             });
             body.appendChild(row);
         }

@@ -25,6 +25,8 @@
  *   而且只对【新目录】读 → 一次性成本 ✓ 之后恒为 0 ✓
  */
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import * as vscode from "vscode";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -403,5 +405,134 @@ export class SessionStore {
             `[sessions] 刷新完成：${files.length} 个文件 / ${named} 有名字 / ${broken} 异常`,
         );
         return { total: files.length, named, broken };
+    }
+}
+
+/**
+ * ★ 删除一个会话文件（B21）
+ *
+ * 【为什么在扩展里做，而不是发 RPC？】
+ *   官方【没有】delete_session 命令 ✗（42 个命令里没它 ✓）
+ *   而 TUI 里能删 ✓ → 因为它是【前端自己删文件】✓
+ *   （照抄 dist/modes/interactive/components/session-selector.js:541 ✓）
+ *
+ * 【为什么先试 trash？】
+ *   会话是用户的劳动成果 ✓ 直接 unlink 会让误触无法挽回 ✗
+ *   → 先进回收站 ✓ 没装才回落 unlink（并在 UI 上如实说“永久删除”✓）
+ *
+ * ★ 比官方 TUI 【多做了什么】（B21 实测发现 ✓）：
+ *   官方只试了 `trash` 一个命令 ✗
+ *   而用户的 CachyOS（KDE）上【没装 trash-cli】✗ 只有 `gio` ✓
+ *   → 照搬官方的话会直接 unlink（永删 ⚠）用户却以为进了回收站 ✗☠
+ *   → 所以我们【多试几个候选】：trash → gio trash → unlink ✓
+ *
+ * 【注意】
+ *   · 调用方必须先做【当前会话保护】和【二次确认】✗（本函数不做 ✗）
+ *   · 返回 method 让调用方能【如实告知】到底发生了什么 ✓
+ */
+export async function deleteSessionFile(
+    filePath: string,
+): Promise<
+    { ok: true; method: "trash" | "gio" | "unlink" } | { ok: false; error: string }
+> {
+    // ① `trash`（trash-cli 包 ✓ 路径以 - 开头会被当选项 ✗ → 用 -- 断开 ✓）
+    const t = filePath.startsWith("-") ? ["--", filePath] : [filePath];
+    const trash = spawnSync("trash", t, { encoding: "utf-8" });
+    if (trash.status === 0) return { ok: true, method: "trash" };
+    // 没装（ENOENT）或文件已被处理 ✓ → 继续试下一个
+    if (!existsSync(filePath)) return { ok: true, method: "trash" };
+
+    // ② `gio trash`（GLib ✓ 大多数桌面环境都有 ✓ 你的机器就是走这条 ✓）
+    const gio = spawnSync("gio", ["trash", filePath], { encoding: "utf-8" });
+    if (gio.status === 0) return { ok: true, method: "gio" };
+    if (!existsSync(filePath)) return { ok: true, method: "gio" };
+
+    // ③ 回落：真删（⚠ 不可恢复 ✓ 所以调用方必须已二次确认 ✓）
+    try {
+        await fs.unlink(filePath);
+        return { ok: true, method: "unlink" };
+    } catch (err) {
+        const unlinkErr = err instanceof Error ? err.message : String(err);
+        const hints = [
+            trash.error?.message ?? trash.stderr?.trim().split("\n")[0],
+            gio.error?.message ?? gio.stderr?.trim().split("\n")[0],
+        ].filter(Boolean);
+        return {
+            ok: false,
+            error: hints.length ? `${unlinkErr}（trash/gio: ${hints.join(" · ")}）` : unlinkErr,
+        };
+    }
+}
+
+/**
+ * ★ 把 cwd 映射成它在 sessions 下的目录名（B21，导入会话要用 ✓）
+ *
+ * 【规则来源】照抄 pi 自己（dist/core/session-manager.js:242 getDefaultSessionDirPath ✓）
+ *   safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`
+ *   例：/home/liuqingxue          → --home-liuqingxue--
+ *       /home/liuqingxue/Docs/简历 → --home-liuqingxue-Docs-简历--
+ *
+ * 【为什么自己不 import 那个函数？】
+ *   它只从 dist/core/session-manager.js 导出 ✗ 不在包主入口 ✓
+ *   走内部路径 import 会【随版本升级而断】✗
+ *   而这条规则【极简且稳定】✓ → 自己实现 + 注明来源更方便日后核对 ✓
+ */
+export function sessionDirForCwd(cwd: string): string {
+    const safe = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+    return path.join(getAgentDir(), "sessions", safe);
+}
+
+/**
+ * ★ 校验一个文件像不像【pi 的会话文件】（B21 导入时的拦截 ✓）
+ *
+ * 【为什么必须拦？】（用户：“不检验一下，不拦一下吗？”✓）
+ *   导入的是【外部文件】✗ 可能是任意 jsonl（日志 / 别的工具导出 ✓）
+ *   放进去就是一条【切不过去、又得手动删】的垃圾条目 ✗
+ *   （切换时 pi 会报 "Session file is not a valid pi session" ✓）
+ *   → 宁可在入库前拒掉 ✓ 并说清原因 ✓
+ *
+ * 【判定规则（宽松但足够）】
+ *   ① 后缀是 .jsonl ✓
+ *   ② 非空文件 ✓
+ *   ③ ★ 首行是合法 JSON 且 type === "session" ✓
+ *      （实测：pi 自己写的会话文件【第一行必是 session 头】✓
+ *        带 cwd / id / timestamp / version 字段 ✓）
+ *
+ * 【为什么不逐行全验？】
+ *   会话文件可能 10MB+ ✗ 全读太贵 ✓
+ *   而首行是 header ✓ 它对了基本就对了 ✓
+ *   （真损坏的会在切换时被 pi 自己挡下 ✓）
+ */
+export async function validateSessionFile(
+    filePath: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+    if (!filePath.toLowerCase().endsWith(".jsonl")) {
+        return { ok: false, reason: "不是 .jsonl 文件" };
+    }
+    let fh: fs.FileHandle | undefined;
+    try {
+        const st = await fs.stat(filePath);
+        if (st.size === 0) return { ok: false, reason: "文件是空的" };
+        fh = await fs.open(filePath, "r");
+        const buf = Buffer.alloc(8192);
+        const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
+        const head = buf.subarray(0, bytesRead).toString("utf8");
+        const firstLine = head.split("\n")[0]?.trim();
+        if (!firstLine) return { ok: false, reason: "首行是空的" };
+        let obj: unknown;
+        try {
+            obj = JSON.parse(firstLine);
+        } catch {
+            return { ok: false, reason: "首行不是合法的 JSON" };
+        }
+        const type = (obj as { type?: unknown })?.type;
+        if (type !== "session") {
+            return { ok: false, reason: `首行的 type 是「${String(type)}」，pi 会话应该是 "session"` };
+        }
+        return { ok: true };
+    } catch (err) {
+        return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    } finally {
+        await fh?.close();
     }
 }

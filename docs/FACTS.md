@@ -225,6 +225,41 @@ tool_execution_start { toolCallId, toolName: "read", args }
    （顺带：syncPadding() 用 inputAreaEl.offsetHeight ✓ 会自动跟着涨 ✓）
 ```
 
+### 5. ★ VS Code QuickPick 的 `disabled` 是【假禁用】✗
+
+```
+现象：QuickPickItem.disabled = true → 项目【确实变灰】✓
+      但用户【依然能点进去并确认】✗（onDidAccept 照常触发 ✓）
+
+★ 铁律：UI 的禁用【永远不可信】✗ —— 它只是装饰 ✓
+      真正的约束【必须在逻辑层再校验一次】✗（踩过：导出 HTML ✓）
+★ 对比：HTML button 的 disabled ✓ 浏览器会真的拦 click ✓（可信 ✓）
+```
+
+### 6. pi 会话目录的转义规则（导入/定位会话要用 ✓）
+
+```js
+// 来源：pi 的 dist/core/session-manager.js:242 getDefaultSessionDirPath
+const safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+// /home/liuqingxue          → --home-liuqingxue--
+// /home/liuqingxue/Docs/简历 → --home-liuqingxue-Docs-简历--
+
+★ pi 扇描会话目录的规则【只看后缀】✗：f.endsWith(".jsonl") ✓
+  → 文件名格式不重要 ✓ 导入导出就是纯文件复制 ✓
+```
+
+### 7. pi 【没有】删除 / 导入会话的 RPC 接口 ✗
+
+```
+· delete_session  ✗ 不存在（TUI 里是前端自己删文件 ✓）
+· import_*       ✗ 不存在
+· export_html    ✓ 有，但★【只能导当前会话】✗（不接受 sessionPath ✓）
+
+★ 删除要自己实现，且注意：
+ 官方只试 `trash` ✗ → 没装就 unlink 永删 ⚠
+ 而很多机器（如 KDE）只有 `gio trash` ✓ → 要多级回退 ✓
+```
+
 ## 已解决的重大外部问题（存档）
 
 ### 会话文件断链（2026-09-30 定位）

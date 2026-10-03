@@ -383,6 +383,44 @@
     noticeCollapse.addEventListener("pointercancel", stop);
   }
 
+  // src/webview/context-menu.ts
+  var menuEl = null;
+  function hideContextMenu() {
+    menuEl?.remove();
+    menuEl = null;
+  }
+  function showContextMenu(ev, items) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    hideContextMenu();
+    const m = document.createElement("div");
+    m.className = "ctx-menu";
+    for (const it of items) {
+      const b = document.createElement("button");
+      b.className = "ctx-item" + (it.danger ? " danger" : "");
+      b.textContent = it.label;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        hideContextMenu();
+        it.onClick();
+      });
+      m.appendChild(b);
+    }
+    document.body.appendChild(m);
+    const r = m.getBoundingClientRect();
+    const maxX = window.innerWidth - r.width - 6;
+    const maxY = window.innerHeight - r.height - 6;
+    m.style.left = Math.max(4, Math.min(ev.clientX, maxX)) + "px";
+    m.style.top = Math.max(4, Math.min(ev.clientY, maxY)) + "px";
+    menuEl = m;
+  }
+  document.addEventListener("click", hideContextMenu);
+  document.addEventListener("contextmenu", hideContextMenu);
+  window.addEventListener("blur", hideContextMenu);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hideContextMenu();
+  });
+
   // src/webview/sessions.ts
   var expanded = false;
   var currentCwd = "";
@@ -516,6 +554,29 @@ ${s.path}`;
         row.addEventListener("click", () => {
           vscode.postMessage({ kind: "switchSession", path: s.path, cwd: key });
           setSessionsExpanded(false);
+        });
+        row.addEventListener("contextmenu", (ev) => {
+          showContextMenu(ev, [
+            {
+              label: "\u5BFC\u51FA\u4F1A\u8BDD\u2026",
+              onClick: () => vscode.postMessage({ kind: "exportSession", path: s.path, name: s.name })
+            },
+            {
+              // ★ 导入其实是“对目录”的操作 ✗ 不依赖具体哪条会话 ✓
+              //   放在右键单里只是因为这里最顺手 ✓（用户定的 ✓）
+              label: "\u5BFC\u5165\u4F1A\u8BDD\u2026",
+              onClick: () => vscode.postMessage({ kind: "importSession" })
+            },
+            {
+              label: "\u590D\u5236\u8DEF\u5F84",
+              onClick: () => void navigator.clipboard.writeText(s.path)
+            },
+            {
+              label: "\u5220\u9664\u4F1A\u8BDD",
+              danger: true,
+              onClick: () => vscode.postMessage({ kind: "deleteSession", path: s.path, name: s.name })
+            }
+          ]);
         });
         body.appendChild(row);
       }

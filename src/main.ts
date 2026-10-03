@@ -27,7 +27,8 @@
 import * as vscode from "vscode";
 import os from "node:os";
 import path from "node:path";
-import fs from "node:fs";
+import fs, { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
 import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
@@ -35,7 +36,7 @@ import { ChatView } from "./view/chat-view.js";
 import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
 import { toChatPatch } from "./bridge/format-backend.js";
 import { messagesToPatches, type ReplayMessage } from "./bridge/replay.js";
-import { SessionStore } from "./pi/session-store.js";
+import { SessionStore, deleteSessionFile, sessionDirForCwd, validateSessionFile } from "./pi/session-store.js";
 import { ChatState } from "./view/chat-state.js";
 import { toErrorMessage } from "./utils.js";
 
@@ -330,6 +331,39 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
+            // ★ 删除会话（B21）
+            //
+            // 【为什么【没有】走 pi 的 RPC？】
+            //   查过官方源码：不存在 delete_session 命令 ✗
+            //   而 TUI 里能删 ✓ → 它是【前端自己删文件】✓
+            //   （dist/modes/interactive/components/session-selector.js:541 ✓）
+            //
+            // 【为什么照拄它而不是直接 unlink？】
+            //   ① ★ 先试 `trash` CLI → 文件夹进回收站 ✓【可恢复】✓
+            //      失败（没装 trash）才回落 unlink（永删 ⚠）
+            //   ② 屏幕报回方法（trash / unlink ✓）让用户知道能不能找回 ✓
+            //
+            // 【两个保护（官方也有 ✓）】
+            //   · 不能删【当前会话】✗（删了 pi 进程还抱着它 ✓ 会出怪事 ✓）
+            //   · 必须二次确认 ✗（用原生 modal ✗ 而不是自绘 ✓ 更不容错 ✓）
+            if (msg.kind === "deleteSession") {
+                await doDeleteSession(msg.path, msg.name);
+                return;
+            }
+
+            // ★ 导出会话（B21）：把文件复制到用户选定的位置 ✓
+            //   注意：导出【不动】原文件 ✓ 只是复制 ✓
+            if (msg.kind === "exportSession") {
+                await doExportSession(msg.path, msg.name);
+                return;
+            }
+
+            // ★ 导入会话（B21）：外部 .jsonl → 当前 cwd 的会话目录 ✓
+            if (msg.kind === "importSession") {
+                await doImportSession();
+                return;
+            }
+
             // ★ 改工作目录（cwd 是启动参数 → 必须重启子进程才生效 ✓）
             //
             // 【为什么用宿主弹原生输入框？】
@@ -607,6 +641,214 @@ export function activate(context: vscode.ExtensionContext): void {
         }
     }
 
+    /**
+     * ★ 删除一个会话文件（B21）
+     *
+     * 【流程（照拄官方 TUI ✓ 见 B21 文档）】
+     *   ① 保护：它是不是【当前会话】？→ 是就拒 ✓
+     *   ② 保护：它存不存在 / 是不是会话文件？✓
+     *   ③ 二次确认（原生 modal ✓）
+     *   ④ 执行：trash ✓ → 回落 unlink ✓
+     *   ⑤ 刷新列表（后端直接扫 ✓ 不等前端 ⟳）
+     */
+    async function doDeleteSession(filePath: string, name?: string): Promise<void> {
+        const label = name ?? filePath.split("/").pop() ?? filePath;
+        try {
+            // ① 不能删当前会话 ✗
+            //   （pi 还拿着它的句柄 ✓ 删掉之后切回/重放会出怪事 ✓）
+            if (pi.isStarted()) {
+                const st = (await pi.sendRaw({ type: "get_state" })) as {
+                    data?: { sessionFile?: unknown };
+                };
+                const cur = st?.data?.sessionFile;
+                if (typeof cur === "string" && cur && resolve(cur) === resolve(filePath)) {
+                    void vscode.window.showWarningMessage(
+                        "不能删除当前正在使用的会话（先切到别的会话再删 ✓）",
+                    );
+                    return;
+                }
+            }
+
+            // ② 存在性 + ③ 二次确认
+            if (!existsSync(filePath)) {
+                void vscode.window.showErrorMessage("找不到该会话文件（可能已经被删了）");
+                await postSessionList();
+                return;
+            }
+            const pick = await vscode.window.showWarningMessage(
+                `确定删除会话「${label}」？`,
+                {
+                    modal: true,
+                    detail: `${filePath}\n\n会先尝试移到回收站（trash / gio ✓）；如果都没有才会永久删除 ⚠`,
+                },
+                "删除",
+            );
+            if (pick !== "删除") {
+                logInfo("删除会话：用户取消");
+                return;
+            }
+
+            // ④ 执行（trash 优先 → unlink 回落 ✓）
+            const result = await deleteSessionFile(filePath);
+            if (!result.ok) {
+                logError(`删除会话失败: ${result.error}`);
+                void vscode.window.showErrorMessage(`删除失败：${result.error}`);
+                return;
+            }
+            logInfo(`已删除会话（${result.method}）：${filePath}`);
+            void vscode.window.showInformationMessage(
+                result.method === "unlink"
+                    ? "会话已永久删除（系统没有可用的回收站命令 ⚠）"
+                    : `会话已移到回收站 ✓（${result.method}）`,
+            );
+
+            // ⑤ 列表刷新（后端自己扫 ✓）
+            await postSessionList();
+        } catch (err) {
+            logError(`删除会话异常: ${toErrorMessage(err)}`);
+            void vscode.window.showErrorMessage(`删除失败：${toErrorMessage(err)}`);
+        }
+    }
+
+    /**
+     * ★ 导出会话（B21）
+     *
+     * 【为什么是“格式选择 + 保存路径”两步？】
+     *   · jsonl 与 html 【不是平权的】✗：
+     *       jsonl → 任意会话都能导 ✓（纯文件复制 ✓）
+     *       html  → ★ 只能导【当前会话】✗（export_html 不接受 sessionPath ✗）
+     *   · 而这个差别【必须说清楚】✗ → 自绘菜单写不下 ✓
+     *   → 用原生 QuickPick（能带描述文字 ✓）而不是两个菜单项 ✓
+     */
+    async function doExportSession(filePath: string, name?: string): Promise<void> {
+        if (!existsSync(filePath)) {
+            void vscode.window.showErrorMessage("找不到该会话文件");
+            await postSessionList();
+            return;
+        }
+
+        // ★ 它是不是当前会话？（决定 html 那条路能不能走 ✓）
+        const cur = await currentSessionFile();
+        const isCurrent = !!cur && resolve(cur) === resolve(filePath);
+        const base = (name ?? filePath.split("/").pop() ?? "session").replace(/[\\/:*?"<>|]/g, "_");
+
+        const pick = await vscode.window.showQuickPick(
+            [
+                {
+                    label: "$(json) 导出为 JSONL",
+                    detail: "原始记录，可以再导入回 pi（任意会话都可导 ✓）",
+                    fmt: "jsonl" as const,
+                },
+                {
+                    label: "$(file-media) 导出为 HTML",
+                    detail: isCurrent
+                        ? "可读、可分享的单页（带当前主题 ✓）"
+                        : "★ 只能导出【当前正在使用的会话】✗ 这一条现在不可用",
+                    fmt: "html" as const,
+                    disabled: !isCurrent,
+                },
+            ],
+            { title: `导出会话「${base}」`, placeHolder: "选择格式" },
+        );
+        if (!pick) return;
+
+        if (pick.fmt === "jsonl") {
+            const target = await vscode.window.showSaveDialog({
+                title: "导出会话（JSONL）",
+                defaultUri: vscode.Uri.file(`${base}.jsonl`),
+                filters: { "pi 会话": ["jsonl"] },
+            });
+            if (!target) return;
+            await fs.promises.copyFile(filePath, target.fsPath);
+            logInfo(`导出会话（jsonl）：${filePath} → ${target.fsPath}`);
+            void vscode.window.showInformationMessage(`已导出到 ${target.fsPath}`, "打开所在目录").then(
+                (p) => {
+                    if (p) void vscode.commands.executeCommand("revealFileInOS", target);
+                },
+            );
+            return;
+        }
+
+        // html（只能用 pi 的命令 ✓ 且只限当前会话 ✓）
+        //
+        // ★★ 这里必须【自己再拦一次】✗（不能只靠 QuickPick 的 disabled ✗）
+        //   实测：disabled 只影响视觉 ✓ 用户【依然能点进去】✗
+        //     → 于是弹了保存框 → 选完路径 → 导出的是【当前会话】而不是右键那条 ✗
+        //       （用户看到的就是“流程走完了但文件没出现/不对”✗）
+        //   ★ 教训：UI 的禁用【永远不可信】✗ 真正的约束必须在逻辑层 ✓
+        if (!isCurrent) {
+            logWarn("导出 HTML 被拒：不是当前会话");
+            void vscode.window.showWarningMessage(
+                "HTML 只能导出【当前正在使用的会话】✗\n先切到它，再导出 ✓",
+            );
+            return;
+        }
+        const target = await vscode.window.showSaveDialog({
+            title: "导出会话（HTML）",
+            defaultUri: vscode.Uri.file(`${base}.html`),
+            filters: { HTML: ["html"] },
+        });
+        if (!target) return;
+        // ★ pi 需要【懒启动】✗ —— export_html 得会话在跑才行 ✓
+        const r = (await pi.sendRaw({
+            type: "export_html",
+            outputPath: target.fsPath,
+        })) as { success?: boolean; error?: string };
+        if (r?.success === false) {
+            void vscode.window.showErrorMessage(`导出失败：${r.error ?? "未知错误"}`);
+            return;
+        }
+        logInfo(`导出会话（html）：${target.fsPath}`);
+        void vscode.window.showInformationMessage(`已导出到 ${target.fsPath}`);
+    }
+
+    /**
+     * ★ 导入会话（B21）
+     *
+     * 【pi 完全没这个接口】✗（实测：无 import_session ✗）→ 只能自己做 ✓
+     *
+     * 【为什么要校验？】（用户：“不检验一下，不拦一下吗？”✓）
+     *   · 导入的是【外部文件】✗ 可能是别的东西（普通 jsonl / 日志 / 导出错的 ✓）
+     *   · 不拦的话，它会成为一个进不去又删不掉的【垃圾条目】✗
+     *     （切过去会报 Session file is not a valid pi session ✓）
+     *   → ★ 入库前先验明：它到底是不是 pi 的会话文件 ✓
+     *
+     * 【放哪个目录？】
+     *   当前 cwd 对应的会话目录 ✓（理由见 format-frontend.ts 的注释 ✓）
+     */
+    async function doImportSession(): Promise<void> {
+        const picks = await vscode.window.showOpenDialog({
+            title: "导入会话（选择一个 pi 会话 .jsonl）",
+            canSelectMany: false,
+            filters: { "pi 会话": ["jsonl"] },
+        });
+        if (!picks?.length) return;
+        const src = picks[0].fsPath;
+
+        // ★ 入库前校验（不做的话会造出“垃圾会话”✗）
+        const check = await validateSessionFile(src);
+        if (!check.ok) {
+            logWarn(`导入被拒：${check.reason}`);
+            void vscode.window.showErrorMessage(`这不是一个可用的 pi 会话文件：${check.reason}`);
+            return;
+        }
+
+        // 目标：当前 cwd 的会话目录 ✓
+        const dir = sessionDirForCwd(pi.getCwd());
+        await fs.promises.mkdir(dir, { recursive: true });
+        let target = path.join(dir, path.basename(src));
+        // ★ 同名不覆盖 ✗（避免把已有会话干掉 ✓）→ 加后缀 ✓
+        if (existsSync(target)) {
+            const short = `${Date.now().toString(36)}`;
+            target = path.join(dir, path.basename(src).replace(/\.jsonl$/, `-${short}.jsonl`));
+        }
+        await fs.promises.copyFile(src, target);
+        logInfo(`导入会话：${src} → ${target}`);
+
+        await postSessionList();
+        void vscode.window.showInformationMessage(`已导入到当前工作目录的会话列表 ✓`);
+    }
+
     async function replaySessionMessages(): Promise<void> {        const resp = (await pi.sendRaw({ type: "get_messages" })) as {
             data?: { messages?: ReplayMessage[] };
         };
@@ -628,6 +870,30 @@ export function activate(context: vscode.ExtensionContext): void {
     //   问 pi 的 get_state（sessionFile ✓）
     //   ★ 但 get_state 会【触发懒启动】✗ → 所以先判断 isStarted ✓
     //     （用户还没发过消息就不该因为“打开面板”而启动 pi ✓）
+    /**
+     * ★ 当前会话文件路径（没有则 undefined）
+     *
+     * 【为什么单独抽一个？】
+     *   两个地方要用：
+     *     · pushCurrentSessionTitle（取名字 ✓）
+     *     · doExportSession（判断 html 那条路能不能走 ✓能不能删除 ✓）
+     *   ★ 关键：若 pi 【未启动】就直接返回 undefined ✗
+     *     不能为了问路而【懒启动】✗（用户还没发消息就不该把 pi 拉起来 ✓）
+     */
+    async function currentSessionFile(): Promise<string | undefined> {
+        if (!pi.isStarted()) return undefined;
+        try {
+            const st = (await pi.sendRaw({ type: "get_state" })) as {
+                data?: { sessionFile?: unknown };
+            };
+            const file = st?.data?.sessionFile;
+            return typeof file === "string" && file ? file : undefined;
+        } catch (err) {
+            logDebug(`取当前会话文件失败（忽略）: ${toErrorMessage(err)}`);
+            return undefined;
+        }
+    }
+
     async function pushCurrentSessionTitle(overrideName?: string): Promise<void> {
         if (overrideName !== undefined) {
             chatView.post("sessionTitle", overrideName);
