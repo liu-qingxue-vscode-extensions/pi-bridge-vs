@@ -60,6 +60,15 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* ★ 可点击（点了能改 cwd）→ 给出手感 ✓ */
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 1px 6px;
+  transition: background .14s ease, color .14s ease;
+}
+#foot-cwd:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .2));
+  color: var(--vscode-foreground);
 }
 
 #input {

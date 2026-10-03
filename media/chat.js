@@ -29,6 +29,13 @@
   var noticeCount = document.getElementById("notice-count");
   var noticeBell = document.getElementById("notice-bell");
   var noticeBadge = document.getElementById("notice-badge");
+  var btnSessions = document.getElementById("btn-sessions");
+  var btnNewSession = document.getElementById("btn-new-session");
+  var sessionPanel = document.getElementById("session-panel");
+  var sessionList = document.getElementById("session-list");
+  var sessionEmpty = document.getElementById("session-empty");
+  var sessionPanelClose = document.getElementById("session-panel-close");
+  var btnRefreshSessions = document.getElementById("btn-refresh-sessions");
   var noticeCollapse = document.getElementById("notice-collapse");
   var noticeClear = document.getElementById("notice-clear");
   var noticeSettings = document.getElementById("notice-settings");
@@ -183,6 +190,9 @@
     btnReload.addEventListener("click", () => {
       vscode.postMessage({ kind: "reloadPi" });
     });
+    footCwd.addEventListener("click", () => {
+      vscode.postMessage({ kind: "changeCwd" });
+    });
   }
 
   // src/webview/noticeboard.ts
@@ -335,6 +345,134 @@
     noticeCollapse.addEventListener("pointerup", stop);
     statusBarEl.addEventListener("pointercancel", stop);
     noticeCollapse.addEventListener("pointercancel", stop);
+  }
+
+  // src/webview/sessions.ts
+  var expanded = false;
+  var currentCwd = "";
+  function setSessionsExpanded(next) {
+    expanded = typeof next === "boolean" ? next : !expanded;
+    sessionPanel.classList.toggle("collapsed", !expanded);
+    if (expanded) vscode.postMessage({ kind: "listSessions" });
+  }
+  function setCurrentCwd(p) {
+    currentCwd = p;
+  }
+  function fmtTime(ts) {
+    if (!ts) return "?";
+    const d = new Date(ts);
+    const p = (x) => String(x).padStart(2, "0");
+    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function prettyPath(p) {
+    if (!p) return "\uFF08\u672A\u77E5\u76EE\u5F55\uFF09";
+    return p;
+  }
+  function renderSessions(list) {
+    sessionList.innerHTML = "";
+    sessionEmpty.style.display = list.length ? "none" : "";
+    const groups = /* @__PURE__ */ new Map();
+    for (const s of list) {
+      const key = s.cwd || "";
+      const arr = groups.get(key);
+      if (arr) arr.push(s);
+      else groups.set(key, [s]);
+    }
+    const keys = [...groups.keys()].sort((a, b) => {
+      if (a === currentCwd) return -1;
+      if (b === currentCwd) return 1;
+      const ta = groups.get(a)[0]?.createdAt ?? 0;
+      const tb = groups.get(b)[0]?.createdAt ?? 0;
+      return tb - ta;
+    });
+    for (const key of keys) {
+      const items = groups.get(key);
+      const isCurrent = key === currentCwd;
+      const g = document.createElement("div");
+      g.className = "session-group";
+      g.dataset.cwd = key;
+      g.dataset.open = isCurrent ? "true" : "false";
+      const head = document.createElement("button");
+      head.className = "sg-head";
+      head.innerHTML = '<span class="sg-caret"></span>';
+      const label = document.createElement("span");
+      label.className = "sg-path";
+      label.textContent = prettyPath(key);
+      label.title = key || "\uFF08\u672A\u77E5\u76EE\u5F55\uFF09";
+      const count = document.createElement("span");
+      count.className = "sg-count";
+      count.textContent = String(items.length);
+      head.append(label, count);
+      if (isCurrent) {
+        const tag = document.createElement("span");
+        tag.className = "sg-tag";
+        tag.textContent = "\u5F53\u524D";
+        head.appendChild(tag);
+      }
+      head.addEventListener("click", () => {
+        g.dataset.open = g.dataset.open === "true" ? "false" : "true";
+      });
+      g.appendChild(head);
+      const body = document.createElement("div");
+      body.className = "sg-body";
+      for (const s of items) {
+        const row = document.createElement("button");
+        row.className = "session-item";
+        row.dataset.path = s.path;
+        if (s.broken) {
+          row.classList.add("broken");
+          row.disabled = true;
+          const warn = document.createElement("span");
+          warn.className = "si-warn";
+          warn.textContent = "\u26A0";
+          const why = document.createElement("span");
+          why.className = "si-name";
+          why.textContent = s.broken;
+          const f = document.createElement("span");
+          f.className = "si-id";
+          f.textContent = s.id.slice(0, 12);
+          row.append(warn, why, f);
+          row.title = `${s.broken}
+${s.path}`;
+          body.appendChild(row);
+          continue;
+        }
+        const main = document.createElement("span");
+        main.className = "si-name";
+        main.textContent = s.name || fmtTime(s.createdAt);
+        main.title = s.name ? s.name : "\uFF08\u8BE5\u4F1A\u8BDD\u6CA1\u6709\u540D\u5B57\uFF09";
+        const sub = document.createElement("span");
+        sub.className = "si-time";
+        sub.textContent = s.name ? fmtTime(s.createdAt) : s.id.slice(0, 8);
+        row.append(main, sub);
+        row.title = `${s.name ?? "\uFF08\u65E0\u540D\u5B57\uFF09"}
+${fmtTime(s.createdAt)}
+${s.path}`;
+        row.addEventListener("click", () => {
+          vscode.postMessage({ kind: "switchSession", path: s.path, cwd: key });
+        });
+        body.appendChild(row);
+      }
+      g.appendChild(body);
+      sessionList.appendChild(g);
+    }
+  }
+  function setupSessions() {
+    btnSessions.addEventListener("click", () => setSessionsExpanded());
+    btnNewSession.addEventListener("click", () => {
+      vscode.postMessage({ kind: "newSession" });
+    });
+    sessionPanelClose.addEventListener("click", () => setSessionsExpanded(false));
+    btnRefreshSessions.addEventListener("click", () => {
+      btnRefreshSessions.classList.add("spinning");
+      vscode.postMessage({ kind: "refreshSessions" });
+      setTimeout(() => btnRefreshSessions.classList.remove("spinning"), 600);
+    });
+    sessionPanel.addEventListener("click", (e) => {
+      const target = e.target;
+      if (target?.closest(".session-item, .sg-head, .session-group")) return;
+      setSessionsExpanded(false);
+    });
   }
 
   // src/webview/bubbles.ts
@@ -861,6 +999,7 @@
           return;
         case "cwd":
           showCwd(String(data.payload ?? ""));
+          setCurrentCwd(String(data.payload ?? ""));
           return;
         case "agentState": {
           setAgentState(String(data.payload));
@@ -886,6 +1025,9 @@
         case "toggleNotices":
           setExpanded();
           return;
+        case "sessions":
+          renderSessions(data.payload ?? []);
+          return;
         case "noticesCleared":
           clearNotices();
           return;
@@ -896,6 +1038,7 @@
   // src/webview/index.ts
   setupInput();
   setupNoticeBoard();
+  setupSessions();
   setupHostBridge();
   post("ready");
 })();

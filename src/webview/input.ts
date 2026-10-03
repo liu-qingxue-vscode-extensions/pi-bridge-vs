@@ -119,4 +119,10 @@ export function setupInput(): void {
     btnReload.addEventListener("click", () => {
         vscode.postMessage({ kind: "reloadPi" });
     });
+
+    // ★ 点工作目录显示区 → 改 cwd
+    //   （★ 这是【唯一】改 cwd 的入口；改完宿主会重启 pi 并清空对话 ✓）
+    footCwd.addEventListener("click", () => {
+        vscode.postMessage({ kind: "changeCwd" });
+    });
 }

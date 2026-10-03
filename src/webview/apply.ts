@@ -23,6 +23,7 @@ import { appendStopNote, showRetryNotice } from "./notices.js";
 import { updateStatusBar } from "./topbar.js";
 import { appendNotice, clearNotices, removeNotice, renderNotices, resetNotices, setExpanded } from "./noticeboard.js";
 import { applyStyleVars, autoGrow, setAgentState, showCwd } from "./input.js";
+import { setCurrentCwd, renderSessions } from "./sessions.js";
 
 /** 气泡快照的形状（对应插件端 Bubble ✓） */
 interface SnapBlock {
@@ -311,6 +312,8 @@ export function setupHostBridge(): void {
                 return;
             case "cwd":
                 showCwd(String(data.payload ?? ""));
+                // ★ 会话面板也要知道当前 cwd（决定哪个分组默认展开 ✓）
+                setCurrentCwd(String(data.payload ?? ""));
                 return;
             case "agentState": {
                 setAgentState(String(data.payload));
@@ -339,6 +342,10 @@ export function setupHostBridge(): void {
                 return;
             case "toggleNotices":
                 setExpanded();
+                return;
+            case "sessions":
+                // ★ 会话列表（按 cwd 分组渲染 ✓）
+                renderSessions((data.payload ?? []) as never);
                 return;
             case "noticesCleared":
                 clearNotices();

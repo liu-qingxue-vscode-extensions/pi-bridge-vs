@@ -17,11 +17,13 @@
 import { post } from "./vscode-api.js";
 import { setupInput } from "./input.js";
 import { setupNoticeBoard } from "./noticeboard.js";
+import { setupSessions } from "./sessions.js";
 import { setupHostBridge } from "./apply.js";
 
 // ① 交互绑定（幂等，只会绑一次 ✓）
 setupInput();
 setupNoticeBoard();
+setupSessions();
 
 // ② 宿主消息监听
 setupHostBridge();

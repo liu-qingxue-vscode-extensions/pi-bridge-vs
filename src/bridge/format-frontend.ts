@@ -22,6 +22,16 @@ export type FrontendMessage =
     // ★ 重启 pi 子进程（应用最新启动参数）—— 也是【本地】消息 ✓
     //   启动参数只能影响 spawn 时刻 ✗ → 改完设置要重启 pi 才生效 ✓
     | { kind: "reloadPi" }
+    // ★ 会话管理（B15）—— 【本地】消息 ✓（由 main.ts 处理，不发 pi）
+    | { kind: "newSession" }
+    // ★ 拉取会话列表（打开面板时按需请求 ✓）
+    | { kind: "listSessions" }
+    // ★ 刷新会话信息（★ 第二级 IO：读文件补名字 ✓ 用户手动触发 ✓）
+    | { kind: "refreshSessions" }
+    // ★ 切换会话（同 cwd → 直接切；跨 cwd → 宿主会先重载 ✓）
+    | { kind: "switchSession"; path: string; cwd: string }
+    // ★ 点输入区下方的 cwd → 改工作目录（宿主弹原生输入框 ✓）
+    | { kind: "changeCwd" }
     // 以后在这里增加，例如：
     // | { kind: "setModel"; provider: string; modelId: string }
     ;

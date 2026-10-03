@@ -57,8 +57,16 @@ export class PiClient {
     /** stderr 订阅者（★ 记在这里：client 重建后要重挂 ✓） */
     private readonly stderrHandlers = new Set<(text: string) => void>();
 
-    /** pi 的工作目录（重建时要复用 ✓） */
-    private readonly cwd: string;
+    /**
+     * pi 的工作目录（重建时要复用 ✓）
+     *
+     * ★ 可变：cwd 是【启动参数】（死数据 ✗）——
+     *   改它必须【重启子进程】，所以这里存的是“下一次启动要用什么 cwd”✓
+     *   改 cwd 的入口：
+     *     ① 输入区下方的 cwd 显示区（用户直接点着改 ✓）
+     *     ② 未来：跨 cwd 切会话（带 sessionPath 一起切 ✓）
+     */
+    private cwd: string;
     /** pi CLI 路径（构造时解析一次即可 —— 路径很少变 ⚠） */
     private readonly cliPath: string;
 
@@ -164,6 +172,27 @@ export class PiClient {
 
         this.started = true;
         logInfo("[PiClient] pi 就绪");
+    }
+
+    /** 当前的工作目录（给界面显示用 ✓） */
+    getCwd(): string {
+        return this.cwd;
+    }
+
+    /**
+     * ★ 改工作目录（不改当前进程 —— 那要重启才能生效 ✗）
+     *
+     * 【调用方注意】改完之后通常要跟上 reload() ✓
+     *   （因为 cwd 只影响 spawn 时刻 ✓）
+     *
+     * @returns 是否真的变了（相同则返回 false，调用者可据此跳过重载 ✓）
+     */
+    setCwd(next: string): boolean {
+        const trimmed = (next ?? "").trim();
+        if (!trimmed || trimmed === this.cwd) return false;
+        logInfo(`[PiClient] 改工作目录: ${this.cwd} → ${trimmed}（需重启生效）`);
+        this.cwd = trimmed;
+        return true;
     }
 
     /**

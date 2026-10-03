@@ -51,6 +51,30 @@
       </span>
     </div>
 
+    <!-- 第 3 行：★ 按钮行（常驻）—— 左侧会话管理 · 右侧新建 ✓ -->
+    <div id="app-toolbar">
+      <button id="btn-sessions" class="tb-btn" title="会话管理">☰</button>
+      <button id="btn-new-session" class="tb-btn" title="新建会话">＋</button>
+    </div>
+
+    <!-- 第 4 行起：会话面板（点 [☰ 会话] 在按钮行下方滑出）-->
+    <!-- 结构：┌ 主体 ─ 左栏 + 右列表 ┐ + 底部收起热区 -->
+    <div id="session-panel" class="collapsed">
+      <!-- ★ 主体：横向 flex（左栏 + 右列表 ✓）-->
+      <div id="session-body">
+        <!-- ★ 左栏（面板【内部】✓）—— 以后可往这里加更多按钮 ✓ -->
+        <div id="session-tools">
+          <button id="btn-refresh-sessions" class="sp-tool" title="刷新：读取会话名（会读文件）">⟳</button>
+        </div>
+        <!-- 右区：列表 -->
+        <div id="session-main">
+          <div id="session-list"></div>
+          <div id="session-empty">尚无会话</div>
+        </div>
+      </div>
+      <div id="session-panel-close" title="点击收起">⌃</div>
+    </div>
+
     <!-- 第 3 行起：通知列表（展开时滑出 ✓）-->
     <div id="notice-panel" class="collapsed">
       <div id="notice-list"></div>

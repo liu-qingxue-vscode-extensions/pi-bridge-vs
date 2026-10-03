@@ -74,6 +74,13 @@ export function readStyleVars(): Record<string, string> {
     // 顶栏（topbar）
     num("topBarHeight", "--pi-topbar-height");
 
+    // ★ 按钮行（顶栏下方那一行）：高度可配 → 里面的方块按钮【等比】跟着变 ✓
+    num("appToolbarHeight", "--pi-app-toolbar-height");
+
+    // ★ 会话面板（B15）
+    num("sessionPanelHeight", "--pi-session-panel-height", "vh");
+    raw("sessionPanelBg", "--pi-session-panel-bg");
+
     // 通知面板（B8）—— 展开后的最大高度
     // ★ 单位用 vh 而不是 %：面板的父元素高度由内容决定，百分数会解析失败 ✗
     //   （webview 里的 vh = 视图自身高度 ✓ 正是我们要的“占视图多少”）

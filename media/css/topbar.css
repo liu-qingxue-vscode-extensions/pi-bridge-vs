@@ -59,6 +59,252 @@
 }
 #notice-settings { font-size: 13px; }
 
+/* ===== 按钮行（顶栏下方常驻一行）=====
+   ★ 左端留间距（不贴左边界 ✓）· 两端分布（会话在左、新建在右 ✓）*/
+#app-toolbar {
+  height: var(--pi-app-toolbar-height, 36px);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;              /* ★ 左端不贴边 ✓ */
+  /* ★ 常驻行：“跟随主题”（不是面板色 ✗）
+     用户的要求：横栏和面板要【能分开调】 ——
+     否则面板弹下来时颜色一样，看不出弹了东西 ✗ */
+  background: var(--vscode-sideBar-background);
+  border-top: 1px solid var(--vscode-panel-border, transparent);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--vscode-descriptionForeground);
+  user-select: none;
+}
+
+/* ★ 方块按钮：宽 = 高（aspect-ratio: 1）
+   → 调 --pi-app-toolbar-height 时按钮【等比放大】✓
+   内容只放图标（去掉文字，否则正方形里塞不下 ✓）*/
+.tb-btn {
+  flex-shrink: 0;
+  aspect-ratio: 1;
+  height: calc(var(--pi-app-toolbar-height, 36px) - 12px); /* 上下各留 6px ✓ */
+  max-height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background .14s ease, color .14s ease;
+}
+.tb-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+  color: var(--vscode-foreground);
+}
+
+/* ===== 会话面板（点 [☰ 会话] 在按钮行下方滑出）=====
+   ★ 与通知面板同一套机制（固定高度 + 列表滚动 + 热区钉底 ✓）
+   ★ 背景色可配：留空 = 跟随主题（默认给一个略降的面板色，让它看得出是“一整块”✓）*/
+#session-panel {
+  flex-shrink: 0;
+  height: var(--pi-session-panel-height, 40vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* ★ 自己的底色（与常驻横栏区分开 ✓）
+     以前是透明的 → 一大片空白看着很怪 ✗ */
+  background: var(
+    --pi-session-panel-bg,
+    var(--vscode-editorWidget-background, var(--vscode-sideBar-background))
+  );
+  border-top: 1px solid var(--vscode-panel-border, transparent);
+  transition: height .22s ease, opacity .22s ease;
+}
+#session-panel.collapsed {
+  height: 0;
+  /* ★ 关键：min-height: 0
+     flex 子项默认 min-height: auto ✗ → 内容（⌃ 热区）会把容器【撑开】✗
+     导致收起后还露着一条 ✓（用户报的那个 bug ✓）*/
+  min-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  border-top-color: transparent;
+}
+
+/* ★ 面板主体：横向 flex（左栏 + 右列表 ✓）—— 结构清晰：
+     #session-panel（column）
+       ├ #session-body（row, flex:1）
+       │   ├ #session-tools（宽 32px）
+       │   └ #session-main（flex:1）
+       └ #session-panel-close（底部热区）*/
+#session-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+}
+#session-tools {
+  flex-shrink: 0;
+  width: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 6px;
+  border-right: 1px solid var(--vscode-panel-border, transparent);
+}
+.sp-tool {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background .14s ease, color .14s ease;
+}
+.sp-tool:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+  color: var(--vscode-foreground);
+}
+.sp-tool.spinning { animation: spin .8s linear infinite; }
+#session-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+#session-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ===== 会话分组（按 cwd 分组）=====
+   ★ 点标题只切换展开/折叠（纯前端 ✓ 不切 cwd ✗）*/
+.session-group { border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.sg-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 10px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.sg-head:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .2));
+  color: var(--vscode-foreground);
+}
+/* 箭头：收起时转 -90°（与思考/工具气泡的折叠头一致 ✓）*/
+.sg-caret {
+  flex-shrink: 0;
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent;
+  transform: rotate(90deg);
+  transition: transform .15s ease;
+}
+.session-group[data-open="false"] .sg-caret { transform: rotate(0deg); }
+.sg-path {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* ★ 不用 direction:rtl —— 那会让路径里的 / 显示位置错乱 ✗（踩过 ✓）*/
+  /*    超长路径尾部会被截掉，但 hover 有完整路径（title ✓）*/
+}
+.sg-count {
+  flex-shrink: 0;
+  opacity: .7;
+  font-variant-numeric: tabular-nums;
+}
+.sg-tag {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--vscode-badge-background, rgba(128, 128, 128, .35));
+  color: var(--vscode-badge-foreground, inherit);
+  font-size: 10px;
+  line-height: 16px;
+}
+.sg-body { display: flex; flex-direction: column; }
+.session-group[data-open="false"] .sg-body { display: none; }
+
+/* 会话条目 */
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px 4px 24px;   /* 左缯进：属属分组 ✓ */
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.session-item:hover {
+  background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, .2));
+}
+.si-time { flex-shrink: 0; font-variant-numeric: tabular-nums; opacity: .85; }
+.si-id { flex: 1; min-width: 0; opacity: .6; font-family: var(--vscode-editor-font-family, monospace); }
+
+/* ★ 会话名（主标题）：占满左侧、过长省略 ✓ */
+.si-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 副标（时间）放右边 ✓ */
+.session-item .si-time { margin-left: auto; }
+
+/* ★ 异常文件：红字 + 不可点 + 鼠标给“禁止”手感 ✓ */
+.session-item.broken {
+  color: var(--vscode-errorForeground, #f48771);
+  cursor: not-allowed;
+  opacity: .85;
+}
+.session-item.broken:hover { background: transparent; }
+.si-warn { flex-shrink: 0; }
+#session-empty {
+  padding: 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+#session-panel-close {
+  flex-shrink: 0;
+  text-align: center;
+  padding: 4px 0 6px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  user-select: none;
+}
+#session-panel-close:hover { color: var(--vscode-foreground); }
+
 /* ===== 顶部常驻状态栏（手机式）=====
    数据源：message_end.message.usage / model（每轮对话结束更新一次 ✓）*/
 #status-bar {

@@ -26,12 +26,15 @@
  */
 import * as vscode from "vscode";
 import os from "node:os";
+import path from "node:path";
+import fs from "node:fs";
 import { initLogger, logInfo, logError, logDebug } from "./logger.js";
 import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
 import { ChatView } from "./view/chat-view.js";
 import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
 import { toChatPatch } from "./bridge/format-backend.js";
+import { SessionStore } from "./pi/session-store.js";
 import { ChatState } from "./view/chat-state.js";
 import { toErrorMessage } from "./utils.js";
 
@@ -69,6 +72,8 @@ export function activate(context: vscode.ExtensionContext): void {
         },
     });
     const chatState = new ChatState(); // 插件端权威聊天状态（webview 只是显示器）
+    // ★ 会话发现层（读 sessions/ 目录 + 维护 cwd 映射表 ✓）
+    const sessionStore = new SessionStore(context);
     // ★ 通知环形缓冲上限（配置可调；改设置时实时生效 ✓）
     const applyNoticeLimit = (): void => {
         chatState.setNoticeLimit(
@@ -122,6 +127,133 @@ export function activate(context: vscode.ExtensionContext): void {
             if (msg.kind === "noticeClearAll") {
                 chatState.clearNotices();
                 chatView.post("noticesCleared", true); // 让前端清空自己那份镜像 ✓
+                return;
+            }
+            // ★ 会话管理（B15）—— 本轮只跑通链路（真的新建在下一轮 ✓）
+            if (msg.kind === "newSession") {
+                logInfo("用户点了新建会话（下一轮接入 pi 的 new_session）");
+                return;
+            }
+
+            // ★ 列出会话（★ 打开面板时按需拉取 —— 不预先扫描 ✗）
+            //   ★ 这是【第一级】IO：只扫文件名（零内容 IO ✓）名字/异常状态从缓存取 ✓
+            if (msg.kind === "listSessions") {
+                const list = await sessionStore.listEntries();
+                chatView.post("sessions", list);
+                return;
+            }
+
+            // ★ 刷新会话信息（★ 第二级 IO：读文件补名字 / 标异常 ✓）
+            //   维护边界 = 用户点【刷新】的那一刻 ✓
+            if (msg.kind === "refreshSessions") {
+                const stat = await sessionStore.refresh();
+                const list = await sessionStore.listEntries();
+                chatView.post("sessions", list);
+                logInfo(
+                    `会话刷新完成：${stat.total} 个（${stat.named} 有名字 / ${stat.broken} 异常）`,
+                );
+                return;
+            }
+
+            // ★ 切换会话
+            //
+            // 【交互约定（用户定的 ✓）】
+            //   · 同 cwd → 直接 switch_session（不重载 ✓）
+            //   · 跨 cwd → ★ 先改 cwd + reload，再 switch_session ✓
+            //     （cwd 是启动参数 → 必须重启子进程才能变 ✓）
+            if (msg.kind === "switchSession") {
+                const list = await sessionStore.listEntries();
+                const info = list.find((s) => s.path === msg.path);
+                if (!info) {
+                    void vscode.window.showErrorMessage("找不到该会话文件");
+                    return;
+                }
+                if (info.broken) {
+                    void vscode.window.showErrorMessage(`该会话文件有问题：${info.broken}`);
+                    return;
+                }
+
+                try {
+                    if (info.cwd && info.cwd !== pi.getCwd()) {
+                        logInfo(`跨目录切会话：${pi.getCwd()} → ${info.cwd}`);
+                        pi.setCwd(info.cwd);
+                        await pi.reload(); // 用新 cwd 重启
+                    }
+                    logInfo(`切换会话：${msg.path}`);
+                    await pi.sendRaw({
+                        type: "switch_session",
+                        sessionPath: msg.path,
+                    });
+
+                    // ★ 清空当前界面（新会话的内容）
+                    //   注：历史消息的【重放】是下一步 —— 需要把 pi 的 message
+                    //       转成我们的气泡结构（新转换器 ✓）
+                    chatState.reset();
+                    chatState.clearNotices();
+                    chatView.post("cwd", pi.getCwd());
+                    chatView.post("noticesCleared", true);
+                    chatView.post("snapshot", chatState.snapshot());
+                    void vscode.window.showInformationMessage(
+                        `已切换到会话 ${info.name ?? info.id.slice(0, 8)}`,
+                    );
+                } catch (err) {
+                    logError(`切换会话失败: ${toErrorMessage(err)}`);
+                    void vscode.window.showErrorMessage(`切换会话失败：${toErrorMessage(err)}`);
+                }
+                return;
+            }
+
+            // ★ 改工作目录（cwd 是启动参数 → 必须重启子进程才生效 ✓）
+            //
+            // 【为什么用宿主弹原生输入框？】
+            //   · 有校验 / 历史 / 取消 ✓ 体验比自建浮层好 ✓
+            //   · 而且 cwd 是本机路径 → 宿主侧更自然 ✓
+            //
+            // 【交互约定（用户定的 ✓）】
+            //   ★ 这是【唯一】切 cwd 的入口（会话面板里点 cwd 分组只是展开 ✗）
+            //   ★ 切 cwd → 必须 reload（旧的还挂着就是错的 ✗）→ 进空会话 ✓
+            if (msg.kind === "changeCwd") {
+                const next = await vscode.window.showInputBox({
+                    title: "修改工作目录",
+                    prompt: "pi 子进程的工作目录（改了会重启 pi，当前对话会清空）。可用 ~ 开头。",
+                    value: compactHome(pi.getCwd()),
+                    valueSelection: [0, compactHome(pi.getCwd()).length],
+                    // ★ 校验：展开 ~ → 必须【绝对路径】+ 必须【已存在的目录】✓
+                    //   ★ 不存在的目录【直接报错】✗ 绝不能替用户创建 ✗
+                    //     （创建目录是用户的决定，我们偷偷做就是欺骗 ✗）
+                    validateInput: (raw) => {
+                        const t = raw.trim();
+                        if (!t) return "不能为空";
+                        const abs = expandHome(t);
+                        if (!path.isAbsolute(abs)) return "请输入绝对路径（可用 ~ 开头，如 ~/Projects）";
+                        let stat: import("node:fs").Stats;
+                        try {
+                            stat = fs.statSync(abs);
+                        } catch {
+                            return `目录不存在：${abs}`;
+                        }
+                        if (!stat.isDirectory()) return `这不是一个目录：${abs}`;
+                        return undefined;
+                    },
+                });
+                if (!next) return; // 用户取消 ✓
+
+                // 展开 ~ 后再设（★ 不创建任何东西 ✓）
+                const abs = expandHome(next.trim());
+                if (!pi.setCwd(abs)) {
+                    void vscode.window.showInformationMessage("工作目录没有变化");
+                    return;
+                }
+                // ★ 重启（用新 cwd）+ 清空界面（新目录 = 新会话 ✓）
+                await pi.reload();
+                chatState.reset();
+                chatState.clearNotices();
+                chatView.post("cwd", pi.getCwd());
+                chatView.post("noticesCleared", true);
+                chatView.post("snapshot", chatState.snapshot());
+                void vscode.window.showInformationMessage(
+                    `工作目录已切到 ${compactHome(pi.getCwd())}`,
+                );
                 return;
             }
             // ★ 重启 pi（应用最新启动参数）—— 也是本地消息 ✓
@@ -193,4 +325,26 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
     // 清理工作主要由上面的 subscriptions 完成
+}
+
+/**
+ * 把 ~ 展开成家目录（用户输入路径时最自然的写法 ✓）
+ *   "~/Projects" → "/home/xxx/Projects"
+ *   "~"          → "/home/xxx"
+ *   其他          → 原样返回
+ */
+function expandHome(p: string): string {
+    if (p === "~") return os.homedir();
+    if (p.startsWith("~/")) return path.join(os.homedir(), p.slice(2));
+    return p;
+}
+
+/**
+ * 反向美化：家目录下的路径 → ~/xxx（显示用，短且好读 ✓）
+ *   ★ 只用于展示，不参与任何文件操作 ✓
+ */
+function compactHome(p: string): string {
+    const home = os.homedir();
+    if (p === home) return "~";
+    return p.startsWith(home + path.sep) ? "~" + p.slice(home.length) : p;
 }

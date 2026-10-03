@@ -74,290 +74,346 @@
                 }
             ]
         },
-        "configuration": {
-            "title": "pi-bridge",
-            "properties": {
-                "pi-bridge.piCliPath": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "（可选的）pi CLI 入口 `dist/cli.js` 的**绝对路径**。\n\n留空 = **自动探测**（推荐）：用 ESM 解析找到 pi 包，取其同目录的 `cli.js`。\n\n何时需要手填：扩展的 `node_modules` 里没有 pi 包、或 pi 装在非标准位置时。"
-                },
-                "pi-bridge.piAgentDir": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "（可选的）pi 的**配置目录**（即 `models.json` 所在目录）。\n\n留空 = **自动探测**（推荐）：调用 pi 导出的 `getAgentDir()`，默认得到 `~/.pi/agent`（并会尊重 `PI_CONFIG_DIR` 等环境变量）。\n\n何时需要手填：你把 pi 的配置放到了非标准目录时。"
-                },
-                "pi-bridge.launchArgs": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
+        "configuration": [
+            {
+                "title": "pi-bridge：启动",
+                "properties": {
+                    "pi-bridge.piCliPath": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "（可选的）pi CLI 入口 `dist/cli.js` 的**绝对路径**。\n\n留空 = **自动探测**（推荐）：用 ESM 解析找到 pi 包，取其同目录的 `cli.js`。\n\n何时需要手填：扩展的 `node_modules` 里没有 pi 包、或 pi 装在非标准位置时。"
                     },
-                    "default": [],
-                    "markdownDescription": "传给 pi 子进程的**额外启动参数**（默认已有 `--no-session`）。\n\n常用：\n- `--no-extensions` —— 临时禁用所有扩展。\n  场景：守卫类扩展会拦住工具执行（等待审批），而本扩展还没做 `extension_ui_request` 的响应桥时，工具会卡住。\n- `--thinking high` —— 指定思考级别\n- `--no-extensions` + `-e <path>` —— 只加载指定扩展\n\n⚠️ 修改后需**重新加载窗口**才生效（pi 子进程已启动）。"
-                },
-                "pi-bridge.style.bubbleWidth": {
-                    "type": "number",
-                    "default": 88,
-                    "minimum": 0,
-                    "maximum": 100,
-                    "markdownDescription": "气泡宽度（百分比）。默认 88。"
-                },
-                "pi-bridge.style.centerColumn": {
-                    "type": "boolean",
-                    "default": false,
-                    "markdownDescription": "把所有气泡和输入框对齐到一个【**居中的内容列**】。\n\n**开启**：气泡与输入框同宽（都用 `bubbleWidth` 作为列宽）、居中；你的消息右对齐到内容列右边 ✓\n**关闭**（默认）：各自对齐视图边界 —— 气泡靠左、输入框用它自己的 `inputWidth`"
-                },
-                "pi-bridge.style.bubbleRadius": {
-                    "type": "number",
-                    "default": 6,
-                    "minimum": 0,
-                    "maximum": 30,
-                    "markdownDescription": "气泡圆角半径（px）。默认 6。设 0 = 方角。"
-                },
-                "pi-bridge.style.bubblePadding": {
-                    "type": "string",
-                    "default": "8px 12px",
-                    "markdownDescription": "气泡内边距（CSS padding 语法）。默认 `8px 12px`。"
-                },
-                "pi-bridge.style.sideGap": {
-                    "type": "number",
-                    "default": 12,
-                    "minimum": 0,
-                    "maximum": 80,
-                    "markdownDescription": "气泡与视图**左右边界**的间距（px）。默认 12。\n\n它决定左对齐气泡的左边距 / 右对齐气泡的右边距。"
-                },
-                "pi-bridge.style.thinkCollapsed": {
-                    "type": "boolean",
-                    "default": false,
-                    "markdownDescription": "思考气泡**默认收起**（只显示头部，点一下展开）。默认 false。"
-                },
-                "pi-bridge.style.toolCollapsed": {
-                    "type": "boolean",
-                    "default": false,
-                    "markdownDescription": "工具气泡**默认收起**（只显示头部，点一下展开）。默认 false。"
-                },
-                "pi-bridge.style.resultLabel": {
-                    "type": "string",
-                    "default": "结果",
-                    "markdownDescription": "工具结果区的**标题文字**。默认 `结果`。\n\n可改成英文（如 `Result`）或符号（如 `›`）。**留空则不显示标题**。"
-                },
-                "pi-bridge.style.inputRadius": {
-                    "type": "number",
-                    "default": 14,
-                    "minimum": 0,
-                    "maximum": 40,
-                    "markdownDescription": "输入框圆角半径（px）。默认 14。"
-                },
-                "pi-bridge.style.inputWidth": {
-                    "type": "number",
-                    "default": 100,
-                    "minimum": 30,
-                    "maximum": 100,
-                    "markdownDescription": "输入框宽度（百分比，相对侧边栏宽度）。默认 100。觉得太宽就调小。"
-                },
-                "pi-bridge.style.inputMinRows": {
-                    "type": "number",
-                    "default": 1,
-                    "minimum": 1,
-                    "maximum": 20,
-                    "markdownDescription": "输入框**最小行数**（按行数配置，比像素直观）。默认 1。"
-                },
-                "pi-bridge.style.inputMaxRows": {
-                    "type": "number",
-                    "default": 8,
-                    "minimum": 1,
-                    "maximum": 50,
-                    "markdownDescription": "输入框**最大行数**（超过后出滚动条）。默认 8。"
-                },
-                "pi-bridge.style.inputBottomGap": {
-                    "type": "number",
-                    "default": 22,
-                    "minimum": 0,
-                    "maximum": 100,
-                    "markdownDescription": "输入框距底部的**悬空高度**（px）。默认 22。"
-                },
-                "pi-bridge.style.gapTurn": {
-                    "type": "number",
-                    "default": 10,
-                    "minimum": 0,
-                    "maximum": 60,
-                    "markdownDescription": "**默认间距**：任何相邻气泡之间（px）。默认 10。"
-                },
-                "pi-bridge.style.gapUserFirst": {
-                    "type": "number",
-                    "default": 12,
-                    "minimum": 0,
-                    "maximum": 60,
-                    "markdownDescription": "**你的消息 → AI 第一个气泡** 的间距（px）。默认 12。"
-                },
-                "pi-bridge.style.gapThinkingToText": {
-                    "type": "number",
-                    "default": 4,
-                    "minimum": 0,
-                    "maximum": 60,
-                    "markdownDescription": "**思考气泡 → 正文气泡** 的间距。默认 4。"
-                },
-                "pi-bridge.style.gapThinkingToTool": {
-                    "type": "number",
-                    "default": 4,
-                    "minimum": 0,
-                    "maximum": 60,
-                    "markdownDescription": "**思考气泡 → 工具气泡** 的间距。默认 4。"
-                },
-                "pi-bridge.style.gapTextToTool": {
-                    "type": "number",
-                    "default": 6,
-                    "minimum": 0,
-                    "maximum": 60,
-                    "markdownDescription": "**正文气泡 → 工具气泡** 的间距。默认 6。"
-                },
-                "pi-bridge.style.gapToolToText": {
-                    "type": "number",
-                    "default": 4,
-                    "minimum": 0,
-                    "maximum": 60,
-                    "markdownDescription": "**工具气泡 → 正文气泡** 的间距。默认 4。"
-                },
-                "pi-bridge.style.gapToolToThinking": {
-                    "type": "number",
-                    "default": 4,
-                    "minimum": 0,
-                    "maximum": 60,
-                    "markdownDescription": "**工具气泡 → 思考气泡** 的间距。默认 4。"
-                },
-                "pi-bridge.style.gapTextToThinking": {
-                    "type": "number",
-                    "default": 4,
-                    "minimum": 0,
-                    "maximum": 60,
-                    "markdownDescription": "**正文气泡 → 思考气泡** 的间距。默认 4。"
-                },
-                "pi-bridge.style.railWidth": {
-                    "type": "number",
-                    "default": 2,
-                    "minimum": 0,
-                    "maximum": 10,
-                    "markdownDescription": "左侧竖线的宽度（px）。**设 0 = 不显示**。默认 2。"
-                },
-                "pi-bridge.style.railColorThinking": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "思考气泡左侧线的颜色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
-                },
-                "pi-bridge.style.railColorTool": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "工具气泡左侧线的颜色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
-                },
-                "pi-bridge.style.railColorResult": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "工具结果部分的左侧线颜色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
-                },
-                "pi-bridge.style.borderBubble": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "普通气泡的**四边框颜色**（默认空 = 无边框）。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
-                },
-                "pi-bridge.style.borderTool": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "**工具气泡外框**颜色（默认空 = 跟随主题的面板边框色）。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
-                },
-                "pi-bridge.style.bgUser": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "你的消息气泡的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
-                },
-                "pi-bridge.style.bgThinking": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "思考气泡的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
-                },
-                "pi-bridge.style.bgText": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "正文气泡的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
-                },
-                "pi-bridge.style.bgToolCall": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "工具气泡**上半部分（调用）**的背景色。\n\n可把它和下半部调成不同色 → 视觉上区分调用与结果。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
-                },
-                "pi-bridge.style.bgToolResult": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "工具气泡**下半部分（结果）**的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
-                },
-                "pi-bridge.style.borderUser": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "**你的消息气泡**的边框颜色。\n\n**留空 = 跟随主题**。与普通气泡边框（`borderBubble`）互不影响 ✓"
-                },
-                "pi-bridge.style.userMinWidth": {
-                    "type": "number",
-                    "default": 48,
-                    "minimum": 0,
-                    "maximum": 400,
-                    "markdownDescription": "**你的消息气泡**的最小宽度（px）。默认 48。\n\n你的消息是【自适应宽度】的（内容多宽就多宽，超过上限换行），这个值保证短消息不会缩成一条线 ✓"
-                },
-                "pi-bridge.notice.bufferSize": {
-                    "type": "number",
-                    "default": 50,
-                    "minimum": 1,
-                    "description": "通知列表的环形缓冲上限（超出丢最旧的）。通知不进会话文件，窗口重载即清空。"
-                },
-                "pi-bridge.style.noticePanelHeight": {
-                    "type": "number",
-                    "default": 40,
-                    "minimum": 5,
-                    "maximum": 95,
-                    "description": "通知面板的【高度】（占聊天视图高度的百分比，vh）。拉下来就是固定这么高，通知多了出滚动条。"
-                },
-                "pi-bridge.style.topBarHeight": {
-                    "type": "number",
-                    "default": 26,
-                    "minimum": 16,
-                    "maximum": 64,
-                    "description": "顶栏（显示 花费 / out / cache / 电池 的那一条）的高度（px）。"
-                },
-                "pi-bridge.style.noticeFontSize": {
-                    "type": "number",
-                    "default": 12,
-                    "minimum": 9,
-                    "maximum": 20,
-                    "description": "通知列表的字号（px）。"
-                },
-                "pi-bridge.style.noticeItemPadding": {
-                    "type": "string",
-                    "default": "6px 8px 6px 10px",
-                    "description": "通知条目的内边距（CSS 简写，如 6px 8px）。"
-                },
-                "pi-bridge.debug.enabled": {
-                    "type": "boolean",
-                    "default": true,
-                    "description": "调试板总开关。关掉后【不再接收任何数据】（缓冲为空、也不推给面板）—— 开发结束时可关掉省内存。"
-                },
-                "pi-bridge.debug.collapse": {
-                    "type": "array",
-                    "default": [],
-                    "items": {
-                        "type": "string"
+                    "pi-bridge.piAgentDir": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "（可选的）pi 的**配置目录**（即 `models.json` 所在目录）。\n\n留空 = **自动探测**（推荐）：调用 pi 导出的 `getAgentDir()`，默认得到 `~/.pi/agent`（并会尊重 `PI_CONFIG_DIR` 等环境变量）。\n\n何时需要手填：你把 pi 的配置放到了非标准目录时。"
                     },
-                    "markdownDescription": "折叠规则（字符串数组）。**目的：精确忽略某一部分数据包**，其余照常完整显示 ✓\n\n格式：`type` 或 `type:字段路径` 或 `type:字段路径=值`\n\n· `\"turn_start\"` → 忽略整个 type\n· `\"message_update:assistantMessageEvent.type=text_delta\"` → 只忽略这一类 ✓\n· `\"tool_execution_start:toolName\"` → 只要取得到值就忽略\n\n命中后【不会消失】，而是折叠成一行 `标签 × 条数`（保住时序位置 ✓）。"
-                },
-                "pi-bridge.style.noticeAutoOpen": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "通知到达时是否自动展开通知面板（默认关，避免打断阅读）。"
-                },
-                "pi-bridge.style.toolPeekLines": {
-                    "type": "string",
-                    "default": "",
-                    "markdownDescription": "工具结果【收起】时露几行，格式 `\"头:尾\"`（如 `\"3:2\"` = 开头 3 行 + 末尾 2 行）。\n\n· 留空 / `0:0` → 不启用（收起时折成一行 ✓）\n· 只写 `\"3\"` → 开头 3 行（末尾 0 行）\n\n★ 只影响【结果文本】，不影响参数（参数保持每行单独可折叠 ✓）"
+                    "pi-bridge.launchArgs": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": [],
+                        "markdownDescription": "传给 pi 子进程的**额外启动参数**（默认已有 `--no-session`）。\n\n常用：\n- `--no-extensions` —— 临时禁用所有扩展。\n  场景：守卫类扩展会拦住工具执行（等待审批），而本扩展还没做 `extension_ui_request` 的响应桥时，工具会卡住。\n- `--thinking high` —— 指定思考级别\n- `--no-extensions` + `-e <path>` —— 只加载指定扩展\n\n⚠️ 修改后需**重新加载窗口**才生效（pi 子进程已启动）。"
+                    }
+                }
+            },
+            {
+                "title": "pi-bridge：气泡",
+                "properties": {
+                    "pi-bridge.style.bubbleWidth": {
+                        "type": "number",
+                        "default": 88,
+                        "minimum": 0,
+                        "maximum": 100,
+                        "markdownDescription": "气泡宽度（百分比）。默认 88。"
+                    },
+                    "pi-bridge.style.centerColumn": {
+                        "type": "boolean",
+                        "default": false,
+                        "markdownDescription": "把所有气泡和输入框对齐到一个【**居中的内容列**】。\n\n**开启**：气泡与输入框同宽（都用 `bubbleWidth` 作为列宽）、居中；你的消息右对齐到内容列右边 ✓\n**关闭**（默认）：各自对齐视图边界 —— 气泡靠左、输入框用它自己的 `inputWidth`"
+                    },
+                    "pi-bridge.style.bubbleRadius": {
+                        "type": "number",
+                        "default": 6,
+                        "minimum": 0,
+                        "maximum": 30,
+                        "markdownDescription": "气泡圆角半径（px）。默认 6。设 0 = 方角。"
+                    },
+                    "pi-bridge.style.bubblePadding": {
+                        "type": "string",
+                        "default": "8px 12px",
+                        "markdownDescription": "气泡内边距（CSS padding 语法）。默认 `8px 12px`。"
+                    },
+                    "pi-bridge.style.sideGap": {
+                        "type": "number",
+                        "default": 12,
+                        "minimum": 0,
+                        "maximum": 80,
+                        "markdownDescription": "气泡与视图**左右边界**的间距（px）。默认 12。\n\n它决定左对齐气泡的左边距 / 右对齐气泡的右边距。"
+                    },
+                    "pi-bridge.style.borderBubble": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "普通气泡的**四边框颜色**（默认空 = 无边框）。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                    },
+                    "pi-bridge.style.bgUser": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "你的消息气泡的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                    },
+                    "pi-bridge.style.bgThinking": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "思考气泡的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                    },
+                    "pi-bridge.style.bgText": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "正文气泡的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                    },
+                    "pi-bridge.style.bgToolCall": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "工具气泡**上半部分（调用）**的背景色。\n\n可把它和下半部调成不同色 → 视觉上区分调用与结果。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                    },
+                    "pi-bridge.style.bgToolResult": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "工具气泡**下半部分（结果）**的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                    },
+                    "pi-bridge.style.userMinWidth": {
+                        "type": "number",
+                        "default": 48,
+                        "minimum": 0,
+                        "maximum": 400,
+                        "markdownDescription": "**你的消息气泡**的最小宽度（px）。默认 48。\n\n你的消息是【自适应宽度】的（内容多宽就多宽，超过上限换行），这个值保证短消息不会缩成一条线 ✓"
+                    },
+                    "pi-bridge.style.gapTurn": {
+                        "type": "number",
+                        "default": 10,
+                        "minimum": 0,
+                        "maximum": 60,
+                        "markdownDescription": "**默认间距**：任何相邻气泡之间（px）。默认 10。"
+                    },
+                    "pi-bridge.style.gapUserFirst": {
+                        "type": "number",
+                        "default": 12,
+                        "minimum": 0,
+                        "maximum": 60,
+                        "markdownDescription": "**你的消息 → AI 第一个气泡** 的间距（px）。默认 12。"
+                    },
+                    "pi-bridge.style.gapThinkingToText": {
+                        "type": "number",
+                        "default": 4,
+                        "minimum": 0,
+                        "maximum": 60,
+                        "markdownDescription": "**思考气泡 → 正文气泡** 的间距。默认 4。"
+                    },
+                    "pi-bridge.style.gapThinkingToTool": {
+                        "type": "number",
+                        "default": 4,
+                        "minimum": 0,
+                        "maximum": 60,
+                        "markdownDescription": "**思考气泡 → 工具气泡** 的间距。默认 4。"
+                    },
+                    "pi-bridge.style.gapTextToTool": {
+                        "type": "number",
+                        "default": 6,
+                        "minimum": 0,
+                        "maximum": 60,
+                        "markdownDescription": "**正文气泡 → 工具气泡** 的间距。默认 6。"
+                    },
+                    "pi-bridge.style.gapToolToText": {
+                        "type": "number",
+                        "default": 4,
+                        "minimum": 0,
+                        "maximum": 60,
+                        "markdownDescription": "**工具气泡 → 正文气泡** 的间距。默认 4。"
+                    },
+                    "pi-bridge.style.gapToolToThinking": {
+                        "type": "number",
+                        "default": 4,
+                        "minimum": 0,
+                        "maximum": 60,
+                        "markdownDescription": "**工具气泡 → 思考气泡** 的间距。默认 4。"
+                    },
+                    "pi-bridge.style.gapTextToThinking": {
+                        "type": "number",
+                        "default": 4,
+                        "minimum": 0,
+                        "maximum": 60,
+                        "markdownDescription": "**正文气泡 → 思考气泡** 的间距。默认 4。"
+                    },
+                    "pi-bridge.style.railWidth": {
+                        "type": "number",
+                        "default": 2,
+                        "minimum": 0,
+                        "maximum": 10,
+                        "markdownDescription": "左侧竖线的宽度（px）。**设 0 = 不显示**。默认 2。"
+                    },
+                    "pi-bridge.style.railColorThinking": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "思考气泡左侧线的颜色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                    },
+                    "pi-bridge.style.railColorTool": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "工具气泡左侧线的颜色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                    },
+                    "pi-bridge.style.railColorResult": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "工具结果部分的左侧线颜色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                    },
+                    "pi-bridge.style.borderTool": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "**工具气泡外框**颜色（默认空 = 跟随主题的面板边框色）。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                    },
+                    "pi-bridge.style.borderUser": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "**你的消息气泡**的边框颜色。\n\n**留空 = 跟随主题**。与普通气泡边框（`borderBubble`）互不影响 ✓"
+                    }
+                }
+            },
+            {
+                "title": "pi-bridge：顶栏与按钮行",
+                "properties": {
+                    "pi-bridge.style.topBarHeight": {
+                        "type": "number",
+                        "default": 26,
+                        "minimum": 16,
+                        "maximum": 64,
+                        "description": "顶栏（显示 花费 / out / cache / 电池 的那一条）的高度（px）。"
+                    },
+                    "pi-bridge.style.appToolbarHeight": {
+                        "type": "number",
+                        "default": 36,
+                        "minimum": 20,
+                        "maximum": 80,
+                        "description": "按钮行（顶栏下方那一行）的高度（px）。★ 里面的方块按钮会【等比】跟着变大 —— 调这个就能整体缩放按钮。"
+                    }
+                }
+            },
+            {
+                "title": "pi-bridge：输入区",
+                "properties": {
+                    "pi-bridge.style.inputRadius": {
+                        "type": "number",
+                        "default": 14,
+                        "minimum": 0,
+                        "maximum": 40,
+                        "markdownDescription": "输入框圆角半径（px）。默认 14。"
+                    },
+                    "pi-bridge.style.inputWidth": {
+                        "type": "number",
+                        "default": 100,
+                        "minimum": 30,
+                        "maximum": 100,
+                        "markdownDescription": "输入框宽度（百分比，相对侧边栏宽度）。默认 100。觉得太宽就调小。"
+                    },
+                    "pi-bridge.style.inputMinRows": {
+                        "type": "number",
+                        "default": 1,
+                        "minimum": 1,
+                        "maximum": 20,
+                        "markdownDescription": "输入框**最小行数**（按行数配置，比像素直观）。默认 1。"
+                    },
+                    "pi-bridge.style.inputMaxRows": {
+                        "type": "number",
+                        "default": 8,
+                        "minimum": 1,
+                        "maximum": 50,
+                        "markdownDescription": "输入框**最大行数**（超过后出滚动条）。默认 8。"
+                    },
+                    "pi-bridge.style.inputBottomGap": {
+                        "type": "number",
+                        "default": 22,
+                        "minimum": 0,
+                        "maximum": 100,
+                        "markdownDescription": "输入框距底部的**悬空高度**（px）。默认 22。"
+                    }
+                }
+            },
+            {
+                "title": "pi-bridge：会话面板",
+                "properties": {
+                    "pi-bridge.style.sessionPanelHeight": {
+                        "type": "number",
+                        "default": 40,
+                        "minimum": 10,
+                        "maximum": 90,
+                        "description": "会话面板的高度（占视图高度的百分比）。"
+                    },
+                    "pi-bridge.style.sessionPanelBg": {
+                        "type": "string",
+                        "default": "",
+                        "description": "会话面板的背景色（CSS 颜色值，如 #1e1e1e 或 rgba(0,0,0,.3)）。留空 = 跟随主题。"
+                    }
+                }
+            },
+            {
+                "title": "pi-bridge：通知",
+                "properties": {
+                    "pi-bridge.notice.bufferSize": {
+                        "type": "number",
+                        "default": 50,
+                        "minimum": 1,
+                        "description": "通知列表的环形缓冲上限（超出丢最旧的）。通知不进会话文件，窗口重载即清空。"
+                    },
+                    "pi-bridge.style.noticePanelHeight": {
+                        "type": "number",
+                        "default": 40,
+                        "minimum": 5,
+                        "maximum": 95,
+                        "description": "通知面板的【高度】（占聊天视图高度的百分比，vh）。拉下来就是固定这么高，通知多了出滚动条。"
+                    },
+                    "pi-bridge.style.noticeFontSize": {
+                        "type": "number",
+                        "default": 12,
+                        "minimum": 9,
+                        "maximum": 20,
+                        "description": "通知列表的字号（px）。"
+                    },
+                    "pi-bridge.style.noticeItemPadding": {
+                        "type": "string",
+                        "default": "6px 8px 6px 10px",
+                        "description": "通知条目的内边距（CSS 简写，如 6px 8px）。"
+                    },
+                    "pi-bridge.style.noticeAutoOpen": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "通知到达时是否自动展开通知面板（默认关，避免打断阅读）。"
+                    }
+                }
+            },
+            {
+                "title": "pi-bridge：调试板",
+                "properties": {
+                    "pi-bridge.debug.enabled": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "调试板总开关。关掉后【不再接收任何数据】（缓冲为空、也不推给面板）—— 开发结束时可关掉省内存。"
+                    },
+                    "pi-bridge.debug.collapse": {
+                        "type": "array",
+                        "default": [],
+                        "items": {
+                            "type": "string"
+                        },
+                        "markdownDescription": "折叠规则（字符串数组）。**目的：精确忽略某一部分数据包**，其余照常完整显示 ✓\n\n格式：`type` 或 `type:字段路径` 或 `type:字段路径=值`\n\n· `\"turn_start\"` → 忽略整个 type\n· `\"message_update:assistantMessageEvent.type=text_delta\"` → 只忽略这一类 ✓\n· `\"tool_execution_start:toolName\"` → 只要取得到值就忽略\n\n命中后【不会消失】，而是折叠成一行 `标签 × 条数`（保住时序位置 ✓）。"
+                    }
+                }
+            },
+            {
+                "title": "pi-bridge：行为",
+                "properties": {
+                    "pi-bridge.style.thinkCollapsed": {
+                        "type": "boolean",
+                        "default": false,
+                        "markdownDescription": "思考气泡**默认收起**（只显示头部，点一下展开）。默认 false。"
+                    },
+                    "pi-bridge.style.toolCollapsed": {
+                        "type": "boolean",
+                        "default": false,
+                        "markdownDescription": "工具气泡**默认收起**（只显示头部，点一下展开）。默认 false。"
+                    },
+                    "pi-bridge.style.resultLabel": {
+                        "type": "string",
+                        "default": "结果",
+                        "markdownDescription": "工具结果区的**标题文字**。默认 `结果`。\n\n可改成英文（如 `Result`）或符号（如 `›`）。**留空则不显示标题**。"
+                    },
+                    "pi-bridge.style.toolPeekLines": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "工具结果【收起】时露几行，格式 `\"头:尾\"`（如 `\"3:2\"` = 开头 3 行 + 末尾 2 行）。\n\n· 留空 / `0:0` → 不启用（收起时折成一行 ✓）\n· 只写 `\"3\"` → 开头 3 行（末尾 0 行）\n\n★ 只影响【结果文本】，不影响参数（参数保持每行单独可折叠 ✓）"
+                    }
                 }
             }
-        }
+        ]
     },
     "activationEvents": [],
     "scripts": {

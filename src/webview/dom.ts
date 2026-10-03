@@ -40,6 +40,15 @@ export const noticeEmpty = document.getElementById("notice-empty")!;
 export const noticeCount = document.getElementById("notice-count")!;
 export const noticeBell = document.getElementById("notice-bell")!;
 export const noticeBadge = document.getElementById("notice-badge")!;
+
+// ── ★ 按钮行 + 会话面板（B15）──
+export const btnSessions = document.getElementById("btn-sessions")!;
+export const btnNewSession = document.getElementById("btn-new-session")!;
+export const sessionPanel = document.getElementById("session-panel")!;
+export const sessionList = document.getElementById("session-list")!;
+export const sessionEmpty = document.getElementById("session-empty")!;
+export const sessionPanelClose = document.getElementById("session-panel-close")!;
+export const btnRefreshSessions = document.getElementById("btn-refresh-sessions")!;
 export const noticeCollapse = document.getElementById("notice-collapse")!;
 export const noticeClear = document.getElementById("notice-clear")!;
 export const noticeSettings = document.getElementById("notice-settings")!;
