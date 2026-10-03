@@ -182,6 +182,10 @@
     const icon = document.createElement("span");
     icon.className = "ni-icon";
     icon.textContent = NOTICE_ICON[n.level] ?? "\u24D8";
+    const time = document.createElement("span");
+    time.className = "ni-time";
+    time.textContent = formatTime(n.time);
+    time.title = new Date(n.time).toLocaleString();
     const text = document.createElement("span");
     text.className = "ni-text";
     text.textContent = n.text;
@@ -203,8 +207,14 @@
       e.stopPropagation();
       vscode.postMessage({ kind: "noticeRemove", id: n.id });
     });
-    el.append(icon, text, copyBtn, closeBtn);
+    el.append(icon, time, text, copyBtn, closeBtn);
     return el;
+  }
+  function formatTime(ts) {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const p = (x) => String(x).padStart(2, "0");
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
   }
   function syncBadge() {
     const hasUnread = ui.noticeUnread > 0;

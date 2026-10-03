@@ -47,6 +47,14 @@
   line-height: 1.45;
 }
 .notice-item .ni-icon { flex-shrink: 0; }
+/* ★ 时间戳（HH:MM:SS）—— 等宽数字让多行的时间列对齐 ✓ */
+.notice-item .ni-time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+  opacity: .7;
+  font-size: .92em;
+}
 .notice-item .ni-text {
   flex: 1;
   min-width: 0;

@@ -46,6 +46,12 @@ function createNoticeItem(n: UiNotice): HTMLElement {
     icon.className = "ni-icon";
     icon.textContent = NOTICE_ICON[n.level] ?? "ⓘ";
 
+    // ★ 时间戳（时分秒）—— 知道“这件事什么时候发生的” ✓
+    const time = document.createElement("span");
+    time.className = "ni-time";
+    time.textContent = formatTime(n.time);
+    time.title = new Date(n.time).toLocaleString();
+
     const text = document.createElement("span");
     text.className = "ni-text";
     text.textContent = n.text;
@@ -74,8 +80,16 @@ function createNoticeItem(n: UiNotice): HTMLElement {
         vscode.postMessage({ kind: "noticeRemove", id: n.id });
     });
 
-    el.append(icon, text, copyBtn, closeBtn);
+    el.append(icon, time, text, copyBtn, closeBtn);
     return el;
+}
+
+/** 时间戳：HH:MM:SS（列表里空间小，只给到秒 ✓） */
+function formatTime(ts?: number): string {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const p = (x: number): string => String(x).padStart(2, "0");
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 /** 刷新头部徽标（未读 / 总数）

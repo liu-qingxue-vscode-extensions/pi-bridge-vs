@@ -131,6 +131,10 @@ export function activate(context: vscode.ExtensionContext): void {
                 // ★ pi 换了新进程 → 它不认识旧对话了 ✗ → 前端也必须清空 ✓
                 //   （否则上下文对不上，接着聊会得到错误结果）
                 chatState.reset();
+                // ★ 通知也清掉：那都是【上一个 pi 进程】生命周期里的事 ✓
+                //   （用户拍板：刷了就行，不用加“旧”标记）
+                chatState.clearNotices();
+                chatView.post("noticesCleared", true);
                 chatView.post("snapshot", chatState.snapshot()); // 空快照 → 前端重放=清空 ✓
                 return;
             }

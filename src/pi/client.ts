@@ -15,7 +15,11 @@
  * 这样我们的 format 层可以继续按"数据驱动"的方式扩展命令，而不用改调用点。
  */
 import { RpcClient } from "@earendil-works/pi-coding-agent";
-import type { RpcCommand, JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type {
+    RpcCommand,
+    JsonAgentSessionEvent,
+    RpcExtensionUIResponse,
+} from "@earendil-works/pi-coding-agent";
 import type { ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -281,6 +285,30 @@ export class PiClient {
     onEvent(handler: PiEventHandler): () => void {
         this.handlers.add(handler);
         return () => this.handlers.delete(handler);
+    }
+
+    /**
+     * ★ 回复扩展的 UI 请求（select / confirm / input / editor 的结果）
+     *
+     * 【为什么不走官方的 send()？】
+     *   ① send 是 private（虽然运行时能访问，但类型上没暴露 ✗）
+     *   ② ★ 更关键：pi 对 extension_ui_response 【不返回执】✗
+     *      源码：handleInputLine 收到它 → 直接 resolve pending，不 output(response)
+     *      → 走 send() 会一直挂到 30s 超时才结束 ✗，而且会报一个无意义的错
+     *
+     * 【所以直接写一行 JSONL】✓ —— 协议本来就是 JSONL（每行一个 JSON）
+     *   与 attachStderr 一样，这里也依赖了官方未承诺的私有字段 process ⚠
+     *   写不了就只记日志，不让扩展卡死（它会自己 timeout ✓）
+     */
+    replyExtensionUi(response: RpcExtensionUIResponse): void {
+        const proc = (this.client as unknown as { process?: ChildProcess }).process;
+        const stdin = proc?.stdin;
+        if (!stdin || stdin.destroyed || !stdin.writable) {
+            logError("[PiClient] 无法回复扩展请求：stdin 不可写");
+            return;
+        }
+        logDebug(`[PiClient] 回复扩展请求 id=${response.id}`);
+        stdin.write(JSON.stringify(response) + "\n");
     }
 
     /** 读取 pi 的 stderr（诊断用） */
