@@ -60,6 +60,34 @@
 /* 收起结果 → 隐藏内容体 */
 .bubble.tool .tool-result[data-open="false"] .result-body { display: none; }
 
+/* ===== 结果区“收起时洏几行”（配置 toolPeekLines，如 "3:2"）=====
+   part-text 里存两份 DOM：
+     .part-full  全文（展开时显示）
+     .part-peek  头 + …（已折叠 N 行）+ 尾（收起时显示）
+   默认：只显示全文，精简版隐藏 ✓ */
+.part-text .part-peek { display: none; }
+
+/* ★ 启用了精简版（data-peek=true）且【收起】→ 全文隐藏、精简版显示 ✓ */
+.tool-result[data-open="false"] .part-text[data-peek="true"] .part-full { display: none; }
+.tool-result[data-open="false"] .part-text[data-peek="true"] .part-peek { display: block; }
+
+/* ★ 收起时结果区整体默认是隐藏的（上面那条 ✓）——
+   但只要“有精简版”，就要把 body 显出来（里面只显 part-peek ✓） */
+.tool-result[data-open="false"][data-peek="true"] .result-body { display: block; }
+
+/* 没有精简版的 part（如纯 JSON / 短文本）→ 收起时仍整体隐藏 ✓ */
+.tool-result[data-open="false"][data-peek="true"] .part-text:not([data-peek="true"]) {
+  display: none;
+}
+
+/* 折叠提示行（…已折叠 N 行）—— 弱化色，不抢戏 ✓ */
+.peek-more {
+  color: var(--vscode-descriptionForeground);
+  opacity: .75;
+  font-style: italic;
+  user-select: none;
+}
+
 /* ===== 工具：参数键值对（通用渲染）=====
    用 grid → 多行值的续行自动对齐到第二列 ✓ */
 .arg-row {

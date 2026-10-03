@@ -345,6 +345,16 @@
                         "type": "string"
                     },
                     "markdownDescription": "折叠规则（字符串数组）。**目的：精确忽略某一部分数据包**，其余照常完整显示 ✓\n\n格式：`type` 或 `type:字段路径` 或 `type:字段路径=值`\n\n· `\"turn_start\"` → 忽略整个 type\n· `\"message_update:assistantMessageEvent.type=text_delta\"` → 只忽略这一类 ✓\n· `\"tool_execution_start:toolName\"` → 只要取得到值就忽略\n\n命中后【不会消失】，而是折叠成一行 `标签 × 条数`（保住时序位置 ✓）。"
+                },
+                "pi-bridge.style.noticeAutoOpen": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "通知到达时是否自动展开通知面板（默认关，避免打断阅读）。"
+                },
+                "pi-bridge.style.toolPeekLines": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "工具结果【收起】时露几行，格式 `\"头:尾\"`（如 `\"3:2\"` = 开头 3 行 + 末尾 2 行）。\n\n· 留空 / `0:0` → 不启用（收起时折成一行 ✓）\n· 只写 `\"3\"` → 开头 3 行（末尾 0 行）\n\n★ 只影响【结果文本】，不影响参数（参数保持每行单独可折叠 ✓）"
                 }
             }
         }

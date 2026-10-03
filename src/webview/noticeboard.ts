@@ -114,7 +114,11 @@ export function renderNotices(): void {
 export function appendNotice(n: UiNotice): void {
     ui.notices.push(n);
     noticeList.appendChild(createNoticeItem(n));
-    if (!ui.panelExpanded) ui.noticeUnread++;
+    if (!ui.panelExpanded) {
+        ui.noticeUnread++;
+        // ★ 通知自动下拉（配置开启时 ✓）：来了就展开，未读归零 ✓
+        if (ui.noticeAutoOpen) setExpanded(true);
+    }
     syncBadge();
 }
 
@@ -158,6 +162,25 @@ export function setupNoticeBoard(): void {
 
     // ① 面板底部热区 → 收起 ✓
     noticeCollapse.addEventListener("click", () => setExpanded(false));
+
+    /**
+     * ★ 点【面板空白处】也收起（用户要求 ✓）
+     *
+     * 【为什么不是“只有底部按钮能收”✗】
+     *   面板展开后会占据一大片区域（固定高度 40vh ✓）
+     *   要点到底部按钮才能收 → 鼠标要跑很远 ✗
+     *   而“点空白收起”是面板类 UI 的通用习惯 ✓
+     *
+     * 【判定】
+     *   点在【条目】上（或其按钮）→ 不收 ✓（那是操作区）
+     *   其余（背景 / 空隙 / 空列表区域）→ 收 ✓
+     *   底部热区自己的 click 也会冒泡到这里 → 重复调用幂等，无害 ✓
+     */
+    noticePanel.addEventListener("click", (e) => {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest(".notice-item")) return; // 条目区域不收起 ✓
+        setExpanded(false);
+    });
 
     // 清空全部（本地清不划算 → 直接让插件端清权威数据，再回推 noticesCleared ✓）
     noticeClear.addEventListener("click", (e) => {

@@ -155,10 +155,7 @@ export function renderResultParts(
     for (const p of parts || []) {
         const t = (p as { type?: string } | null)?.type;
         if (t === "text") {
-            const el = document.createElement("div");
-            el.className = "part-text";
-            el.textContent = (p as { text?: string }).text ?? "";
-            body.appendChild(el);
+            body.appendChild(buildTextPart((p as { text?: string }).text ?? ""));
         } else if (t === "image") {
             const img = document.createElement("img");
             img.className = "part-image";
@@ -174,7 +171,68 @@ export function renderResultParts(
             body.appendChild(pre);
         }
     }
+    // 决定这个结果区“收起时能不能露几行”
+    //   ★ 只要【有一个 part 建了精简版】就标记上 → CSS 靠它决定收起时是否显示 ✓
+    host.dataset.peek = body.querySelector('.part-text[data-peek="true"]') ? "true" : "false";
+
     // 流式中还没输出（第 1 个 update 是空的）→ 留空，不要显示"（无输出）"✗
     if (!body.childElementCount) body.textContent = streaming ? "" : "（无输出）";
     scrollToBottom();
+}
+
+/**
+ * ★ 建一个文本 part
+ *
+ * 【为什么要建“两份 DOM”？】
+ *   配置了 toolPeekLines（如 "3:2"）时，收起状态要显示：
+ *     开头 3 行 + （已折叠 N 行）+ 末尾 2 行
+ *   而展开状态要显示【完整文本】。
+ *   CSS 只能“裁掉”不能“把裁掉的中间补回来”✗
+ *   → 存两份最简单 ✓（文本量不大，代价可忽）
+ *
+ * 【未配置 / 行数不够】→ 只存一份全文 ✓（与旧行为一致）
+ */
+function buildTextPart(text: string): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "part-text";
+
+    const peek = ui.toolPeek;
+    const lines = text.split("\n");
+
+    // 不启用精简（未配置，或行数不够折叠）→ 单一全文 ✓
+    if (!peek || lines.length <= peek.head + peek.tail + 1) {
+        el.textContent = text;
+        return el;
+    }
+
+    // ── 全文（展开时用）──
+    const full = document.createElement("div");
+    full.className = "part-full";
+    full.textContent = text;
+
+    // ── 精简版（收起时用）：头 + 折叠提示 + 尾 ──
+    const short = document.createElement("div");
+    short.className = "part-peek";
+    const hidden = lines.length - peek.head - peek.tail;
+
+    // 头（可能是 0 行 → 不建这个节点 ✓）
+    if (peek.head > 0) {
+        const head = document.createElement("div");
+        head.textContent = lines.slice(0, peek.head).join("\n");
+        short.appendChild(head);
+    }
+    const more = document.createElement("div");
+    more.className = "peek-more";
+    more.textContent = `…（已折叠 ${hidden} 行）`;
+    short.appendChild(more);
+    // 尾
+    if (peek.tail > 0) {
+        const tail = document.createElement("div");
+        tail.textContent = lines.slice(-peek.tail).join("\n");
+        short.appendChild(tail);
+    }
+
+    el.dataset.peek = "true"; // ★ CSS 靠它判断“这个 part 有精简版” ✓
+    el.append(full, short);
+    return el;
 }

@@ -52,6 +52,14 @@ export const ui = {
     defaultThinkCollapsed: false,
     /** 默认折叠·工具 */
     defaultToolCollapsed: false,
+    /** ★ 通知到达时自动展开面板（默认关 ✓） */
+    noticeAutoOpen: false,
+    /**
+     * ★ 工具结果收起时“两头各露几行”
+     *   null = 不启用（走 CSS 的 line-clamp，全部折成一行 ✓）
+     *   { head, tail } = 分别露开头 / 末尾的行数 ✓
+     */
+    toolPeek: null as { head: number; tail: number } | null,
 
     // ── 顶栏 ──
     /** modelId → contextWindow（宿主推送；查不到则电池显示 "?"） */

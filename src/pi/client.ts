@@ -1,28 +1,26 @@
 /**
- * PiClient —— 对官方 RpcClient 的薄封装
+ * PiClient —— 对【自持传输层】的薄封装
  *
- * 【为什么还要包一层？】
- * 官方 RpcClient 已经实现了协议细节（spawn、JSONL 解析、请求 id 关联、超时）。
- * 我们这一层只做三件事：
- *   1. 统一生命周期（start / stop）
- *   2. 事件多播（把 onEvent 的事件转发给多个订阅者，方便"调试板"和"聊天视图"同时监听）
- *   3. 提供 send(cmd) 通用入口 —— 把 RpcCommand 对象分派到官方的具名方法
+ * 【分工】
+ *   OwnRpcClient（./rpc-client.ts）—— 只管搬运：spawn / stdin / stdout / 回执匹配 / 超时
+ *   本文件                            —— 管业务：生命周期 + 事件多播 + 命令分派
  *
- * 【为什么要 send(cmd) 而不是直接调 client.prompt()？】
- * 因为我们的"前端 → 后端"是表驱动设计（前端消息 → RpcCommand 对象）。
- * 官方 RpcClient 只提供具名方法（prompt/abort/setModel...），
- * 所以需要一个"分派器"把 RpcCommand 翻译成对应的方法调用。
- * 这样我们的 format 层可以继续按"数据驱动"的方式扩展命令，而不用改调用点。
+ * 【为什么不直接用官方 RpcClient？】
+ *   官方三处不满足（详见 docs/batches/B13.md ②）：
+ *     · send 是 private ✗
+ *     · 只有拉取式 getStderr ✗（拿不到实时 stderr）
+ *     · 没有回复扩展 UI 请求的出口 ✗
+ *   → 自持传输层后【三个出口都齐了】✓ 且不再依赖任何私有字段 ✓
+ *
+ * 【为什么还要 send(cmd) 分派而不直接用具名方法？】
+ * 因为我们的“前端 → 后端”是表驱动设计（前端消息 → RpcCommand 对象）✓
+ * 本层把 RpcCommand 翻译成对应调用，format 层就能继续数据驱动地扩展 ✓
  */
-import { RpcClient } from "@earendil-works/pi-coding-agent";
 import type {
     RpcCommand,
     JsonAgentSessionEvent,
     RpcExtensionUIResponse,
 } from "@earendil-works/pi-coding-agent";
-import type { ChildProcess } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
 import { logDebug, logInfo, logError } from "../logger.js";
 
 /** 事件订阅回调 */
@@ -35,19 +33,19 @@ export type PiEventHandler = (event: JsonAgentSessionEvent) => void;
  * 这里 re-export 保持旧调用点可用。
  */
 import { resolvePiCliPath } from "./paths.js";
+import { OwnRpcClient } from "./rpc-client.js";
 
 export class PiClient {
     /**
-     * ★ 内部 RpcClient 【不再是 readonly】—— 每次启动重建 ✓
-     *   原因：RpcClient 的 args 是【构造时固定】的 ✗
+     * ★ 内部传输层 【每次启动重建】✓
+     *   原因：启动参数是构造时固定的 ✗
      *   若在构造函数里读一次设置，之后改设置就必须重载整个 VS Code 才生效 ✗
      *   改成“每次 spawn 时现读” → 改完设置点一下 reload 就能用新参数启动 ✓
      *
      * ★ 类型是 `| undefined`（而不是用 `!` 断言）—— 因为激活阶段它【真的是】undefined ✗
      *   （onStderr() 会在视图激活时就被调，那时进程还没起）
-     *   用 undefined 能让 TS 强制我们检查 → 避免刚才那个“undefined.process”崩溃 ✓
      */
-    private client: RpcClient | undefined;
+    private client: OwnRpcClient | undefined;
     private started = false;
 
     /** 启动中的 Promise（用于幂等：并发调用复用同一个） */
@@ -56,11 +54,8 @@ export class PiClient {
     /** 我们自己维护的订阅者集合（官方 onEvent 的回调会转发到这里） */
     private readonly handlers = new Set<PiEventHandler>();
 
-    /** stderr 订阅者 */
+    /** stderr 订阅者（★ 记在这里：client 重建后要重挂 ✓） */
     private readonly stderrHandlers = new Set<(text: string) => void>();
-
-    /** stderr 监听是否已挂载（避免重复挂） */
-    private stderrAttached = false;
 
     /** pi 的工作目录（重建时要复用 ✓） */
     private readonly cwd: string;
@@ -88,20 +83,19 @@ export class PiClient {
     private readonly readArgs: () => string[];
 
     /**
-     * ★ 建一个全新的 RpcClient（每次启动都会调）
+     * ★ 建一个全新的传输层（每次启动都会调）
      *
-     * 【为什么要新建而不是复用？】
-     *   RpcClient 的 args 在构造时定死 ✗
-     *   → 想换启动参数，只能连客户端一起重建 ✓
+     * 【为什么新建而不是复用？】
+     *   启动参数在构造时定死 ✗ → 想换参数只能连客户端一起重建 ✓
      */
-    private buildClient(): RpcClient {
+    private buildClient(): OwnRpcClient {
         // ★ 现读参数（不是构造时读 ✗）—— 这就是“懒读”的关键一步 ✓
         const extraArgs = this.readArgs();
         if (extraArgs.length) {
             logInfo(`[PiClient] 额外启动参数: ${extraArgs.join(" ")}`);
         }
 
-        const client = new RpcClient({
+        const client = new OwnRpcClient({
             cwd: this.cwd,
             cliPath: this.cliPath,
             // --no-session：不写会话文件
@@ -111,14 +105,23 @@ export class PiClient {
             // 2. 避免污染用户的 TUI 会话列表（~/.pi/agent/sessions/）
             // 3. 避免被外部工具破坏（如 pi-web 会往会话文件追加无 id 的条目，导致链断）
             args: ["--no-session", ...extraArgs],
+            // ★ 注入日志：传输层不依赖 vscode，日志由本层提供 ✓
+            logger: { debug: logDebug, error: logError },
         });
 
-        // 构造时就注册官方事件回调 —— 这样无论何时 start，事件都不会漏
+        // 事件多播：官方 onEvent 的回调会转发给本层所有订阅者
         client.onEvent((event) => {
             for (const handler of this.handlers) {
                 handler(event);
             }
         });
+
+        // ★ 重挂 stderr：订阅者记在 PiClient 上，client 重建后要重新挂钩 ✓
+        //   （OwnRpcClient 自己会补发历史 → 不会漏掉启动期输出 ✓）
+        for (const handler of this.stderrHandlers) {
+            client.onStderr(handler);
+        }
+
         return client;
     }
 
@@ -151,16 +154,13 @@ export class PiClient {
         const client = this.buildClient();
         this.client = client;
 
-        // ① 官方 start() 只等 100ms + 检查进程没立即崩溃，不等于协议层就绪
+        // ① 启动子进程（内部只等 100ms + 检查进程没立即崩溃）
         await client.start();
 
         // ② 就绪探针：发一条 get_state 并等回执
         //    能拿到回执，说明 pi 的 stdin/stdout 都通了、协议层真的活了
         //    （等价于 s-pi 里的 waitReady 探针）
         await client.getState();
-
-        // ③ 挂载 stderr 监听（此时子进程已存在）
-        this.attachStderr();
 
         this.started = true;
         logInfo("[PiClient] pi 就绪");
@@ -175,7 +175,7 @@ export class PiClient {
      *   → 这个按钮就是“应用新设置”的开关 ✓
      *
      * 【注意】订阅关系（onEvent / onStderr）不受影响 ✓
-     *   因为它们挂在本类上，而重建的只是内部 RpcClient ✓
+     *   因为它们记在本类上，buildClient 时会重新挂到新 client 上 ✓
      */
     async reload(): Promise<void> {
         logInfo("[PiClient] reload：重启 pi 进程（读取最新启动参数）");
@@ -188,83 +188,23 @@ export class PiClient {
     }
 
     /**
-     * 挂载 stderr 监听（事件驱动，幂等）
-     *
-     * 【怎么做到的？】
-     * 官方 RpcClient 只暴露拉取式 getStderr()，但它内部把子进程存进了 this.process。
-     * TypeScript 的 private 只是【编译期】限制（编译后类型擦除）——
-     * 所以运行时可以直接访问它，给 childProcess.stderr 挂自己的监听器
-     * （Node 的 EventEmitter 支持多个监听器，与官方内部那个共存）。
-     *
-     * 【风险】依赖了官方未承诺的私有字段。挂不上时不崩；
-     * 将来官方改结构会导致这里失效（必要时可回退到轮询 getStderr）。
-     *
-     * @param silent 激活阶段（进程还没启动）挂不上是正常现象 → 不报错
-     */
-    private attachStderr(silent = false): void {
-        if (this.stderrAttached) return;
-
-        // ★ 激活阶段（进程还没起）client 就是 undefined → 直接返回 ✓
-        //   （这正是之前崩溃的地方：读了 undefined 的 .process ✗）
-        const client = this.client;
-        if (!client) {
-            if (!silent) {
-                logError("[PiClient] 无法挂载 stderr 监听：pi 尚未启动");
-            }
-            return;
-        }
-
-        const proc = (client as unknown as { process?: ChildProcess }).process;
-        if (!proc?.stderr) {
-            if (!silent) {
-                logError("[PiClient] 无法挂载 stderr 监听（官方内部结构可能已变）");
-            }
-            return;
-        }
-
-        // ① 先拉一次【历史】：
-        //    官方在 spawn 后就挂了监听，把启动期输出（扩展日志 / 警告）
-        //    累积在 getStderr() 字符串里。我们挂得晚，只能靠拉取补上。
-        const history = client.getStderr();
-
-        // ② 再挂【事件监听】：收之后新产生的数据（实时）
-        proc.stderr.on("data", (chunk: Buffer) => {
-            this.emitStderr(chunk.toString());
-        });
-        this.stderrAttached = true;
-
-        // ③ 推送历史
-        //    注：这是“拉取时刻”的快照；从拉取到挂监听之间的极短窗口内的数据可能漏掉
-        //    （微秒级，且 stderr 是诊断信息，可接受）
-        if (history) {
-            this.emitStderr(history);
-        }
-
-        logInfo(`[PiClient] stderr 监听已挂载（历史 ${history.length} 字符 + 事件驱动）`);
-    }
-
-    /** 把 stderr 文本分发给所有订阅者 */
-    private emitStderr(text: string): void {
-        for (const handler of this.stderrHandlers) {
-            handler(text);
-        }
-    }
-
-    /**
      * 订阅 pi 的 stderr（错误 / 诊断信息）
      *
      * 【为什么必须送上前端？】
      * stderr 是 pi 进程的第三条输出通道，包含错误和诊断。
-     * 官方只把它转发给 process.stderr（开发者控制台）——
-     * 界面上看不见，用户就无法感知“用着用着突然报错”。
+     * 若只转发给 process.stderr（开发者控制台），界面上看不见 ✗
+     * 用户就无法感知“用着用着突然报错”✗
+     *
+     * ★ 事件式 —— 由 OwnRpcClient.onStderr 提供（官方只有拉取式 ✗）
+     *   订阅时它会【立即补发已累积的历史】，所以不会漏掉启动期输出 ✓
      *
      * @returns 取消订阅的函数
      */
     onStderr(handler: (text: string) => void): () => void {
         this.stderrHandlers.add(handler);
-        // 若已启动过，立即尝试挂载；否则等 doStart 里挂
-        // （silent：激活阶段进程还没起，挂不上是正常的，不报错）
-        this.attachStderr(true);
+        // 已启动过 → 立刻挂上；否则等 doStart → buildClient 时统一挂 ✓
+        // （激活阶段进程还没起，什么也不做是正常的 ✓）
+        this.client?.onStderr(handler);
         return () => {
             this.stderrHandlers.delete(handler);
         };
@@ -277,8 +217,6 @@ export class PiClient {
         logInfo("[PiClient] 正在停止 pi ...");
         await client.stop();
         this.started = false;
-        // 重置挂载状态：进程已死，下次 start 需要重新挂
-        this.stderrAttached = false;
     }
 
     /** 订阅事件流，返回取消订阅函数 */
@@ -290,40 +228,22 @@ export class PiClient {
     /**
      * ★ 回复扩展的 UI 请求（select / confirm / input / editor 的结果）
      *
-     * 【为什么不走官方的 send()？】
-     *   ① send 是 private（虽然运行时能访问，但类型上没暴露 ✗）
-     *   ② ★ 更关键：pi 对 extension_ui_response 【不返回执】✗
-     *      源码：handleInputLine 收到它 → 直接 resolve pending，不 output(response)
-     *      → 走 send() 会一直挂到 30s 超时才结束 ✗，而且会报一个无意义的错
-     *
-     * 【所以直接写一行 JSONL】✓ —— 协议本来就是 JSONL（每行一个 JSON）
-     *   与 attachStderr 一样，这里也依赖了官方未承诺的私有字段 process ⚠
-     *   写不了就只记日志，不让扩展卡死（它会自己 timeout ✓）
+     * ★ 现在只是转发给传输层 ✓ —— 那里真有出口了（不再绕私有字段 ✗）
+     *   OwnRpcClient.reply() 直接写 stdin，并且【不等回执】（因为 pi 不发 ✗）
      */
     replyExtensionUi(response: RpcExtensionUIResponse): void {
-        const proc = (this.client as unknown as { process?: ChildProcess }).process;
-        const stdin = proc?.stdin;
-        if (!stdin || stdin.destroyed || !stdin.writable) {
-            logError("[PiClient] 无法回复扩展请求：stdin 不可写");
-            return;
-        }
         logDebug(`[PiClient] 回复扩展请求 id=${response.id}`);
-        stdin.write(JSON.stringify(response) + "\n");
-    }
-
-    /** 读取 pi 的 stderr（诊断用） */
-    getStderr(): string {
-        return this.client?.getStderr() ?? "";
+        this.client?.reply(response);
     }
 
     /**
-     * 通用命令入口：RpcCommand → 官方具名方法
+     * 通用命令入口：RpcCommand → 对应调用
      *
-     * 这就是我们讨论过的 "dispatcher"：
-     *   - 前端消息经 format 层变成 RpcCommand
-     *   - 这里按 type 分派到 client 的具名方法
+     * 【为什么这么设计】
+     *   前端消息经 format 层变成 RpcCommand
+     *   这里按 type 分派 → 业务代码不需要知道具体怎么发 ✓
      *
-     * 第一步只实现 prompt / abort，后续迭代逐个补充。
+     * ★ 新增命令只需在这里加一个 case（或直接用下面的 sendRaw ✓）
      */
     async send(cmd: RpcCommand): Promise<void> {
         await this.ensureStarted(); // 懒启动：发命令前确保 pi 已就绪
@@ -334,10 +254,12 @@ export class PiClient {
 
         switch (cmd.type) {
             case "prompt":
-                return client.prompt(cmd.message, cmd.images);
+                await client.send(cmd);
+                return;
 
             case "abort":
-                return client.abort();
+                await client.send(cmd);
+                return;
 
             default:
                 // 用到未实现的命令时，明确报错而不是静默忽略
@@ -346,10 +268,14 @@ export class PiClient {
         }
     }
 
-    /** 便捷方法：直接发一条 prompt（等价于 send({type:"prompt", message})） */
-    async prompt(text: string): Promise<void> {
+    /**
+     * ★ 直接发任意命令并拿回执（新增命令时不用改 send 的分派表 ✓）
+     * 比如：await pi.sendRaw({ type: "get_available_models" })
+     */
+    async sendRaw(cmd: RpcCommand): Promise<unknown> {
         await this.ensureStarted();
-        logDebug(`[PiClient] prompt: ${text.slice(0, 80)}`);
-        return this.client?.prompt(text);
+        const client = this.client;
+        if (!client) throw new Error("pi 未启动");
+        return client.send(cmd);
     }
 }

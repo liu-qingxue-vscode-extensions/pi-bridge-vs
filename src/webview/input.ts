@@ -72,6 +72,23 @@ export function applyStyleVars(vars?: Record<string, string>): void {
     root.classList.toggle("centered", !!vars && vars["--pi-centered-mode"] === "on");
     ui.defaultThinkCollapsed = !!vars && vars["--pi-think-collapsed"] === "on";
     ui.defaultToolCollapsed = !!vars && vars["--pi-tool-collapsed"] === "on";
+    ui.noticeAutoOpen = !!vars && vars["--pi-notice-auto-open"] === "on";
+
+    // ★ 工具结果“洏几行”：格式 "头:尾"（如 "3:2"）；解析失败 → 置空（不启用 ✓）
+    ui.toolPeek = parsePeek(vars?.["--pi-tool-peek-lines"]);
+}
+
+/**
+ * 解析 "3:2" → { head: 3, tail: 2 }
+ * 宽容处理："3" → { head: 3, tail: 0 }；空/非法 → null ✓
+ */
+function parsePeek(raw?: string): { head: number; tail: number } | null {
+    if (!raw) return null;
+    const [h, t] = String(raw).split(":");
+    const head = Math.max(0, Math.floor(Number(h) || 0));
+    const tail = Math.max(0, Math.floor(Number(t) || 0));
+    if (head === 0 && tail === 0) return null; // 都是 0 → 不启用 ✓
+    return { head, tail };
 }
 
 /** 绑定输入区交互（入口调用一次 ✓） */

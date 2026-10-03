@@ -21,7 +21,7 @@ import { createThinkingBubble, markThinkDone } from "./thinking.js";
 import { createToolBubble, ensureResultHost, markStreamingDone, renderArgs, renderResultParts, setToolState } from "./tool.js";
 import { appendStopNote, showRetryNotice } from "./notices.js";
 import { updateStatusBar } from "./topbar.js";
-import { appendNotice, clearNotices, removeNotice, resetNotices, setExpanded } from "./noticeboard.js";
+import { appendNotice, clearNotices, removeNotice, renderNotices, resetNotices, setExpanded } from "./noticeboard.js";
 import { applyStyleVars, autoGrow, setAgentState, showCwd } from "./input.js";
 
 /** 气泡快照的形状（对应插件端 Bubble ✓） */
@@ -44,8 +44,48 @@ interface SnapBubble {
     model?: string;
 }
 
-/** 全量重放（webview 重建 / 视图重开时） */
-function replaySnapshot(payload: unknown): void {
+/** 最近一次快照（★ 改配置要重画时用 ✓） */
+let lastSnapshot: unknown = null;
+
+/** 重放待办：正在流式输出时改配置 → 延到空闲再重放 ✓ */
+let replayPending = false;
+
+/** 任务是否在跑（流式输出中）*/
+let agentBusy = false;
+
+/**
+ * ★ 按【最新配置】重画已渲染内容
+ *
+ * 【为什么要它？】配置项分三类 ——
+ *   ① 纯样式（颜色/尺寸）→ 天生实时 ✓（CSS 变量是“活的”✓）
+ *   ② 影响 DOM 结构（toolPeekLines / 默认折叠）→ 已建的气泡不会变 ✗ → 需要重画 ✓
+ *   ③ 影响数据流（调试板折叠）→ 调试板自己已用“重放”解决 ✓
+ *
+ * 重放不是新机制：它是 B1 就做好的能力（webview 重建时一直用它 ✓）
+ * 这里只是把【同一个模式】接到“配置变化”上 ✓
+ *
+ * 【为什么延后？】
+ *   重放会重建气泡 → 打断正在流式的输出 ✗
+ *   所以忙的时候记住“待重放”，等 agent_settled（彻底空闲）再做 ✓
+ */
+function replayForConfig(): void {
+    if (lastSnapshot === null) return;
+    if (agentBusy) {
+        replayPending = true;
+        return;
+    }
+    // ★ keepNotices：配置变化不该把通知清掉（那是数据，不是渲染 ✓）
+    replaySnapshot(lastSnapshot, { keepNotices: true });
+}
+
+/**
+ * 全量重放（webview 重建 / 视图重开时）
+ *
+ * @param opts.keepNotices 保留现有通知（改配置重画时用 ✓）
+ *                         不传 = 用快照里的通知重建（webview 重建时 ✓）
+ */
+function replaySnapshot(payload: unknown, opts?: { keepNotices?: boolean }): void {
+    lastSnapshot = payload; // ★ 记住它：改配置时要靠它重画 ✓
     const snap = (payload ?? {}) as { bubbles?: SnapBubble[]; notices?: unknown[] };
     const bubbles = Array.isArray(snap.bubbles) ? snap.bubbles : [];
 
@@ -53,8 +93,12 @@ function replaySnapshot(payload: unknown): void {
     ui.bubble = null;
     ui.pendingEl = null; // ★ 重建后不保留旧占位引用
     ui.lastThinkBubble = null;
-    // ★ 通知也重放（权威在插件端 ✓ 插件重启才消失 ✓）
-    resetNotices((snap.notices ?? []) as never);
+    // ★ 通知（默认从快照重建；改配置重画时保留现有 ✓）
+    if (opts?.keepNotices) {
+        renderNotices();
+    } else {
+        resetNotices((snap.notices ?? []) as never);
+    }
 
     for (const b of bubbles) {
         ui.role = b.role;
@@ -258,6 +302,9 @@ export function setupHostBridge(): void {
             case "styleVars":
                 applyStyleVars(data.payload as Record<string, string>);
                 autoGrow(); // ★ 配置变了（如行数/字号）→ 重新算高度与留白
+                // ★ 再按新配置重画已渲染内容（否则行为类参数改了不起作用 ✗）
+                //   空闲时立即生效；流式中会延后到 agent_settled ✓
+                replayForConfig();
                 return;
             case "modelLimits":
                 ui.modelLimits = (data.payload ?? {}) as Record<string, number>;
@@ -267,6 +314,7 @@ export function setupHostBridge(): void {
                 return;
             case "agentState": {
                 setAgentState(String(data.payload));
+                agentBusy = data.payload === "working";
                 if (data.payload === "working") {
                     // 任务开始 → 立刻显示占位三点（不要空荡荡地等第一个数据包）
                     // 注：【不】移除重连提示 ✓（用户要求：留着，别挤掉）
@@ -275,6 +323,11 @@ export function setupHostBridge(): void {
                     // ★ 任务彻底结束（settled 一定晚于 auto_retry_end ✓）→ 清中断标志
                     ui.userAborted = false;
                     removePending();
+                    // ★ 流式期间积压的“配置重放”现在可以做了 ✓
+                    if (replayPending) {
+                        replayPending = false;
+                        replayForConfig();
+                    }
                 }
                 return;
             }

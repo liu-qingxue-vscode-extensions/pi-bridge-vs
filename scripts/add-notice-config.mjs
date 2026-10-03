@@ -68,6 +68,20 @@ Object.assign(props, {
         default: "6px 8px 6px 10px",
         description: "通知条目的内边距（CSS 简写，如 6px 8px）。",
     },
+    "pi-bridge.style.noticeAutoOpen": {
+        type: "boolean",
+        default: false,
+        description: "通知到达时是否自动展开通知面板（默认关，避免打断阅读）。",
+    },
+    "pi-bridge.style.toolPeekLines": {
+        type: "string",
+        default: "",
+        markdownDescription:
+            "工具结果【收起】时露几行，格式 `\"头:尾\"`（如 `\"3:2\"` = 开头 3 行 + 末尾 2 行）。\n\n" +
+            "· 留空 / `0:0` → 不启用（收起时折成一行 ✓）\n" +
+            "· 只写 `\"3\"` → 开头 3 行（末尾 0 行）\n\n" +
+            "★ 只影响【结果文本】，不影响参数（参数保持每行单独可折叠 ✓）",
+    },
 });
 
 // ★ 快捷键：ctrl+alt+n → 展开/收起通知板

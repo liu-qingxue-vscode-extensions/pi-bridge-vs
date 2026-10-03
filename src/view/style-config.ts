@@ -41,6 +41,16 @@ export function readStyleVars(): Record<string, string> {
     // 居中内容列开关：布尔不能直接当 CSS 变量用 → 传一个特殊值，webview 收到后切换 CSS 类
     vars["--pi-centered-mode"] = cfg.get<boolean>("centerColumn", false) ? "on" : "off";
 
+    // ★ 通知自动下拉：通知到达时自动展开面板（默认关 ✓）
+    vars["--pi-notice-auto-open"] = cfg.get<boolean>("noticeAutoOpen", false) ? "on" : "off";
+
+    // ★ 工具结果“洏几行”：格式 "头:尾"（如 "3:2"）
+    //   空 / 根头是 0 → 不启用（收起时靠 CSS line-clamp 全部折成一行 ✓）
+    const peek = cfg.get<string>("toolPeekLines", "");
+    if (typeof peek === "string" && peek.trim() !== "") {
+        vars["--pi-tool-peek-lines"] = peek.trim();
+    }
+
     // 默认折叠开关（同样用特殊值传，webview 自己处理）
     vars["--pi-think-collapsed"] = cfg.get<boolean>("thinkCollapsed", false) ? "on" : "off";
     vars["--pi-tool-collapsed"] = cfg.get<boolean>("toolCollapsed", false) ? "on" : "off";
@@ -53,6 +63,7 @@ export function readStyleVars(): Record<string, string> {
         vars["--pi-result-label"] = '""'; // 显式置空
     }
 
+    // 输入框（行数类传空单位：只是数字，由 JS 读取后自己算像素）
     // 输入框（行数类传空单位：只是数字，由 JS 读取后自己算像素）
     num("inputRadius", "--pi-input-radius");
     num("inputWidth", "--pi-input-width", "%");

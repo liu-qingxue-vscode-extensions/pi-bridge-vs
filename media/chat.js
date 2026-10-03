@@ -60,6 +60,14 @@
     defaultThinkCollapsed: false,
     /** 默认折叠·工具 */
     defaultToolCollapsed: false,
+    /** ★ 通知到达时自动展开面板（默认关 ✓） */
+    noticeAutoOpen: false,
+    /**
+     * ★ 工具结果收起时“两头各露几行”
+     *   null = 不启用（走 CSS 的 line-clamp，全部折成一行 ✓）
+     *   { head, tail } = 分别露开头 / 末尾的行数 ✓
+     */
+    toolPeek: null,
     // ── 顶栏 ──
     /** modelId → contextWindow（宿主推送；查不到则电池显示 "?"） */
     modelLimits: {},
@@ -143,6 +151,16 @@
     root.classList.toggle("centered", !!vars && vars["--pi-centered-mode"] === "on");
     ui.defaultThinkCollapsed = !!vars && vars["--pi-think-collapsed"] === "on";
     ui.defaultToolCollapsed = !!vars && vars["--pi-tool-collapsed"] === "on";
+    ui.noticeAutoOpen = !!vars && vars["--pi-notice-auto-open"] === "on";
+    ui.toolPeek = parsePeek(vars?.["--pi-tool-peek-lines"]);
+  }
+  function parsePeek(raw) {
+    if (!raw) return null;
+    const [h, t] = String(raw).split(":");
+    const head = Math.max(0, Math.floor(Number(h) || 0));
+    const tail = Math.max(0, Math.floor(Number(t) || 0));
+    if (head === 0 && tail === 0) return null;
+    return { head, tail };
   }
   function setupInput() {
     sendBtn.addEventListener("click", () => {
@@ -232,7 +250,10 @@
   function appendNotice(n) {
     ui.notices.push(n);
     noticeList.appendChild(createNoticeItem(n));
-    if (!ui.panelExpanded) ui.noticeUnread++;
+    if (!ui.panelExpanded) {
+      ui.noticeUnread++;
+      if (ui.noticeAutoOpen) setExpanded(true);
+    }
     syncBadge();
   }
   function removeNotice(id) {
@@ -263,6 +284,11 @@
   function setupNoticeBoard() {
     statusBarEl.addEventListener("click", () => setExpanded());
     noticeCollapse.addEventListener("click", () => setExpanded(false));
+    noticePanel.addEventListener("click", (e) => {
+      const target = e.target;
+      if (target?.closest(".notice-item")) return;
+      setExpanded(false);
+    });
     noticeClear.addEventListener("click", (e) => {
       e.stopPropagation();
       vscode.postMessage({ kind: "noticeClearAll" });
@@ -505,10 +531,7 @@
     for (const p of parts || []) {
       const t = p?.type;
       if (t === "text") {
-        const el = document.createElement("div");
-        el.className = "part-text";
-        el.textContent = p.text ?? "";
-        body.appendChild(el);
+        body.appendChild(buildTextPart(p.text ?? ""));
       } else if (t === "image") {
         const img = document.createElement("img");
         img.className = "part-image";
@@ -524,8 +547,42 @@
         body.appendChild(pre);
       }
     }
+    host.dataset.peek = body.querySelector('.part-text[data-peek="true"]') ? "true" : "false";
     if (!body.childElementCount) body.textContent = streaming ? "" : "\uFF08\u65E0\u8F93\u51FA\uFF09";
     scrollToBottom();
+  }
+  function buildTextPart(text) {
+    const el = document.createElement("div");
+    el.className = "part-text";
+    const peek = ui.toolPeek;
+    const lines = text.split("\n");
+    if (!peek || lines.length <= peek.head + peek.tail + 1) {
+      el.textContent = text;
+      return el;
+    }
+    const full = document.createElement("div");
+    full.className = "part-full";
+    full.textContent = text;
+    const short = document.createElement("div");
+    short.className = "part-peek";
+    const hidden = lines.length - peek.head - peek.tail;
+    if (peek.head > 0) {
+      const head = document.createElement("div");
+      head.textContent = lines.slice(0, peek.head).join("\n");
+      short.appendChild(head);
+    }
+    const more = document.createElement("div");
+    more.className = "peek-more";
+    more.textContent = `\u2026\uFF08\u5DF2\u6298\u53E0 ${hidden} \u884C\uFF09`;
+    short.appendChild(more);
+    if (peek.tail > 0) {
+      const tail = document.createElement("div");
+      tail.textContent = lines.slice(-peek.tail).join("\n");
+      short.appendChild(tail);
+    }
+    el.dataset.peek = "true";
+    el.append(full, short);
+    return el;
   }
 
   // src/webview/notices.ts
@@ -616,14 +673,30 @@
   }
 
   // src/webview/apply.ts
-  function replaySnapshot(payload) {
+  var lastSnapshot = null;
+  var replayPending = false;
+  var agentBusy = false;
+  function replayForConfig() {
+    if (lastSnapshot === null) return;
+    if (agentBusy) {
+      replayPending = true;
+      return;
+    }
+    replaySnapshot(lastSnapshot, { keepNotices: true });
+  }
+  function replaySnapshot(payload, opts) {
+    lastSnapshot = payload;
     const snap = payload ?? {};
     const bubbles = Array.isArray(snap.bubbles) ? snap.bubbles : [];
     messagesEl.innerHTML = "";
     ui.bubble = null;
     ui.pendingEl = null;
     ui.lastThinkBubble = null;
-    resetNotices(snap.notices ?? []);
+    if (opts?.keepNotices) {
+      renderNotices();
+    } else {
+      resetNotices(snap.notices ?? []);
+    }
     for (const b of bubbles) {
       ui.role = b.role;
       if (b.role === "user") {
@@ -781,6 +854,7 @@
         case "styleVars":
           applyStyleVars(data.payload);
           autoGrow();
+          replayForConfig();
           return;
         case "modelLimits":
           ui.modelLimits = data.payload ?? {};
@@ -790,11 +864,16 @@
           return;
         case "agentState": {
           setAgentState(String(data.payload));
+          agentBusy = data.payload === "working";
           if (data.payload === "working") {
             showPending();
           } else {
             ui.userAborted = false;
             removePending();
+            if (replayPending) {
+              replayPending = false;
+              replayForConfig();
+            }
           }
           return;
         }
