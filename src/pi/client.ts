@@ -290,27 +290,27 @@ export class PiClient {
      *
      * ★ 新增命令只需在这里加一个 case（或直接用下面的 sendRaw ✓）
      */
-    async send(cmd: RpcCommand): Promise<void> {
+    async send(cmd: RpcCommand): Promise<RpcResponse | undefined> {
         await this.ensureStarted(); // 懒启动：发命令前确保 pi 已就绪
 
         // ensureStarted 成功后 client 必定已建 ✓
         const client = this.client;
         if (!client) throw new Error("pi 未启动");
 
-        switch (cmd.type) {
-            case "prompt":
-                await client.send(cmd);
-                return;
-
-            case "abort":
-                await client.send(cmd);
-                return;
-
-            default:
-                // 用到未实现的命令时，明确报错而不是静默忽略
-                logError(`[PiClient] send: 未实现的命令类型: ${(cmd as { type: string }).type}`);
-                throw new Error(`未实现的命令类型: ${(cmd as { type: string }).type}`);
-        }
+        // ★ 直接转发（B20 修 ✗）
+        //
+        // 【为什么去掉原来的 switch 白名单？】
+        //   原来是 prompt / abort 两个 case，其余直接报错 ✗
+        //   意图是好的（拼错命令时不要静默忽略 ✓）但现在成了坑 ✗：
+        //     · 前端发 steer（插话）→ 【被这里拒掉】✗✗ 而且只在日志里报错 ✓
+        //     · 用户看到的就是“插话完全没效果”✓（实际是我的层给拦了 ✓）
+        //
+        // 【为什么不担心拼错？】
+        //   我们已经有两层白名单了 ✓：
+        //     ① 类型层：cmd 是 RpcCommand 联合类型 ✓ 拼错根本编译不过 ✓
+        //     ② format-frontend 的表驱动 + 前端消息联合类型 ✓
+        //   → 到达这里的命令【必然合法】✓ 再拦一次只会造坑 ✓
+        return (await client.send(cmd)) as RpcResponse | undefined;
     }
 
     /**

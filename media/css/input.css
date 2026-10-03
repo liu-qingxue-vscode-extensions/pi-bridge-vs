@@ -157,3 +157,41 @@
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== ★ 「待插话」条（B20）=====
+   挂在【输入框正上方】✗ 不进消息流 ✓（用户实测报的问题 ✓）
+   它只是【临时状态】✗ 不是一条历史消息 ✓
+   被投递后立即删除 → 接着走正常对话流程 ✓ */
+#queue-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 6px;   /* 与输入框留一点缝 ✓（padding 由 input-area 统一给 ✓）*/
+}
+#queue-bar[data-empty="true"], #queue-bar:empty { display: none; }
+
+.queue-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    opacity: .75;
+    border: 1px dashed var(--vscode-charts-yellow, #d7a12c);
+    background: color-mix(in srgb, var(--vscode-charts-yellow, #d7a12c) 8%, transparent);
+}
+.queue-text {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.queue-mark {
+    flex: 0 0 auto;
+    color: var(--vscode-charts-yellow, #d7a12c);
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    padding: 0 4px;
+    font-size: 10px;
+}

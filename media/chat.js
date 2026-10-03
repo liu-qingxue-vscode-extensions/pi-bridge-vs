@@ -30,6 +30,7 @@
   var inputEl = needEl("input");
   var sendBtn = needEl("send");
   var btnReload = needEl("btn-reload");
+  var queueBarEl = needEl("queue-bar");
   var statusBarEl = needEl("status-bar");
   var sbCost = needEl("sb-cost");
   var sbOut = needEl("sb-out");
@@ -145,7 +146,10 @@
     autoGrow();
   }
   function syncPadding() {
-    messagesEl.style.paddingBottom = inputAreaEl.offsetHeight + 8 + "px";
+    const last = messagesEl.lastElementChild;
+    const actions = last?.querySelector(".bubble-actions");
+    const actionsH = actions?.offsetHeight ?? 0;
+    messagesEl.style.paddingBottom = inputAreaEl.offsetHeight + actionsH + 8 + "px";
   }
   function autoGrow() {
     const lineH = lineHeightOf(inputEl);
@@ -605,12 +609,17 @@ ${s.path}`;
       }
     }
     const totalUsers = userCount;
+    let added = false;
     for (const [n, w] of groupTail) {
       if (n >= totalUsers) continue;
       if (w.querySelector(".bubble-action-fork")) continue;
       const box = w.querySelector(".bubble-actions");
-      if (box) addForkButtons(box, n);
+      if (box) {
+        addForkButtons(box, n);
+        added = true;
+      }
     }
+    return added;
   }
   function addForkButtons(box, afterUserCount) {
     const clone = document.createElement("button");
@@ -667,6 +676,43 @@ ${s.path}`;
       ui.pendingEl.remove();
       ui.pendingEl = null;
     }
+  }
+
+  // src/webview/inserting.ts
+  var pending = [];
+  var seq = 0;
+  function showInserting(text) {
+    if (!text || !queueBarEl) return;
+    const el = document.createElement("div");
+    el.className = "queue-item";
+    const txt = document.createElement("span");
+    txt.className = "queue-text";
+    txt.textContent = text;
+    const mark = document.createElement("span");
+    mark.className = "queue-mark";
+    mark.textContent = "\u5F85\u63D2\u8BDD";
+    el.appendChild(txt);
+    el.appendChild(mark);
+    queueBarEl.appendChild(el);
+    queueBarEl.dataset.empty = "false";
+    pending.push({ id: ++seq, text, el });
+  }
+  function setQueueing(steering) {
+    const quota = /* @__PURE__ */ new Map();
+    for (const t of steering) quota.set(t, (quota.get(t) ?? 0) + 1);
+    const remain = [];
+    for (const p of pending) {
+      const n = quota.get(p.text) ?? 0;
+      if (n > 0) {
+        quota.set(p.text, n - 1);
+        remain.push(p);
+      } else {
+        p.el.remove();
+      }
+    }
+    pending.length = 0;
+    pending.push(...remain);
+    if (queueBarEl) queueBarEl.dataset.empty = pending.length ? "false" : "true";
   }
 
   // src/webview/thinking.ts
@@ -1176,11 +1222,21 @@ ${s.path}`;
         case "snapshot":
           replaySnapshot(data.payload);
           refreshForkButtons();
+          setQueueing([]);
+          syncPadding();
           return;
         case "patch":
           applyPatch(data.payload ?? {});
-          refreshForkButtons();
+          if (refreshForkButtons()) syncPadding();
           return;
+        case "queueUpdate": {
+          setQueueing(data.payload?.steering ?? []);
+          return;
+        }
+        case "inserting": {
+          showInserting(String(data.payload?.text ?? ""));
+          return;
+        }
         case "toggleNotices":
           setExpanded();
           return;

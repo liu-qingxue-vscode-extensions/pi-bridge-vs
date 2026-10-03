@@ -125,6 +125,8 @@ export type ChatPatch =
     | { kind: "startBubble"; role: ChatRole; text: string }
     | { kind: "append"; block: "text" | "thinking"; text: string }
     | { kind: "endBubble"; role: ChatRole; stopReason?: string; usage?: Usage; model?: string }
+    // ★ 队列变化（B20）：steering 里还有我的文本 = 还没被 AI 吃进去 ✓
+    | { kind: "queueUpdate"; steering: string[]; followUp: string[] }
     // 工具调用（toolcall_*）—— 工具气泡的生命周期
     | { kind: "toolStart"; name: string; callId: string }
     | { kind: "toolArgs"; text: string }

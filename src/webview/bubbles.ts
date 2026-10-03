@@ -123,8 +123,10 @@ export function makeActions(source: HTMLElement): HTMLElement {
  *   → ★ 最后一组【没有下一个用户气泡】→ 不加按钮 ✓（正好 ✓）
  *
  * 【幂等】已有按钮就跳过 ✓（可以反复调用 ✓）
+ *
+ * @returns 是否【真的新增了】按钮（调用方用来决定要不要重算底部留白 ✓）
  */
-export function refreshForkButtons(): void {
+export function refreshForkButtons(): boolean {
     const wraps = Array.from(messagesEl.querySelectorAll<HTMLElement>(".bubble-wrap"));
     const groupTail = new Map<number, HTMLElement>();
     let userCount = 0;
@@ -148,12 +150,19 @@ export function refreshForkButtons(): void {
     // ★★ 关键：组号 == userCount 的那一组【后面没有用户消息了】✗
     //    → 找不到“下一刀的锚点” → ★ 不加按钮 ✓（用户实测报的 bug ✓）
     const totalUsers = userCount;
+    let added = false;
     for (const [n, w] of groupTail) {
         if (n >= totalUsers) continue;
         if (w.querySelector(".bubble-action-fork")) continue; // 幂等 ✓
         const box = w.querySelector<HTMLElement>(".bubble-actions");
-        if (box) addForkButtons(box, n);
+        if (box) {
+            addForkButtons(box, n);
+            added = true;
+        }
     }
+    // ★ 返回“确实新增了” —— 调用方据此决定要不要重算底部留白 ✓
+    //   （流式时每帧都会调本函数 ✗ 无条件重算会强制回流 → 性能问题 ✓）
+    return added;
 }
 
 /**

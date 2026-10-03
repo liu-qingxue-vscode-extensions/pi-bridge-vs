@@ -88,6 +88,10 @@
   <div id="messages"></div>
 
   <div id="input-area">
+    <!-- ★ 「待插话」条（B20）：在输入区【内部最前】✓
+         为什么不能放外面？input-area 是 position:absolute 沉在底部 ✗
+         放外面会被它盖住（实测：条建好了但看不见 ✗）-->
+    <div id="queue-bar"></div>
     <div id="input-box">
       <textarea id="input" rows="1" placeholder="给 pi 发送消息（Enter 发送，Shift+Enter 换行）"></textarea>
       <div id="input-bar">

@@ -92,13 +92,37 @@ export function activate(context: vscode.ExtensionContext): void {
     //    订阅者 1（调试板）：收【原始数据】—— 诊断用，保持原样不翻译
     //    订阅者 2（ChatState）：收【翻译后的渲染指令】—— 只关心聊天需要的事件
     //    两者互不影响：调试板看不到翻译结果，聊天也拿不到原始事件
+    //
+    // ★ 订阅者 3（只有一行）：piBusy —— “agent 在不在跑”
+    //   为什么需要它？（B20 实测发现的问题 ✓）
+    //      pi 在 streaming 时收到【普通 prompt】→ 【回执正常】✗ 但【消息静默丢失】✗✗
+    //      实测：用户消息条数不增 ✓ 前端【完全不会察觉】✓
+    //      → 必须【自己判断】→ busy 时改用 steer ✓（用户定的 ✓）
+    //   ★ 为什么不在前端判断？前端那份【有网络延迟】✗ → 会有竞态 ✓
+    //     而事件【直接从这里流过】✓ → 零延迟 ✓
+    let piBusy = false;
     pi.onEvent((event) => {
+        // ★ 状态维护（在调试板之前，确保不漏 ✓）
+        //
+        // 【只用这两个事件，为什么不用 agent_end？】
+        //   · agent_end 的语义是“这一轮任务生产完毕”✗ 但它【后面还可能有尾巴】✗
+        //     （重试 / 队列投递 / 续写 ✓）
+        //   · agent_settled 才是“彻底空闲（重试/队列都空了）”✓
+        //   → 若用 agent_end 置 idle，会在【尾巴还没跑完】时就误判空闲 ✗
+        //     → 用户这时发消息会退化成 prompt ✗ → 【又被静默丢弃】✗
+        if (event.type === "agent_start") piBusy = true;
+        else if (event.type === "agent_settled") piBusy = false;
+
         debugPanel.log(event);
         const patch = toChatPatch(event);
         if (!patch) return;
         // 任务级状态不进 ChatState（它不是气泡），直接推给视图
         if (patch.kind === "agentState") {
             chatView.post("agentState", patch.state);
+        } else if (patch.kind === "queueUpdate") {
+            // ★ 队列也不进 ChatState（它不是历史消息 ✗ 只是当前排队状态 ✓）
+            //   理由：它【会被重放污染】✗ —— 重放时队列必然是空的 ✓
+            chatView.post("queueUpdate", { steering: patch.steering });
         } else {
             chatState.apply(patch);
         }
@@ -437,7 +461,33 @@ export function activate(context: vscode.ExtensionContext): void {
             logDebug(`前端消息: ${JSON.stringify(msg)}`);
             try {
                 const cmd = toRpcCommand(msg); // 表驱动：前端消息 → RpcCommand
-                await pi.send(cmd);            // send 内部 ensureStarted()：懒启动 + 幂等
+
+                // ★★ 核心修正（B20）：agent 跑着时【prompt 会被静默丢弃】✗
+                //   实测证据（scripts/probe-steer-followup.mjs ✓）：
+                //     跑着时发 prompt → 回执 success ✓ 但【用户消息只有 1 条】✗
+                //     steer       → queue_update 入队 ✓ 下一 turn 投递 ✓ 消息 2 条 ✓
+                //   所以：busy 时自动改发 steer（用户：“自动判断是不是插话即可”✓）
+                let toSend = cmd;
+                if (cmd.type === "prompt" && piBusy) {
+                    logInfo(`agent 正在跑 → prompt 自动转为 steer（避免静默丢失 ✓）`);
+                    toSend = { type: "steer", message: cmd.message };
+                    // ★ 告诉前端：这条是“插话”✗ 让它先渲染成【待插入】气泡 ✓
+                    //   （queue_update 里 steering 消失 = 真被吃进去了 ✓）
+                    chatView.post("inserting", { text: cmd.message });
+                }
+
+                // ★ 发完【记一笔回执】—— steer 的成败就在这一行看 ✓
+                //   （B20 踩过的坑：send 的白名单把 steer 拒了 ✗
+                //     而报错只在日志里 ✓ 用户看到的就是“没效果”✓）
+                const resp = (await pi.send(toSend)) as
+                    | { success?: boolean; error?: string }
+                    | undefined;
+                if (toSend.type === "steer") {
+                    logInfo(
+                        `steer 回执: success=${resp?.success ?? "无回执"}` +
+                            (resp?.error ? ` error=${resp.error}` : ""),
+                    );
+                }
             } catch (err) {
                 logError(`处理前端消息失败: ${toErrorMessage(err)}`);
             }

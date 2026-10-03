@@ -40,6 +40,8 @@ export const inputEl = needEl("input") as HTMLTextAreaElement;
 export const sendBtn = needEl("send");
 /** ★ 重启 pi 按钮（应用最新启动参数 ✓）*/
 export const btnReload = needEl("btn-reload");
+/** ★ 「待插话」条容器（挂在输入框上方 ✓ 不进消息流 ✓）*/
+export const queueBarEl = needEl("queue-bar");
 
 // ── 顶栏（topbar）：统计栏 + 电池 ──
 export const statusBarEl = needEl("status-bar");

@@ -172,6 +172,59 @@ tool_execution_start { toolCallId, toolName: "read", args }
 
 > 会话文件位置：`~/.pi/agent/sessions/--<cwd 转义>--/<时间戳>_<uuid>.jsonl`
 
+## ★ 必须记住的协议陷阱（踩过 ✗）
+
+### 1. streaming 时发 `prompt` 会被【静默丢弃】✗✗✗
+
+```
+实测（scripts/probe-steer-followup.mjs ✓）：
+  跑着时发 { type: "prompt", message }
+    → 回执 success: true      ← ★ 不报错 ✗
+    → 但用户消息【不增加】✗    ← ★ 消息就这么没了 ✓
+    → 前端【完全不会察觉】✗
+
+★ 正确做法：busy 时改发 steer ✓
+  steer      → queue_update 入队 ✓ → 下一 turn 投递 ✓（消息真的进去 ✓）
+  follow_up  → 同样入队 ✓ 但等 agent 【完全停下】才投递 ✓
+
+★ 但【空闲时发 steer】只入队 ✗【不投递】✗（实测 ✓）
+  → 所以【必须判断忙/闲】✗ 不能永远用 steer ✓
+
+★ 判断依据【只用 agent_settled】置空闲 ✗
+  agent_end     = 这轮产出完毕 ✗ 但后面还有尾巴（重试/队列投递 ✓）
+  agent_settled = 彻底空闲（重试、队列都空了 ✓）← 只有它 ✓
+```
+
+### 2. `queue_update` 事件官方类型【未收录】✗
+
+```
+实际会发 { steering: string[], followUp: string[] } ✓
+但 JsonAgentSessionEvent 联合类型里没有 ✗（types 滞后于实现 ✓）
+→ 需要显式收窄 ✓
+
+★ 它的用途：“steering 里还有我的文本”= 还没被 AI 吃进去 ✓
+  （排空 = 已投递 ✓）—— 这是实现“插话中” UI 的唯一依据 ✓
+```
+
+### 3. 命令白名单会把新命令悄悄拦掉 ✗
+
+```
+历史：PiClient.send 只放行 prompt / abort ✗ 其余抛错 ✓
+后果：steer 被自己这层拦了 ✗ 而【报错只进日志】✗
+      → 用户看到的就是“功能完全没效果”✗（排查绕了一大圈 ✓）
+★ 现在：直接转发 ✓（类型层 + format 表两层白名单已足够 ✓）
+★ 教训：拦截层【只报日志】＝ 在用户眼里就是“坏了”✗
+```
+
+### 4. `#input-area` 是 `position:absolute; bottom:0` ✗
+
+```
+它【沉在底部并盖在内容之上】✓
+→ 任何放在它【后面的兄弟节点】都会被它遮住（看不见 ✗）
+→ 要挂在输入区上方的东西【必须放进 input-area 内部】✓
+   （顺带：syncPadding() 用 inputAreaEl.offsetHeight ✓ 会自动跟着涨 ✓）
+```
+
 ## 已解决的重大外部问题（存档）
 
 ### 会话文件断链（2026-09-30 定位）

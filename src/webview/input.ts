@@ -20,11 +20,23 @@ function send(): void {
 }
 
 /**
- * ★ 把消息区的底部留白同步为【输入区实际高度】
- * 否则固定留白会在"滚到底"时露出一块多余空白（用户看到的那条"缝" ✗）
+ * ★ 把消息区的底部留白同步为【输入区实际高度 + 动作区高度】
+ *
+ * 【两个组成部分】（少一个就会出问题 ✗）
+ *   ① 输入区高度：否则固定留白会在“滚到底”时露出一块多余空白 ✓
+ *   ② ★ 最后一条气泡的【动作区】高度（复制/克隆/分叉 ✓）
+ *      少这一部分 → 滚到底时动作区落在输入区后面被盖住 ✗
+ *      （用户实测报的：内容高度正确，但下面的按钮点不到 ✓）
+ *
+ * 【为什么用“最后一条气泡”的实测高度？】
+ *   · 空动作区是 display:none ✓ → offsetHeight = 0 ✓ 自动不预留 ✓
+ *   · 用户改了字号/内边距 → 高度会变 ✓ 实测比写常量更能自适应 ✓
  */
-function syncPadding(): void {
-    messagesEl.style.paddingBottom = inputAreaEl.offsetHeight + 8 + "px";
+export function syncPadding(): void {
+    const last = messagesEl.lastElementChild as HTMLElement | null;
+    const actions = last?.querySelector<HTMLElement>(".bubble-actions");
+    const actionsH = actions?.offsetHeight ?? 0;
+    messagesEl.style.paddingBottom = inputAreaEl.offsetHeight + actionsH + 8 + "px";
 }
 
 /** 输入框高度自适应 */

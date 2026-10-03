@@ -208,6 +208,32 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
     agent_settled: () => ({ kind: "agentState", state: "idle" }),
 
     /**
+     * ★ 队列变化（B20）—— 实现“插话”必需的
+     *
+     * 【为什么要它？】
+     *   1. 用户回车时 agent 在跑 → 后端自动改用 steer ✓（不发 prompt ✗）
+     *   2. 消息先【入队】✗ → 等当前 turn 的工具跑完才【真正投递】✓
+     *   3. ★ 前端要知道“还没进去”✗ → 得看 steering 数组 ✓
+     *      · 我的文本【在 steering 里】= 还在排队 ✓
+     *      · 【不在里面了】         = 已被 AI 吃进去 ✓
+     *
+     * 【实测字段】
+     *   queue_update: { steering: string[], followUp: string[] }
+     *   （入队、出队各一次 ✓ 实测都是这个形状 ✓）
+     *
+     * ★ followUp 我们不做（用户：“追问没必要”✓）→ 字段还是照传 ✓
+     *   以后想用不用改后端 ✓
+     */
+    queue_update: (event) => ({
+        kind: "queueUpdate",
+        // ★ 官方 JsonAgentSessionEvent 的联合体里【尚未收录 queue_update】✗
+        //   （types 滞后于实际协议 ✓ 实测确实会发 ✓）
+        //   → 这里做一次显式收窄 ✓ 不用 as any 敷衍整个对象 ✓
+        steering: [...(((event as { steering?: string[] }).steering) ?? [])],
+        followUp: [...(((event as { followUp?: string[] }).followUp) ?? [])],
+    }),
+
+    /**
      * ★ 自动重连（断网 / 连接中断时 pi 自己发起）
      *
      * 【为什么单独做？】

@@ -15,13 +15,15 @@
  */
 import { messagesEl } from "./dom.js";
 import { ui } from "./state.js";
-import { createBubble, refreshForkButtons, removePending, showPending } from "./bubbles.js";import { appendSegment } from "./segments.js";
+import { createBubble, refreshForkButtons, removePending, showPending } from "./bubbles.js";
+import { setQueueing, showInserting } from "./inserting.js";
+import { appendSegment } from "./segments.js";
 import { createThinkingBubble, markThinkDone } from "./thinking.js";
 import { createToolBubble, ensureResultHost, markStreamingDone, renderArgs, renderResultParts, setToolState } from "./tool.js";
 import { appendStopNote, showRetryNotice } from "./notices.js";
 import { updateStatusBar } from "./topbar.js";
 import { appendNotice, clearNotices, removeNotice, renderNotices, resetNotices, setExpanded } from "./noticeboard.js";
-import { applyStyleVars, autoGrow, setAgentState, showCwd } from "./input.js";
+import { applyStyleVars, autoGrow, setAgentState, showCwd, syncPadding } from "./input.js";
 import { setupSessions, setCurrentCwd, renderSessions, setSessionTitle } from "./sessions.js";
 
 /** 气泡快照的形状（对应插件端 Bubble ✓） */
@@ -337,12 +339,27 @@ export function setupHostBridge(): void {
                 replaySnapshot(data.payload);
                 // ★ 重建完后补上“分叉刀”（每条 AI 组的末尾一把 ✓）
                 refreshForkButtons();
+                // ★ 重放时队列必然是空的 ✗ → 清掉可能残留的“待插话”气泡 ✓
+                setQueueing([]);
+                // ★ 动作区刚加上去 → 底部留白要重算 ✗（否则滚到底时按钮被盖住 ✓）
+                syncPadding();
                 return;
             case "patch":
                 applyPatch((data.payload ?? {}) as Record<string, unknown>);
                 // ★ 每批增量后扫一次（幂等 ✓ 新到的用户消息会把上一组的刀补上 ✓）
-                refreshForkButtons();
+                //   ★ 只有真的新增了才重算留白 ✗（否则流式时每帧强制回流 ✓）
+                if (refreshForkButtons()) syncPadding();
                 return;
+            case "queueUpdate": {
+                // ★ 队列变化（B20）：steering 里还有我的文本 = 还没被 AI 吃进去 ✓
+                setQueueing((data.payload as { steering?: string[] })?.steering ?? []);
+                return;
+            }
+            case "inserting": {
+                // ★ 后端说“这条被转成了 steer”→ 先画一个【待插入】气泡 ✓
+                showInserting(String((data.payload as { text?: string })?.text ?? ""));
+                return;
+            }
             case "toggleNotices":
                 setExpanded();
                 return;
