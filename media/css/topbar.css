@@ -298,10 +298,23 @@
 .session-item:hover {
   background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, .2));
 }
-.si-time { flex-shrink: 0; font-variant-numeric: tabular-nums; opacity: .85; }
-.si-id { flex: 1; min-width: 0; opacity: .6; font-family: var(--vscode-editor-font-family, monospace); }
+.si-time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  opacity: .85;
+  white-space: nowrap; /* ★ 时间带年，较长 ✓ */
+}
+/* ★ 轮次（名字与时间之间）*/
+.si-turns {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  opacity: .75;
+  white-space: nowrap;
+  min-width: 44px;
+  text-align: right;
+}
 
-/* ★ 会话名（主标题）：占满左侧、过长省略 ✓ */
+/* ★ 会话名（主标题）：占满左侧、★ 过长截断（用户要求 ✓）*/
 .si-name {
   flex: 1;
   min-width: 0;
@@ -309,8 +322,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* 副标（时间）放右边 ✓ */
-.session-item .si-time { margin-left: auto; }
+/* ★ 没名字时（显示短 id）—— 弱化色 + 等宽，一眼看出“这只是个占位”✓ */
+.si-idname {
+  opacity: .6;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
 
 /* ★ 异常文件：红字 + 不可点 + 鼠标给“禁止”手感 ✓ */
 .session-item.broken {

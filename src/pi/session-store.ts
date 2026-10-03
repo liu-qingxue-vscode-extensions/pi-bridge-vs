@@ -42,14 +42,23 @@ export interface SessionInfo {
     name?: string;
     /** 异常原因（刷新时检测出来 ✓ 前端标红且禁止切换 ✗） */
     broken?: string;
+    /**
+     * ★ 轮次（用户消息条数 —— 只有刷新过才有 ✓）
+     *
+     * 【为什么不能按文件大小估？】实测单条消息大小差异极大 ✗
+     *   问“你好” ≈ 200B ✓ / read 一个大文件的 toolResult ≈ 2MB ✗
+     *   → 同样 10 轮：纯聊天 2KB vs 带读文件 2MB（差 1000 倍 ✓）
+     *   → 只能【真的数行】✓（但只需数 \n，不解析 JSON，很快 ✓）
+     */
+    turns?: number;
 }
 
 /** 持久化形状 */
 interface StoreData {
     /** 目录名 → 真实 cwd（空/缺 = 待补 ✓） */
     cwdMap: Record<string, string>;
-    /** 文件路径 → 内容信息（★ 只有刷新过才有 name/broken ✓） */
-    files: Record<string, { name?: string; broken?: string }>;
+    /** 文件路径 → 内容信息（★ 只有刷新过才有 name/broken/turns ✓） */
+    files: Record<string, { name?: string; broken?: string; turns?: number }>;
 }
 
 const STORE_KEY = "pi-bridge.sessionStore";
@@ -153,6 +162,38 @@ async function readNameAndCheck(file: string): Promise<{ name?: string; broken?:
     } finally {
         await fh.close();
     }
+}
+
+/**
+ * ★ 数会话文件里的【轮次】（= 用户消息条数 ✓）
+ *
+ * 【怎么数】只看每行是不是 {"type":"message",…"role":"user"…} ✓
+ *   → 不解析整个 JSON ✗ 只做【字符串包含判断】✓（快得多 ✓）
+ *
+ * 【为什么用流式读？】
+ *   文件可能 11MB ✗ 一次读进来会占内存 ✓
+ *   流式 chunk 处理 → 内存恒定 ✓ 也只读一遍 ✓
+ */
+async function countTurns(file: string): Promise<number> {
+    const { createReadStream } = await import("node:fs");
+    return new Promise((resolve) => {
+        let turns = 0;
+        let tail = ""; // 跨 chunk 的半行
+        const rs = createReadStream(file, { encoding: "utf8", highWaterMark: 256 * 1024 });
+        rs.on("data", (chunk: string) => {
+            const text = tail + chunk;
+            const lines = text.split("\n");
+            tail = lines.pop() ?? ""; // 最后一段可能不完整 → 留给下一轮 ✓
+            for (const line of lines) {
+                // ★ 用户消息行特征（不解析 JSON ✓）
+                if (line.includes('"type":"message"') && line.includes('"role":"user"')) {
+                    turns++;
+                }
+            }
+        });
+        rs.on("end", () => resolve(turns));
+        rs.on("error", () => resolve(0));
+    });
 }
 
 /** 并发限流（避免一次开几百个文件句柄 ✗） */
@@ -276,9 +317,10 @@ export class SessionStore {
                     cwd: this.data.cwdMap[dir] ?? "",
                     cwdKey: dir,
                     createdAt: parsed.createdAt,
-                    // ★ 只从缓存取（要新名字请点刷新 ✓）
+                    // ★ 只从缓存取（要新名字/轮次请点刷新 ✓）
                     name: cached?.name,
                     broken: cached?.broken,
+                    turns: cached?.turns,
                 });
             }
         }
@@ -343,7 +385,9 @@ export class SessionStore {
 
         const results = await mapLimit(files, 8, async (file) => {
             const r = await readNameAndCheck(file);
-            return [file, r] as const;
+            // ★ 顺便数轮次（用户要求的：和名字一样，刷新时才算 ✓）
+            const turns = r.broken ? 0 : await countTurns(file);
+            return [file, { ...r, turns }] as const;
         });
 
         let named = 0;
@@ -355,7 +399,9 @@ export class SessionStore {
         }
         await this.persist();
 
-        logInfo(`[sessions] 刷新完成：${files.length} 个文件 / ${named} 有名字 / ${broken} 异常`);
+        logInfo(
+            `[sessions] 刷新完成：${files.length} 个文件 / ${named} 有名字 / ${broken} 异常`,
+        );
         return { total: files.length, named, broken };
     }
 }

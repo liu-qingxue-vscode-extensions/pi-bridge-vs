@@ -104,14 +104,19 @@ export function activate(context: vscode.ExtensionContext): void {
         }
     });
 
-    // 3b. 数据流 ①-补充：pi 的 stderr（错误 / 诊断）→ 调试板
-    //     官方 RpcClient 把 stderr 转发到 process.stderr（开发者控制台），界面上看不见——
-    //     所以必须主动捕获送到前端，否则“用着用着突然报错”用户无法感知。
+    // 3b. 数据流 ①-补充：pi 的 stderr（错误 / 诊断）
+    //
+    // 【两个去处（都是必须的）】
+    //   ① 调试板：收原始行（诊断用 ✓）
+    //   ② ★ 聊天侧：转成 notice → 走通知面板 ✓
+    //     之前只喂了 ① ✗ → stderr 的通知【永远不出现】✗（用户报的 bug ✓）
     pi.onStderr((text) => {
         for (const line of text.split("\n")) {
-            if (line.trim()) {
-                debugPanel.log({ type: "stderr", text: line });
-            }
+            if (!line.trim()) continue;
+            debugPanel.log({ type: "stderr", text: line });
+            // ★ 转渲染指令 → 进通知板
+            const patch = toChatPatch({ type: "stderr", text: line });
+            if (patch) chatState.apply(patch);
         }
     });
 
@@ -130,9 +135,43 @@ export function activate(context: vscode.ExtensionContext): void {
                 chatView.post("noticesCleared", true); // 让前端清空自己那份镜像 ✓
                 return;
             }
-            // ★ 会话管理（B15）—— 本轮只跑通链路（真的新建在下一轮 ✓）
+            // ★ 新建会话（点 ＋）
+            //
+            // 【★ 这是“伪新建”】（实测确认 ✓ 用户点出来的）
+            //   pi 的行为：new_session 只是换一个【预定路径】✓
+            //   ★ 文件【不在磁盘上创建】✗ —— 真正发第一句话才落盘 ✓
+            //   → 所以我们【不刷新会话列表】（文件还没建，列表里本来就不该有 ✓）
+            //     它会在你发第一句话之后，下次刷新时才出现 ✓
             if (msg.kind === "newSession") {
-                logInfo("用户点了新建会话（下一轮接入 pi 的 new_session）");
+                try {
+                    const r = (await pi.sendRaw({ type: "new_session" })) as {
+                        success?: boolean;
+                        error?: string;
+                        data?: { cancelled?: boolean };
+                    };
+                    logInfo(
+                        `新建会话：success=${r.success} cancelled=${r.data?.cancelled}` +
+                            (r.error ? ` error=${r.error}` : ""),
+                    );
+                    if (!r.success || r.data?.cancelled) {
+                        void vscode.window.showErrorMessage(
+                            `新建会话未成功：${r.error ?? "已取消"}`,
+                        );
+                        return;
+                    }
+
+                    // ★ 清空界面（新会话是空的 ✓）+ 清通知（旧进程周期的事 ✓）
+                    chatState.reset();
+                    chatState.clearNotices();
+                    chatView.post("noticesCleared", true);
+                    chatView.post("snapshot", chatState.snapshot());
+                    // ★ 标题更新：新会话还没名字 ✓
+                    void pushCurrentSessionTitle("");
+                    logInfo("新建会话完成（文件将在首条消息时创建 ✓）");
+                } catch (err) {
+                    logError(`新建会话失败: ${toErrorMessage(err)}`);
+                    void vscode.window.showErrorMessage(`新建会话失败：${toErrorMessage(err)}`);
+                }
                 return;
             }
 
@@ -238,9 +277,15 @@ export function activate(context: vscode.ExtensionContext): void {
                     //   （否则切过去是一片空白 ✗）
                     chatState.reset();
                     await replaySessionMessages();
+                    // ★ 通知【跟着会话走】：切了会话就是另一个上下文了 ✓
+                    //   （用户定的：切换会话应该清通知 ✓）
+                    chatState.clearNotices();
                     chatView.post("cwd", pi.getCwd());
+                    chatView.post("noticesCleared", true);
                     chatView.post("snapshot", chatState.snapshot());
                     chatView.post("sessions", await sessionStore.listEntries());
+                    // ★ 标题也要更新（用户报的 bug ✓）
+                    void pushCurrentSessionTitle();
                     void vscode.window.showInformationMessage(
                         `已切换到会话 ${info.name ?? info.id.slice(0, 8)}`,
                     );
@@ -470,13 +515,23 @@ export function activate(context: vscode.ExtensionContext): void {
             };
             const file = st?.data?.sessionFile;
             if (typeof file === "string" && file) {
-                chatView.post("sessionTitle", (await sessionStore.findName(file)) ?? "");
+                // ★ 有名字就用名字；★ 没名字就用【短 id】
+                //   （用户定的：ID 是独特的 ✓ 看着烦自然会去改名 ✓）
+                const nm = await sessionStore.findName(file);
+                chatView.post("sessionTitle", nm || shortIdOf(file));
                 return;
             }
         } catch (err) {
             logDebug(`取当前会话名失败（忽略）: ${toErrorMessage(err)}`);
         }
         chatView.post("sessionTitle", "");
+    }
+
+    /** 从会话文件路径里取【短 id】（文件名 2026-…Z_<uuid>.jsonl ✓）*/
+    function shortIdOf(file: string): string {
+        const base = file.split(/[/\\]/).pop() ?? "";
+        const m = /_([0-9a-f-]{6,})\.jsonl$/i.exec(base);
+        return m ? m[1].slice(0, 8) : base.replace(/\.jsonl$/i, "").slice(0, 12);
     }
 
     logInfo("pi-bridge-vs 激活完成（pi 将在首条消息时启动）");

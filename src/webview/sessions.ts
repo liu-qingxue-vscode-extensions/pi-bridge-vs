@@ -37,10 +37,12 @@ export interface SessionInfo {
     cwd: string;
     cwdKey: string;
     createdAt: number;
-    /** ★ 会话名（~69% 有 ✓ 没有是正常的 → 退回显示时间 ✓）*/
+    /** ★ 会话名（~69% 有 ✓ 没有则退回显示短 id ✓）*/
     name?: string;
     /** ★ 异常原因（有值 = 文件坏了 → 标红且禁止切换 ✗）*/
     broken?: string;
+    /** ★ 轮次（用户消息数 —— 只有刷新过才有 ✓ 否则显示 "?"）*/
+    turns?: number;
 }
 
 let expanded = false;
@@ -80,9 +82,9 @@ export function setSessionTitle(name: string | undefined): void {
     const text = (name ?? "").trim();
     log.info(`标题：收到会话名「${text || "（空）"}」`);
 
-    el.textContent = text || "未命名会话";
+    el.textContent = text || "（无名字）";
     el.classList.toggle("empty", !text);
-    el.title = text ? `会话名：${text}（点击修改）` : "点击给这个会话命名";
+    el.title = text ? `会话名：${text}（点击修改）` : "这个会话还没有名字（点击给它命名）";
 
     // ★ 字号自适应（先重置再量 ✓ 否则会越缩越小 ✗）
     const BASE = 13;
@@ -105,7 +107,9 @@ function fmtTime(ts: number): string {
     if (!ts) return "?";
     const d = new Date(ts);
     const p = (x: number): string => String(x).padStart(2, "0");
-    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    // ★ 两位年份：2026 → 26（用户定的：两位就够 ✓ 省空间 ✓）
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${yy}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 /** 家目录美化：/home/x/foo → ~/foo（标题短好读 ✓） */
@@ -206,19 +210,31 @@ export function renderSessions(list: SessionInfo[]): void {
                 continue;
             }
 
-            // ★ 名字优先（没有则用时间 —— 31% 没名字是正常的 ✓）
+            // ★ 列表行：名字 → 轮次 → 时间（用户定的顺序 ✓）
             const main = document.createElement("span");
             main.className = "si-name";
-            main.textContent = s.name || fmtTime(s.createdAt);
-            main.title = s.name ? s.name : "（该会话没有名字）";
+            // ★ 名字优先；没有则用【短 id】（用户定的：ID 独特好区分 ✓）
+            main.textContent = s.name || s.id.slice(0, 8);
+            main.title = s.name ? s.name : `（没有名字）会话 id: ${s.id}`;
+            if (!s.name) main.classList.add("si-idname");
 
-            // 副标（有名字时才再显示时间，避免重复 ✓）
-            const sub = document.createElement("span");
-            sub.className = "si-time";
-            sub.textContent = s.name ? fmtTime(s.createdAt) : s.id.slice(0, 8);
+            // ★ 轮次（只有刷新过才有 ✓ 否则显示 "?"）
+            const turns = document.createElement("span");
+            turns.className = "si-turns";
+            turns.textContent = s.turns === undefined ? "?" : `${s.turns} 轮`;
+            turns.title =
+                s.turns === undefined ? "点左侧 ⟳ 刷新后可获得轮次" : `用户消息 ${s.turns} 条`;
 
-            row.append(main, sub);
-            row.title = `${s.name ?? "（无名字）"}\n${fmtTime(s.createdAt)}\n${s.path}`;
+            // ★ 时间（带年 ✓）
+            const time = document.createElement("span");
+            time.className = "si-time";
+            time.textContent = fmtTime(s.createdAt);
+
+            row.append(main, turns, time);
+            row.title =
+                `${s.name ?? "（无名字）"}\n` +
+                `轮次：${s.turns ?? "?（未刷新）"}\n` +
+                `创建：${fmtTime(s.createdAt)}\n${s.path}`;
             row.addEventListener("click", () => {
                 // ★ 切会话（下一步接 switch_session ✓）
                 vscode.postMessage({ kind: "switchSession", path: s.path, cwd: key });

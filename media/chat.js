@@ -389,9 +389,9 @@
     const el = sessionTitle;
     const text = (name ?? "").trim();
     log.info(`\u6807\u9898\uFF1A\u6536\u5230\u4F1A\u8BDD\u540D\u300C${text || "\uFF08\u7A7A\uFF09"}\u300D`);
-    el.textContent = text || "\u672A\u547D\u540D\u4F1A\u8BDD";
+    el.textContent = text || "\uFF08\u65E0\u540D\u5B57\uFF09";
     el.classList.toggle("empty", !text);
-    el.title = text ? `\u4F1A\u8BDD\u540D\uFF1A${text}\uFF08\u70B9\u51FB\u4FEE\u6539\uFF09` : "\u70B9\u51FB\u7ED9\u8FD9\u4E2A\u4F1A\u8BDD\u547D\u540D";
+    el.title = text ? `\u4F1A\u8BDD\u540D\uFF1A${text}\uFF08\u70B9\u51FB\u4FEE\u6539\uFF09` : "\u8FD9\u4E2A\u4F1A\u8BDD\u8FD8\u6CA1\u6709\u540D\u5B57\uFF08\u70B9\u51FB\u7ED9\u5B83\u547D\u540D\uFF09";
     const BASE = 13;
     const MIN = 9;
     el.style.fontSize = `${BASE}px`;
@@ -410,7 +410,8 @@
     if (!ts) return "?";
     const d = new Date(ts);
     const p = (x) => String(x).padStart(2, "0");
-    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${yy}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
   }
   function prettyPath(p) {
     if (!p) return "\uFF08\u672A\u77E5\u76EE\u5F55\uFF09";
@@ -488,14 +489,20 @@ ${s.path}`;
         }
         const main = document.createElement("span");
         main.className = "si-name";
-        main.textContent = s.name || fmtTime(s.createdAt);
-        main.title = s.name ? s.name : "\uFF08\u8BE5\u4F1A\u8BDD\u6CA1\u6709\u540D\u5B57\uFF09";
-        const sub = document.createElement("span");
-        sub.className = "si-time";
-        sub.textContent = s.name ? fmtTime(s.createdAt) : s.id.slice(0, 8);
-        row.append(main, sub);
+        main.textContent = s.name || s.id.slice(0, 8);
+        main.title = s.name ? s.name : `\uFF08\u6CA1\u6709\u540D\u5B57\uFF09\u4F1A\u8BDD id: ${s.id}`;
+        if (!s.name) main.classList.add("si-idname");
+        const turns = document.createElement("span");
+        turns.className = "si-turns";
+        turns.textContent = s.turns === void 0 ? "?" : `${s.turns} \u8F6E`;
+        turns.title = s.turns === void 0 ? "\u70B9\u5DE6\u4FA7 \u27F3 \u5237\u65B0\u540E\u53EF\u83B7\u5F97\u8F6E\u6B21" : `\u7528\u6237\u6D88\u606F ${s.turns} \u6761`;
+        const time = document.createElement("span");
+        time.className = "si-time";
+        time.textContent = fmtTime(s.createdAt);
+        row.append(main, turns, time);
         row.title = `${s.name ?? "\uFF08\u65E0\u540D\u5B57\uFF09"}
-${fmtTime(s.createdAt)}
+\u8F6E\u6B21\uFF1A${s.turns ?? "?\uFF08\u672A\u5237\u65B0\uFF09"}
+\u521B\u5EFA\uFF1A${fmtTime(s.createdAt)}
 ${s.path}`;
         row.addEventListener("click", () => {
           vscode.postMessage({ kind: "switchSession", path: s.path, cwd: key });
