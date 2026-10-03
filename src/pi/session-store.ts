@@ -232,8 +232,27 @@ export class SessionStore {
         };
     }
 
+    /**
+     * ★ 会话根目录（B24 变量化 ✗）
+     *
+     * 【为什么不再是硬编码？】
+     *   pi 的 settings.json 里有个 sessionDir ✓ 改了它 pi 就把会话写别处 ✗
+     *   我们若还写死 ~/.pi/agent/sessions → ★ 列表全空 ✗（用户报的隐患 ✓）
+     *   （用户原话："我有概率会出错，不是有概率是一定会出错"✓）
+     *
+     * 值由 main.ts 在【激活时】用 resolveSessionRoot() 设置 ✓
+     * 优先级：CLI --session-dir > settings.sessionDir > 默认 ✓
+     */
+    private sessionRoot: string | null = null;
+
+    /** ★ 由外部注入（B24 ✓）—— 通常来自 settings.json 的 sessionDir ✓ */
+    setRoot(dir: string): void {
+        this.sessionRoot = dir;
+        logInfo(`会话根目录 → ${dir}`);
+    }
+
     private root(): string {
-        return path.join(getAgentDir(), "sessions");
+        return this.sessionRoot ?? path.join(getAgentDir(), "sessions");
     }
 
     private async persist(): Promise<void> {
@@ -477,9 +496,9 @@ export async function deleteSessionFile(
  *   走内部路径 import 会【随版本升级而断】✗
  *   而这条规则【极简且稳定】✓ → 自己实现 + 注明来源更方便日后核对 ✓
  */
-export function sessionDirForCwd(cwd: string): string {
+export function sessionDirForCwd(cwd: string, rootDir?: string): string {
     const safe = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
-    return path.join(getAgentDir(), "sessions", safe);
+    return path.join(rootDir ?? path.join(getAgentDir(), "sessions"), safe);
 }
 
 /**

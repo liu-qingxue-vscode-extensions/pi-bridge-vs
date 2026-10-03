@@ -92,16 +92,6 @@
   gap: 6px;
   min-height: 26px;
 }
-#foot-model {
-  flex: 1;                     /* ★ 占满左侧 → 按钮自然被推到右端 ✓ */
-  min-width: 0;
-  font-size: 12px;
-  color: var(--vscode-descriptionForeground);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  user-select: none;
-}
 
 /* ★ 重启 pi 按钮（次级按钮：平时低调，hover 才明显 ✓）*/
 #btn-reload {
@@ -195,3 +185,70 @@
     padding: 0 4px;
     font-size: 10px;
 }
+
+/* ===== ★ 模型 / 思考深度（B23）=====
+   输入区下方那一排的最左端 ✓ 两个都是按钮（左键弹列表 ✓）
+   ★ 列表【向上】弹（因为它们在底部 ✗ 往下会出屏 ✓）*/
+/* ★ 把重载/发送【推到右端】（B23 修 ✗）
+   原来靠 #foot-model 的 flex:1 撑开 ✗ 但它现在是按钮了 → 不能再伸缩 ✓
+   → 让 #btn-reload 吃掉所有剩余空间 ✓（最简，不用加留白元素 ✓）*/
+#input-bar #btn-reload { margin-left: auto; }
+
+#foot-model, #foot-thinking {
+  flex: 0 1 auto;
+  max-width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+#foot-model:hover, #foot-thinking:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,.24));
+  color: var(--vscode-foreground);
+}
+#foot-model[data-empty="true"], #foot-thinking[data-empty="true"] { display: none; }
+
+/* ★ 向上弹出的候选列表（复用 .ctx-menu 的风格，但定位在按钮上方 ✓）*/
+#foot-model { position: relative; }
+.picker {
+  position: fixed;
+  z-index: 3000;
+  min-width: 190px;
+  max-height: 46vh;              /* ★ 超过就滚 ✓（滚轮 ✓）*/
+  overflow-y: auto;
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-radius: 5px;
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  background: var(--vscode-menu-background, var(--vscode-sideBar-background));
+  box-shadow: 0 -3px 10px rgba(0,0,0,.32);
+}
+.picker-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 9px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.picker-item:hover { background: var(--vscode-menu-selectionBackground, rgba(128,128,128,.22)); }
+.picker-item[data-current="true"] { color: var(--vscode-charts-blue, #4aa3df); }
+.picker-item .pk-sub { font-size: 10px; opacity: .62; }
+.picker-empty { padding: 6px 9px; font-size: 11px; opacity: .62; }

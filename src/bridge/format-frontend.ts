@@ -50,6 +50,22 @@ export type FrontendMessage =
     //   · 放错 cwd 的目录 → 以后在 TUI 里根本看不到它 ✗
     //   → 默认放当前 cwd ✓ 并在提示里说清楚放哪了 ✓
     | { kind: "importSession" }
+    // ★ 压缩上下文（B22）：★ pi 有 compact 命令 ✓ 直接转发 ✓
+    //   （过程状态不靠回执 ✗ 靠 compaction_start / compaction_end 事件 ✓）
+    | { kind: "compact" }
+    // ★ 模型 / 思考深度（B23）—— 都是 pi 的原生命令 ✓
+    | { kind: "setModel"; provider: string; modelId: string }
+    | { kind: "setThinkingLevel"; level: string }
+    // ★ 拉候选列表（本地处理，不走 pi 的 formatMap ✗）
+    | { kind: "listModels" }
+    | { kind: "listThinkingLevels" }
+    // ★ 设置面板（B24）—— 全在本地处理（读/写 pi 的 settings.json ✓）
+    //
+    // 【为什么没有走 RPC？】实测：RPC 【完全没有】settings 接口 ✗
+    //   （rpc-types.d.ts 里 grep "settings" 零命中 ✓）
+    //   → 只能我们自己读写文件 ✓ 但要小心并发（见 pi/settings.ts 顶部注释 ✓）
+    | { kind: "openSettings" } // 打开面板（或重新读）
+    | { kind: "saveSettings"; values: Record<string, unknown> } // 只含【改动过】的字段 ✓
     // ★ 分叉（B19）：从【某个 AI 组末尾】切一刀 ✓
     //   userIndex = 该气泡前面有【几个】用户气泡（= get_fork_messages 的下标 ✓）
     //   ★ 注意：这不是“第几条用户消息”，而是【锚点下标】✓ 见 main.ts 的实现 ✓
@@ -64,6 +80,17 @@ export type FrontendMessage =
 type FrontendFormatter = (msg: FrontendMessage) => RpcCommand;
 
 const formatMap: Partial<Record<FrontendMessage["kind"], FrontendFormatter>> = {
+    // ★ 压缩上下文（B22）：pi 原生命令 ✓ 无参数 ✓
+    compact: () => ({ type: "compact" }),
+    // ★ 模型 / 思考深度（B23）
+    setModel: (msg) => {
+        if (msg.kind !== "setModel") throw new Error("unreachable");
+        return { type: "set_model", provider: msg.provider, modelId: msg.modelId };
+    },
+    setThinkingLevel: (msg) => {
+        if (msg.kind !== "setThinkingLevel") throw new Error("unreachable");
+        return { type: "set_thinking_level", level: msg.level } as never;
+    },
     prompt: (msg) => {
         // 类型收窄：msg 在这里一定是 { kind: "prompt"; text: string }
         if (msg.kind !== "prompt") throw new Error("unreachable");

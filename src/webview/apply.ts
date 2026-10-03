@@ -21,6 +21,9 @@ import { appendSegment } from "./segments.js";
 import { createThinkingBubble, markThinkDone } from "./thinking.js";
 import { createToolBubble, ensureResultHost, markStreamingDone, renderArgs, renderResultParts, setToolState } from "./tool.js";
 import { appendStopNote, showRetryNotice } from "./notices.js";
+import { showCompactionEnd, showCompactionStart } from "./compact.js";
+import { setModelInfo, showModelPicker, showThinkingPicker } from "./model-picker.js";
+import { renderSettings } from "./settings-panel.js";
 import { updateStatusBar } from "./topbar.js";
 import { appendNotice, clearNotices, removeNotice, renderNotices, resetNotices, setExpanded } from "./noticeboard.js";
 import { applyStyleVars, autoGrow, setAgentState, showCwd, syncPadding } from "./input.js";
@@ -200,6 +203,12 @@ function applyPatch(p: Record<string, unknown>): void {
             showRetryNotice(p as never);
             return;
 
+        // ★ 压缩（B22）：开始/结束共用一种 patch，原地更新同一个气泡 ✓
+        case "compaction":
+            if (p.phase === "start") showCompactionStart(p as never);
+            else showCompactionEnd(p as never);
+            return;
+
         case "toolStart":
             removePending();
             setToolState(createToolBubble(p.callId as string, p.name as string), "running");
@@ -350,6 +359,22 @@ export function setupHostBridge(): void {
                 //   ★ 只有真的新增了才重算留白 ✗（否则流式时每帧强制回流 ✓）
                 if (refreshForkButtons()) syncPadding();
                 return;
+            // ★ 模型 / 思考等级状态（B23）—— 探针 + 事件增量推来的 ✓
+            case "modelInfo":
+                setModelInfo((data.payload ?? {}) as never);
+                return;
+            // ★ 设置面板（B24）
+            case "settings":
+                renderSettings((data.payload ?? {}) as never);
+                return;
+            case "modelList":
+                showModelPicker((data.payload ?? []) as never);
+                return;
+            case "thinkingLevels": {
+                const pl = (data.payload ?? {}) as { levels?: string[]; current?: string };
+                showThinkingPicker(pl.levels ?? [], pl.current);
+                return;
+            }
             case "queueUpdate": {
                 // ★ 队列变化（B20）：steering 里还有我的文本 = 还没被 AI 吃进去 ✓
                 setQueueing((data.payload as { steering?: string[] })?.steering ?? []);

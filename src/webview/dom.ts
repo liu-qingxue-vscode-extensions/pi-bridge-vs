@@ -40,8 +40,20 @@ export const inputEl = needEl("input") as HTMLTextAreaElement;
 export const sendBtn = needEl("send");
 /** ★ 重启 pi 按钮（应用最新启动参数 ✓）*/
 export const btnReload = needEl("btn-reload");
+/** ★ 压缩上下文（B22）——放在按钮行最右端 ✓ */
+export const btnCompact = needEl("btn-compact");
 /** ★ 「待插话」条容器（挂在输入框上方 ✓ 不进消息流 ✓）*/
 export const queueBarEl = needEl("queue-bar");
+/** ★ 模型按钮（B23）+ 思考深度按钮 —— 左键弹列表 ✓ */
+export const footThinking = needEl("foot-thinking");
+
+// ── 设置面板（B24）──
+export const btnSettings = needEl("btn-settings");
+export const settingsPanel = needEl("settings-panel");
+export const settingsBody = needEl("settings-body");
+export const settingsSave = needEl("settings-save") as HTMLButtonElement;
+export const settingsReload = needEl("settings-reload");
+export const settingsPath = needEl("settings-path");
 
 // ── 顶栏（topbar）：统计栏 + 电池 ──
 export const statusBarEl = needEl("status-bar");
@@ -79,4 +91,3 @@ export const btnRefreshSessions = needEl("btn-refresh-sessions");
 export const sessionTitle = needEl("session-title");
 export const noticeCollapse = needEl("notice-collapse");
 export const noticeClear = needEl("notice-clear");
-export const noticeSettings = needEl("notice-settings");

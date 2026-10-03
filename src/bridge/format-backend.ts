@@ -208,6 +208,44 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
     agent_settled: () => ({ kind: "agentState", state: "idle" }),
 
     /**
+     * ★ 压缩上下文（B22）
+     *
+     * 【实测字段】
+     *   compaction_start: { reason: "manual" | "threshold" | "overflow" }
+     *   compaction_end:   { reason, result: CompactionResult | undefined,
+     *                       aborted, willRetry, errorMessage? }
+     *   CompactionResult: { summary, firstKeptEntryId, tokensBefore, estimatedTokensAfter?, usage? }
+     *
+     * 【三种 reason 的含义】见 webview/compact.ts 顶部注释 ✓
+     *
+     * ★ 和重连提示一样【不进快照】✗（它不是历史消息 ✓）
+     */
+    compaction_start: (event) => ({
+        kind: "compaction",
+        phase: "start",
+        reason: (event as { reason?: string }).reason,
+    }),
+    compaction_end: (event) => {
+        const e = event as {
+            reason?: string;
+            aborted?: boolean;
+            willRetry?: boolean;
+            errorMessage?: string;
+            result?: { tokensBefore?: number; estimatedTokensAfter?: number };
+        };
+        return {
+            kind: "compaction",
+            phase: "end",
+            reason: e.reason,
+            aborted: e.aborted,
+            willRetry: e.willRetry,
+            errorMessage: e.errorMessage,
+            tokensBefore: e.result?.tokensBefore,
+            tokensAfter: e.result?.estimatedTokensAfter,
+        };
+    },
+
+    /**
      * ★ 队列变化（B20）—— 实现“插话”必需的
      *
      * 【为什么要它？】

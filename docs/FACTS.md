@@ -260,6 +260,68 @@ const safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
  而很多机器（如 KDE）只有 `gio trash` ✓ → 要多级回退 ✓
 ```
 
+### 8. ★ pi 的模型目录在【两个文件】里（互补 ✗）
+
+```
+models.json       （用户手写）    { providers: { <prov>: { models: [...] } } }
+models-store.json （pi 生成）    { <prov>: { models: [...] } }
+★ 只读一个会缺内容：ollama 不全 · github-copilot 完全没有 ✓
+★ 实测：models.json 的 ollama 5 个，models-store 里 github-copilot 34 个 ✓
+→ 两个都读 + 按 provider/id 去重 ✓
+```
+
+### 9. ★ RPC 【没有】settings 接口（只能自己读写文件 ✗）
+
+```
+rpc-types.d.ts 里 grep "settings" → 零命中 ✗
+pi 内部有 SettingsManager（getGlobalSettings / withLock … ✓）但没暴露 ✓
+→ 自己读写 settings.json 时必须：
+   ① 读-改-写（保存瞬间重读 ✗ 不能拿启动快照覆盖 ✓）
+   ② 只改自己的字段 ✓ 未知字段原样保留 ✓
+   ③ 原子写（temp + rename ✓）
+★ pi 自己也在写这个文件（lastChangelogVersion 等 ✓）
+```
+
+### 10. ★ settings.json 里与我们相关的字段（实测清单 ✓）
+
+```
+defaultProvider / defaultModel / defaultThinkingLevel   ← 启动默认
+enabledModels        ← ★ 就是用户说的“启用列表”✓（= scopedModels 的来源 ✓）
+modelThinkingLevels  ← ★ 每个模型各自的思考等级（切模型自动选等级的依据 ✓）
+compaction { enabled, reserveTokens, keepRecentTokens }  ← 自动压缩 + 阈值 ✓
+steeringMode / followUpMode      ← 插话/追问投递模式 ✓
+retry { enabled, maxRetries, baseDelayMs, provider{} }   ← 重试策略 ✓
+sessionDir           ← ★ 会话目录（改了 pi 就写别处 ✓ 我们必须跟着改 ✓）
+httpProxy            ← pi 请求 API 的代理 ✓
+packages / extensions / skills / prompts / themes        ← 加载哪些资源 ✓
+✗ TUI 专用（我们无关）：theme / markdown / hideThinkingBlock /
+   showCacheMissNotices / tuiMode / terminal / showHardwareCursor …
+   ★ showCacheMissNotices 【不会发数据包】✗ 是纯 TUI 显示开关 ✓
+```
+
+### 11. ★ 扩展 vs 依赖：看 package.json 有没有 `pi` 字段 ✗
+
+```
+~/.pi/agent/npm/package.json 的 dependencies 有【159 个】✗
+但只有 9 个是真扩展 ✓（其余是依赖的依赖：ajv / better-sqlite3 …✓）
+
+★ 判定：
+   @mammothb/pi-mermaid   → "pi": { "skills": [...] }       ✓ 扩展
+   @jamesjfoong/pi-ollama → "pi": { "extensions": [...] }   ✓ 扩展
+   ajv                    → 只有 "main" ✗                     ✓ 依赖
+```
+
+### 12. ★ VS Code QuickPick 的 disabled 是【假禁用】✗
+
+```
+QuickPickItem.disabled = true → 项目确实变灰 ✓
+但用户【依然能点进去并确认】✗（onDidAccept 照常触发 ✓）
+
+★ 铁律：UI 的禁用【永远不可信】✗ —— 它只是装饰 ✓
+      真正的约束【必须在逻辑层再校验一次】✗
+★ 对比：HTML button 的 disabled ✓ 浏览器会真的拦 click ✓（可信 ✓）
+```
+
 ## 已解决的重大外部问题（存档）
 
 ### 会话文件断链（2026-09-30 定位）

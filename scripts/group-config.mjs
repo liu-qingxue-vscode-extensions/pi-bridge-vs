@@ -63,6 +63,8 @@ const GROUPS = [
     { title: "通知", test: /notice/i },
     { title: "顶栏与按钮行", test: /topBarHeight|appToolbarHeight|sessionTitleWidth/ },
     { title: "输入区", test: /input/i },
+    // ★ 设置面板（B24）：它自己的外观项（字号 ✓）
+    { title: "设置面板", test: /^pi-bridge\.style\.settings/ },
     // ★ 会话显示范围（用户要求 ✓）
     { title: "会话", test: /^pi-bridge\.sessions\.|sessionPanel/ },
     { title: "调试板", test: /^pi-bridge\.debug\./ },

@@ -28,7 +28,6 @@
       <span id="notice-title">通知</span>
       <span class="spacer"></span>
       <button id="notice-clear" title="清空全部通知">清空</button>
-      <button id="notice-settings" title="设置（暂未实现）">⚙</button>
     </div>
 
     <!-- 第 2 行：常驻顶栏（点它展开/收起 ✓；★ 🔔 放这里 → 收起时就看得见未读 ✓）-->
@@ -53,10 +52,27 @@
 
     <!-- 第 3 行：★ 按钮行（常驻）—— 左：会话管理 · 中：当前会话名 · 右：新建 ✓ -->
     <div id="app-toolbar">
+      <!-- ★ 左组（B22）：会话管理 + 新建 —— 两个【紧贴】✓（用户定的 ✓）-->
       <button id="btn-sessions" class="tb-btn" title="会话管理">☰</button>
-      <!-- ★ 当前会话名：既是展示也是按钮（点击改名 ✓）-->
-      <button id="session-title" title="点击修改会话名"></button>
       <button id="btn-new-session" class="tb-btn" title="新建会话">＋</button>
+      <!-- ★ 中间：当前会话名（既是展示也是按钮 → 点击改名 ✓）-->
+      <button id="session-title" title="点击修改会话名"></button>
+      <!-- 弹性留白：把右组顶到最右 ✓ -->
+      <div class="tb-spacer"></div>
+      <!-- ★ 右组（B24）：压缩 + 设置（从右往左：设置 → 压缩 ✓ 用户定的 ✓）-->
+      <button id="btn-compact" class="tb-btn" title="压缩上下文（把前面的历史总结掉，省 token）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 9h16M4 15h16M8 5l4 4 4-4M8 19l4-4 4 4"/>
+        </svg>
+      </button>
+      <button id="btn-settings" class="tb-btn" title="设置（pi 的 settings.json）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 2a2 2 0 0 1 2 2v.2a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.2 2.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H2.8a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4.2V4a2 2 0 0 1 2-2z"/>
+        </svg>
+      </button>
     </div>
 
     <!-- 第 4 行起：会话面板（点 [☰ 会话] 在按钮行下方滑出）-->
@@ -77,6 +93,19 @@
       <div id="session-panel-close" title="点击收起">⌃</div>
     </div>
 
+    <!-- ★ 设置面板（B24）：与 session-panel 【平级】✓
+         不能嵌在它里面 ✗ —— 否则会话面板一收起，设置面板也跟着看不见 ✓
+         （实测踩到：点 ⚙ 没反应，其实面板展开了但被父级隐藏 ✗）-->
+    <div id="settings-panel" class="collapsed">
+      <div id="settings-head">
+        <span id="settings-title">设置</span>
+        <span id="settings-path"></span>
+        <button id="settings-save" disabled>保存</button>
+        <button id="settings-reload" title="丢弃修改，重新从磁盘读">重新读取</button>
+      </div>
+      <div id="settings-body"></div>
+    </div>
+
     <!-- 第 3 行起：通知列表（展开时滑出 ✓）-->
     <div id="notice-panel" class="collapsed">
       <div id="notice-list"></div>
@@ -95,8 +124,10 @@
     <div id="input-box">
       <textarea id="input" rows="1" placeholder="给 pi 发送消息（Enter 发送，Shift+Enter 换行）"></textarea>
       <div id="input-bar">
-        <!-- ★ 模型名（将来会变成按钮）：与发送按钮同一排、最左端 ✓ -->
-        <span id="foot-model" title="当前模型"></span>
+        <!-- ★ 模型 + 思考深度（B23）：与发送按钮同一排、最左端 ✓
+             两个都是按钮 → 左键点击弹出【向上】的列表（支持滚轮 ✓）-->
+        <button id="foot-model" title="点击切换模型"></button>
+        <button id="foot-thinking" title="点击切换思考深度"></button>
         <!-- ★ 重启 pi：应用最新启动参数（改了 launchArgs 后点它 ✓）-->
         <button id="btn-reload" title="重启 pi（应用最新启动参数）">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"

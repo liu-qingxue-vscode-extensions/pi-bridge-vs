@@ -18,6 +18,9 @@ import { post, log } from "./vscode-api.js";
 import { setupInput } from "./input.js";
 import { setupNoticeBoard } from "./noticeboard.js";
 import { setupSessions } from "./sessions.js";
+import { setupCompact } from "./compact.js";
+import { setupModelPicker } from "./model-picker.js";
+import { setupSettingsPanel } from "./settings-panel.js";
 import { setupHostBridge } from "./apply.js";
 
 /**
@@ -45,6 +48,9 @@ function safe(name: string, fn: () => void): void {
 safe("input", setupInput);
 safe("noticeBoard", setupNoticeBoard);
 safe("sessions", setupSessions);
+safe("compact", setupCompact);
+safe("modelPicker", setupModelPicker);
+safe("settings", setupSettingsPanel);
 
 // ② 宿主消息监听（★ 最关键：无论前面谁崩，它必须挂上 ✓）
 safe("hostBridge", setupHostBridge);

@@ -127,6 +127,17 @@ export type ChatPatch =
     | { kind: "endBubble"; role: ChatRole; stopReason?: string; usage?: Usage; model?: string }
     // ★ 队列变化（B20）：steering 里还有我的文本 = 还没被 AI 吃进去 ✓
     | { kind: "queueUpdate"; steering: string[]; followUp: string[] }
+    // ★ 压缩上下文（B22）：开始/结束共用一种 patch（同一次压缩原地更新 ✓）
+    | {
+          kind: "compaction";
+          phase: "start" | "end";
+          reason?: string;
+          aborted?: boolean;
+          willRetry?: boolean;
+          errorMessage?: string;
+          tokensBefore?: number;
+          tokensAfter?: number;
+      }
     // 工具调用（toolcall_*）—— 工具气泡的生命周期
     | { kind: "toolStart"; name: string; callId: string }
     | { kind: "toolArgs"; text: string }

@@ -23,7 +23,6 @@ import {
     noticeBadge,
     noticeCollapse,
     noticeClear,
-    noticeSettings,
     statusBarEl,
 } from "./dom.js";
 import { ui, type UiNotice } from "./state.js";
@@ -196,11 +195,10 @@ export function setupNoticeBoard(): void {
         vscode.postMessage({ kind: "noticeClearAll" });
     });
 
-    // ⚙ 设置 → 留接口（暂不实现 ✓）
-    noticeSettings.addEventListener("click", (e) => {
-        e.stopPropagation();
-        /* TODO: 打开设置页 */
-    });
+    // ☰ 设置入口【已搬到按钮行】（B24 ✓）—— 这里不再有 ⚙
+    //   （对应用户报的“找不到 DOM 元素 #notice-settings”✗
+    //     因为 HTML 里的 ⚙ 被搬走了 ✓ 而这里还在引它 ✓）
+    //   ★ 保留这段注释而不是默默删掉：忘记删引用是很容易犯的错 ✗
 
     // ② 鼠标按住下拉 / 上推 → 跟手拖动 + 阈值吸附 ✓
     setupDragGesture();

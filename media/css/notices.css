@@ -99,3 +99,18 @@
   user-select: none;
 }
 #notice-collapse:hover { color: var(--vscode-foreground); }
+
+/* ===== ★ 压缩气泡（B22）=====
+   和重连提示同构（.bubble-wrap.notice + .bubble.notice ✓）
+   三种结局用颜色区分：完成 ok / 失败 failed / 其他中性 ✓ */
+.bubble.compact {
+  font-size: 12px;
+  opacity: .9;
+}
+.bubble.compact.ok { color: var(--vscode-charts-green, #4caf50); }
+.bubble.compact.failed { color: var(--vscode-charts-red, #e05252); }
+
+/* ★ 压缩按钮转圈（压缩要跑十几秒 ✗ 不反馈像没反应 ✓）*/
+@keyframes pi-tb-spin { to { transform: rotate(360deg); } }
+#btn-compact.spinning svg { animation: pi-tb-spin 1.1s linear infinite; }
+#btn-compact.spinning { color: var(--vscode-charts-yellow, #d7a12c); }

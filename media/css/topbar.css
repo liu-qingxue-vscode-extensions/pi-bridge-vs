@@ -61,12 +61,21 @@
 
 /* ===== 按钮行（顶栏下方常驻一行）=====
    ★ 左端留间距（不贴左边界 ✓）· 两端分布（会话在左、新建在右 ✓）*/
+/* ★ 弹性留白：把压缩顶到最右 ✓ */
+#app-toolbar .tb-spacer { flex: 1 1 auto; }
+
+/* ★ 左组两个按钮【紧贴】（用户：“它俩紧贴着”✓）——
+   覆盖 toolbar 的 gap:8px ✓ 只让 #btn-new-session 往左靠 ✓ */
+#app-toolbar #btn-sessions + #btn-new-session { margin-left: -5px; }
+
 #app-toolbar {
   height: var(--pi-app-toolbar-height, 36px);
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* ★ 改 flex-start + 弹性留白（B22）——
+     原来用 space-between 三个元素时会“三边撑开”✗ 现在右侧有两个按钮要【挨着】✓ */
+  justify-content: flex-start;
   gap: 8px;
   padding: 0 12px;              /* ★ 左端不贴边 ✓ */
   /* ★ 常驻行：“跟随主题”（不是面板色 ✗）
@@ -99,6 +108,10 @@
   cursor: pointer;
   transition: background .14s ease, color .14s ease;
 }
+/* ★ 按钮里的 SVG 图标（B22 压缩按钮用 ✓）——
+   不加宽度它会撑满整个方框 ✗ */
+.tb-btn svg { width: 16px; height: 16px; }
+
 .tb-btn:hover {
   background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
   color: var(--vscode-foreground);

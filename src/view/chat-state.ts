@@ -207,6 +207,10 @@ export class ChatState {
             //   （原因：auto_retry_start 不进会话文件 → 不应该进 bubbles/snapshot ✓
             //    这样 webview 重建后它自然消失，和语义一致 ✓）
             case "retryNotice":
+            // ★ 压缩（B22）：同理【不改状态】✗ —— 它是过程事件 ✓
+            //   实测：compaction_start / compaction_end【都不进会话文件】✗
+            //   → 不该进 bubbles/snapshot ✓ webview 重建后自然消失 ✓ 语义一致 ✓
+            case "compaction":
                 break;
 
             // ★ 通知：分配 id + 时间，入环形缓冲，然后【带 id 广播】✓

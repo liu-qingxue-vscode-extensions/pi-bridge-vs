@@ -30,15 +30,26 @@ import path from "node:path";
 import fs, { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
 import { ChatView } from "./view/chat-view.js";
 import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
+import {
+    readSettings,
+    patchSettings,
+    resolveSessionRoot,
+    settingsPath,
+} from "./pi/settings.js";
+import { SETTINGS_GROUPS, getByPath, setByPath } from "./pi/settings-schema.js";
 import { toChatPatch } from "./bridge/format-backend.js";
 import { messagesToPatches, type ReplayMessage } from "./bridge/replay.js";
 import { SessionStore, deleteSessionFile, sessionDirForCwd, validateSessionFile } from "./pi/session-store.js";
 import { ChatState } from "./view/chat-state.js";
 import { toErrorMessage } from "./utils.js";
+
+/** ★ 启用模型列表的存储键（B23）*/
+const MODEL_STORE_KEY = "pi-bridge.modelStore.enabled";
 
 export function activate(context: vscode.ExtensionContext): void {
     // 0. 日志（LogOutputChannel：VS Code 自动落盘 + 分级 + 轮转）
@@ -66,16 +77,26 @@ export function activate(context: vscode.ExtensionContext): void {
     //   启动参数只能影响 spawn 时刻 → 改完设置必须重启 pi ✓
     //   现读后，改完设置点一下 reload 按钮就能用新参数启动 ✓
     const pi = new PiClient(cwd, {
-        readArgs: () => {
-            const args = vscode.workspace
-                .getConfiguration("pi-bridge")
-                .get<string[]>("launchArgs", []);
-            return Array.isArray(args) ? args.filter((a) => typeof a === "string") : [];
-        },
+        readArgs: () => readLaunchArgs(),
     });
+
+    /** ★ 我们给 pi 的启动参数（设置项 pi-bridge.launchArgs ✓）*/
+    function readLaunchArgs(): string[] {
+        const args = vscode.workspace.getConfiguration("pi-bridge").get<string[]>("launchArgs", []);
+        return Array.isArray(args) ? args.filter((a) => typeof a === "string") : [];
+    }
     const chatState = new ChatState(); // 插件端权威聊天状态（webview 只是显示器）
     // ★ 会话发现层（读 sessions/ 目录 + 维护 cwd 映射表 ✓）
     const sessionStore = new SessionStore(context);
+
+    // ★★ sessionDir 变量化（B24 用户要求的第二步 ✓）
+    //
+    //   原来 session-store 硬编码 <agentDir>/sessions ✗
+    //   而 pi 的 settings.json 里有 sessionDir ✓ 改了它 pi 就把会话写别处 ✗
+    //   → 我们若不变 → 【会话列表全空】✗（用户：“一定会出错”✓ 完全正确）
+    //   优先级：CLI --session-dir > settings.sessionDir > 默认 ✓
+    //   ★ 改这个值要在【设置面板保存】和【激活时】都重新算一次 ✓
+    sessionStore.setRoot(resolveSessionRoot(readLaunchArgs()));
     // ★ 通知环形缓冲上限（配置可调；改设置时实时生效 ✓）
     const applyNoticeLimit = (): void => {
         chatState.setNoticeLimit(
@@ -102,6 +123,23 @@ export function activate(context: vscode.ExtensionContext): void {
     //   ★ 为什么不在前端判断？前端那份【有网络延迟】✗ → 会有竞态 ✓
     //     而事件【直接从这里流过】✓ → 零延迟 ✓
     let piBusy = false;
+    /** ★ 是否已推过初始状态（惰启动后只推一次 ✓）*/
+    let pushedInitialState = false;
+
+    /**
+     * ★ get_available_models 的缓存（B23 用户要求 ✓）
+     *
+     * 【为什么可以缓存？】（用户的原话 ✓）
+     *   “好像是个死数据，不用维护就可以缓存”
+     *   模型目录在【一个 pi 进程的生命周期内】不会变 ✗
+     *   （它只受 models.json / --models 影响，都是【启动时】读的 ✓）
+     *
+     * 【什么时候必须清？】
+     *   · pi.reload() 之后 → 那是【新进程】✗ 目录可能不同 ✓
+     *   · 用户在别处改了 models.json → 需要重启 pi（我们顺带就清了 ✓）
+     * ★ 所以维护成本就是【reload 时置 null】✓ 一行 ✓
+     */
+    let cachedModels: { id?: string; name?: string; provider?: string }[] | null = null;
     pi.onEvent((event) => {
         // ★ 状态维护（在调试板之前，确保不漏 ✓）
         //
@@ -113,6 +151,18 @@ export function activate(context: vscode.ExtensionContext): void {
         //     → 用户这时发消息会退化成 prompt ✗ → 【又被静默丢弃】✗
         if (event.type === "agent_start") piBusy = true;
         else if (event.type === "agent_settled") piBusy = false;
+
+        // ★ 模型 / 思考等级的变化【没有专门的会话事件】✗（model_select 只发给扩展 ✓）
+        //   但这两个能反映它 ✓（B23 实测确认）：
+        //     · thinking_level_changed → 直接就是它 ✓
+        //     · entry_appended 里 entry.type === "model_change" → 模型换了 ✓
+        //   （为什么不每條 entry_appended 都刷？流式时它会很频繁 ✗ 没必要 ✓）
+        if (event.type === "thinking_level_changed") {
+            void pushPiState();
+        } else if (event.type === "entry_appended") {
+            const e = event as { entry?: { type?: string } };
+            if (e.entry?.type === "model_change") void pushPiState();
+        }
 
         debugPanel.log(event);
         const patch = toChatPatch(event);
@@ -364,6 +414,73 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
+            // ★ 拉模型候选（B23）—— 本地处理 ✓
+            //
+            // 【范围 = 启用列表】（用户定的 ✓）
+            //   · 启用列表存 globalState ✓（不是 VS Code 配置 ✗ 见 B23 文档）
+            //   · ★ 空 = 不限制 → 用全部可用模型 ✓
+            //   · 编辑入口在 B24 的设置面板 ✓（这里只读 ✓）
+            if (msg.kind === "listModels") {
+                await postModelList();
+                return;
+            }
+
+            // ★ 拉思考等级候选（B23）—— 直接问 pi ✓
+            if (msg.kind === "listThinkingLevels") {
+                try {
+                    const r = (await pi.sendRaw({ type: "get_available_thinking_levels" })) as {
+                        data?: { levels?: string[] };
+                    };
+                    const st = (await pi.sendRaw({ type: "get_state" })) as {
+                        data?: { thinkingLevel?: string };
+                    };
+                    chatView.post("thinkingLevels", {
+                        levels: r?.data?.levels ?? [],
+                        current: st?.data?.thinkingLevel,
+                    });
+                } catch (err) {
+                    logError(`拉思考等级失败: ${toErrorMessage(err)}`);
+                }
+                return;
+            }
+
+            // ★ 设置面板（B24）：打开 / 重新读取（本地文件操作 ✓）
+            if (msg.kind === "openSettings") {
+                postSettings();
+                return;
+            }
+
+            // ★ 保存设置（B24）：★ 读-改-写 ✗ 只动我们改过的字段 ✓
+            if (msg.kind === "saveSettings") {
+                try {
+                    const patch: Record<string, unknown> = {};
+                    for (const [k, v] of Object.entries(msg.values ?? {})) {
+                        // ★ 空字符串 → 删除该字段 ✗（pi 会回到默认 ✓）
+                        //   （而不是写一个空值进去 ✗ 那样 pi 会当成“显式设为空”✓）
+                        setByPath(patch, k, v === "" || v === undefined ? undefined : v);
+                    }
+                    patchSettings(patch);
+
+                    // ★ 改了 sessionDir → 我们的会话扫目录要跟着改 ✗
+                    //   （否则列表全空 ✓ 用户预言的“一定会出错”✓）
+                    if ("sessionDir" in msg.values) {
+                        sessionStore.setRoot(resolveSessionRoot(readLaunchArgs()));
+                        await postSessionList();
+                    }
+
+                    // ★ 重新读一遍回给前端（确认真的写进去了 ✓）
+                    postSettings();
+                    void vscode.window.showInformationMessage(
+                        "设置已保存 ✓" +
+                            (needsRestartHint(msg.values) ? "（部分项需重启 pi 生效 ✗ 点输入区的 ⟳）" : ""),
+                    );
+                } catch (err) {
+                    logError(`保存设置失败: ${toErrorMessage(err)}`);
+                    void vscode.window.showErrorMessage(`保存设置失败：${toErrorMessage(err)}`);
+                }
+                return;
+            }
+
             // ★ 改工作目录（cwd 是启动参数 → 必须重启子进程才生效 ✓）
             //
             // 【为什么用宿主弹原生输入框？】
@@ -448,6 +565,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
                 // ② 重启（新参数生效）
                 await pi.reload();
+                cachedModels = null; // ★ 新进程 → 模型目录可能不同 ✗ 必须清 ✓
                 chatState.reset();
                 logInfo("  重启完成");
 
@@ -469,12 +587,16 @@ export function activate(context: vscode.ExtensionContext): void {
                         if (r.success && !r.data?.cancelled) {
                             await replaySessionMessages();
                             // ★ 再确认一次（防“切了但没生效”✗）
+                            //   顺便：这一次 get_state 也是【模型的唯一来源】✗
+                            //   （刚 reload 完没有 message_end → 不推模型的话
+                            //     界面会显示【上一次的旧模型】✗ 用户报过的 bug ✓）
                             const after = (await pi.sendRaw({ type: "get_state" })) as {
                                 data?: { sessionFile?: unknown; messageCount?: unknown };
                             };
                             logInfo(
                                 `  ★ 校验：现在 = ${after.data?.sessionFile}（${after.data?.messageCount} 条）`,
                             );
+                            await pushPiState();
                         } else {
                             logError("  ★ 切回没成功 → 退回空会话");
                         }
@@ -514,13 +636,28 @@ export function activate(context: vscode.ExtensionContext): void {
                 //   （B20 踩过的坑：send 的白名单把 steer 拒了 ✗
                 //     而报错只在日志里 ✓ 用户看到的就是“没效果”✓）
                 const resp = (await pi.send(toSend)) as
-                    | { success?: boolean; error?: string }
+                    | { success?: boolean; error?: string; data?: unknown }
                     | undefined;
                 if (toSend.type === "steer") {
                     logInfo(
                         `steer 回执: success=${resp?.success ?? "无回执"}` +
                             (resp?.error ? ` error=${resp.error}` : ""),
                     );
+                }
+
+                // ★★ 改模型的命令成功后【立刻刷新状态】✗（B23 用户实测报的 ✓）
+                //
+                // 【为什么不等事件？】
+                //   · set_model 的回执里【确实有完整 model】✓（data: Model ✓）
+                //     → 但它【没有 thinkingLevel】✗
+                //   · 而 thinkingLevel 是【跟模型走的】✗（不同模型可用等级不同 ✓）
+                //     实测：ollama/qwen2.5:3b → ["off"]；deepseek/deepseek-flash → 4 档且自动变 high ✓
+                //   · 事件（entry_appended / thinking_level_changed）【会来】✓
+                //     但【时机不定】✗ → 回执一到就补一次 get_state 最稳 ✓
+                //     （一次 get_state 同时拿到 model + provider + thinkingLevel ✓）
+                if (toSend.type === "set_model" || toSend.type === "cycle_model") {
+                    logInfo(`模型命令回执：success=${resp?.success ?? "?"} → 立刻刷新状态 ✓`);
+                    await pushPiState();
                 }
             } catch (err) {
                 logError(`处理前端消息失败: ${toErrorMessage(err)}`);
@@ -554,7 +691,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
         // 测试命令（验证扩展是否激活）
         vscode.commands.registerCommand("pi-bridge.test", () => {
-            void vscode.window.showInformationMessage("pi-bridge-vs 已激活 ✓");
+            // ★ 不再弹“已激活 ✓”（B21 顺手清理 ✗）
+            //   理由：它【每次重载窗口都弹】✗ 而且【没有信息量】✓（用户早就知道它活着了 ✓）
+            //   开发模式下调试板会自动打开 ✓ 那才是真正的“已就绪”信号 ✓
+            logInfo("pi-bridge-vs 已激活（首条消息时惰启动 pi）");
         }),
 
         // 扩展停用时杀掉 pi 子进程（避免孤儿进程）
@@ -880,6 +1020,361 @@ export function activate(context: vscode.ExtensionContext): void {
      *   ★ 关键：若 pi 【未启动】就直接返回 undefined ✗
      *     不能为了问路而【懒启动】✗（用户还没发消息就不该把 pi 拉起来 ✓）
      */
+    /**
+     * ★ 读 pi 的 settings.json 里的默认模型（B23）
+     *
+     * 【为什么要读它？】
+     *   刚打开视图时 pi 【还没启动】（惰启动 ✗）→ 拿不到 get_state ✓
+     *   → 模型/思考那两格是【空的】✗（用户报的 ✓）
+     *   → 而 pi 的 settings.json 里【本来就有】defaultModel / defaultThinkingLevel ✓
+     *     实测字段：defaultProvider / defaultModel / defaultThinkingLevel / enabledModels ✓
+     *
+     * ★ 等 pi 起来后，探针会用【真实值】覆盖它 ✓（所以只是"先占位"✓）
+     */
+    function readPiDefaults(): {
+        model?: string;
+        provider?: string;
+        thinkingLevel?: string;
+    } {
+        try {
+            const p = path.join(getAgentDir(), "settings.json");
+            const d = JSON.parse(fs.readFileSync(p, "utf8")) as Record<string, unknown>;
+            return {
+                model: typeof d.defaultModel === "string" ? d.defaultModel : undefined,
+                provider: typeof d.defaultProvider === "string" ? d.defaultProvider : undefined,
+                thinkingLevel:
+                    typeof d.defaultThinkingLevel === "string" ? d.defaultThinkingLevel : undefined,
+            };
+        } catch (err) {
+            logDebug(`读 settings.json 默认值失败（忽略）: ${toErrorMessage(err)}`);
+            return {};
+        }
+    }
+
+    /** ★ webview 就绪 → 推模型信息（已启动用真实值 ✓ 未启动用默认值占位 ✓）*/
+    chatView.onReady = () => {
+        if (pi.isStarted()) {
+            void pushPiState();
+            return;
+        }
+        const d = readPiDefaults();
+        if (d.model || d.thinkingLevel) {
+            chatView.post("modelInfo", {
+                model: d.model ?? "",
+                provider: d.provider ?? "",
+                thinkingLevel: d.thinkingLevel ?? "",
+            });
+            logInfo(
+                `未启动 → 显示 settings.json 默认值：${d.provider ?? ""}/${d.model ?? "?"}` +
+                    ` thinking=${d.thinkingLevel ?? "?"}`,
+            );
+        }
+    };
+
+    /**
+     * ★ 把设置内容推给前端（B24）
+     *
+     * ★ 每次【现读磁盘】✗ 不用缓存 ✓ 理由：
+     *   pi 进程也会写这个文件 ✗（lastChangelogVersion 等 ✓）
+     *   缓存的话用户会看到【旧值】✗ 而文件很小 ✓ 读它几乎免费 ✓
+     */
+    function postSettings(): void {
+        const all = readSettings();
+        // ★ 模型目录（给下拉框用 ✓）
+        const catalog = readModelCatalog();
+        const providers = [...new Set(catalog.map((m) => m.provider))].sort();
+
+        const groups = SETTINGS_GROUPS.map((g) => ({
+            title: g.title,
+            items: g.items.map((f) => {
+                // ★ 动态注入选项（B24 用户要求：这些字段改成“有限字段”下拉 ✓）
+                let options = f.options;
+                if (f.key === "defaultProvider") {
+                    options = providers.map((p) => ({ value: p, label: p }));
+                } else if (f.key === "defaultModel") {
+                    // ★ 只显示 provider/id ✗（B24 用户反馈：加名字太乱 ✓）
+                    //   名字放 title 里（悬停能看 ✓）—— 选项本身就是“选哪个模型”✓
+                    //   而 provider/id 【已经是唯一标识】✗ 不用再带一遍名字 ✓
+                    options = catalog.map((m) => ({
+                        value: m.id,
+                        label: `${m.provider}/${m.id}`,
+                    }));
+                } else if (f.kind === "extlist") {
+                    // ★ 已装扩展：选项 = 全部已装 ✓ 值 = 当前启用的 ✓
+                    //   前端用复选框列表渲染 ✓
+                    options = readInstalledExtensions().map((x) => ({
+                        value: x.source,
+                        label: x.source + (x.enabled ? "" : "（已停用）"),
+                    }));
+                } else if (f.key === "enabledModels") {
+                    // ★ 列表控件也用它：下拉“选一个添加”✗ 不用手敲 ✓
+                    //   （用户：“都可以改成类似的设计”✓）
+                    options = catalog.map((m) => ({
+                        value: `${m.provider}/${m.id}`,
+                        label: `${m.provider}/${m.id}`,
+                    }));
+                }
+                return {
+                    key: f.key,
+                    label: f.label,
+                    desc: f.desc,
+                    kind: f.kind,
+                    options,
+                    min: f.min,
+                    max: f.max,
+                    needsRestart: f.needsRestart,
+                    value: getByPath(all, f.key) ?? f.fallback ?? defaultForKind(f.kind),
+                    exists: getByPath(all, f.key) !== undefined,
+                };
+            }),
+        }));
+        chatView.post("settings", { path: settingsPath(), groups });
+    }
+
+    /**
+     * ★ 已装的【扩展】列表（B24 —— 拓展组用 ✓）
+     *
+     * 【怎么区分“扩展”和“依赖的依赖”？】（实测确认 ✓）
+     *   npm 目录里有 159 个包 ✗ 但只有 9 个是真扩展 ✓
+     *   而【扩展【必须有 `pi` 字段】✗（声明它提供什么 ✓）：
+     *     @mammothb/pi-mermaid  → "pi": { "skills": [...] }       ✓ 扩展
+     *     @jamesjfoong/pi-ollama → "pi": { "extensions": [...] }   ✓ 扩展
+     *     ajv                    → 只有 "main" ✗                      ✓ 依赖
+     *   → 读每个包的 package.json，有 pi 字段才算 ✓
+     *
+     * 【代价】读 ~159 个小 JSON ✗（几十毫秒 ✓ 且只在打开设置面板时读一次 ✓）
+     *
+     * 【启用/停用【是什么意思】？
+     *   启用 = 在 settings.packages 里 ✓（pi 会加载它 ✓）
+     *   停用 = 从 packages 里移掉 ✗（包还在磁盘上 ✓ 只是不加载 ✓）
+     */
+    function readInstalledExtensions(): { source: string; enabled: boolean }[] {
+        const nm = path.join(getAgentDir(), "npm", "node_modules");
+        const enabledSet = new Set(
+            (readSettings().packages as string[] | undefined)?.filter(
+                (x) => typeof x === "string",
+            ) ?? [],
+        );
+        const out: { source: string; enabled: boolean }[] = [];
+
+        const check = (pkgName: string, dir: string) => {
+            try {
+                const pj = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) as {
+                    pi?: unknown;
+                };
+                if (!pj.pi) return; // ★ 没有 pi 字段 → 不是扩展 ✗
+                const src = `npm:${pkgName}`;
+                out.push({ source: src, enabled: enabledSet.has(src) });
+            } catch {
+                /* 读不到就当不是 ✓ */
+            }
+        };
+
+        try {
+            for (const e of fs.readdirSync(nm, { withFileTypes: true })) {
+                if (!e.isDirectory()) continue;
+                if (e.name.startsWith("@")) {
+                    // ★ scope 包（@xxx/yyy ✓）多一层 ✓
+                    const scopeDir = path.join(nm, e.name);
+                    for (const s of fs.readdirSync(scopeDir, { withFileTypes: true })) {
+                        if (s.isDirectory()) check(`${e.name}/${s.name}`, path.join(scopeDir, s.name));
+                    }
+                } else if (!e.name.startsWith(".")) {
+                    check(e.name, path.join(nm, e.name));
+                }
+            }
+        } catch (err) {
+            logDebug(`读已装扩展失败: ${toErrorMessage(err)}`);
+        }
+
+        // ★ git: 开头的包（settings 里声明但不在 npm 目录 ✓）也一并列出 ✓
+        for (const src of enabledSet) {
+            if (src.startsWith("git:")) out.push({ source: src, enabled: true });
+        }
+        out.sort((a, b) => a.source.localeCompare(b.source));
+        logInfo(`已装扩展：${out.length} 个（启用 ${out.filter((x) => x.enabled).length} ✓）`);
+        return out;
+    }
+
+    /**
+     * ★ 拉一次模型目录（给设置面板的下拉框用 ✓ B24）
+     *
+     * 【为什么不用 cachedModels？】
+     *   它要【惰启动 pi】✗（get_available_models 是 pi 的命令 ✓）
+     *   而打开设置面板不应该把 pi 拉起来 ✗
+     *   → 设置面板用【磁盘上的目录】✓ 反正它不是热数据 ✓
+     *
+     * ★★ 两个文件【是互补的】✗（B24 实测踩到 ✓）
+     *   · models.json       = 用户手写的供应商（ollama / mock / deepseek … ✓）
+     *                         格式：{ providers: { <prov>: { models: [...] } } }
+     *   · models-store.json = ★ pi 生成的内置供应商目录 ✗
+     *                         （github-copilot 34 个、deepseek 2 个 ✓）
+     *                         格式：{ <prov>: { models: [...] } }  ← 没有 providers 包装
+     *   只读一个的话：ollama 不全 · GitHub 完全没有 ✓（用户报的 ✓）
+     *   → ★ 两个都读，按 provider/id 去重 ✓
+     */
+    function readModelCatalog(): { provider: string; id: string; name?: string }[] {
+        const out: { provider: string; id: string; name?: string }[] = [];
+        const seen = new Set<string>();
+
+        const addFrom = (prov: string, models: { id?: string; name?: string }[] | undefined) => {
+            for (const m of models ?? []) {
+                if (!m?.id) continue;
+                const key = `${prov}/${m.id}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                out.push({ provider: prov, id: m.id, name: m.name });
+            }
+        };
+
+        // ① models.json（用户自定义 ✓ 有 providers 包装）
+        try {
+            const p = path.join(getAgentDir(), "models.json");
+            const d = JSON.parse(fs.readFileSync(p, "utf8")) as {
+                providers?: Record<string, { models?: { id?: string; name?: string }[] }>;
+            };
+            for (const [prov, v] of Object.entries(d.providers ?? {})) addFrom(prov, v.models);
+        } catch (err) {
+            logDebug(`读 models.json 失败: ${toErrorMessage(err)}`);
+        }
+
+        // ② models-store.json（pi 的内置目录 ✓ 没有 providers 包装）
+        try {
+            const p = path.join(getAgentDir(), "models-store.json");
+            const d = JSON.parse(fs.readFileSync(p, "utf8")) as Record<
+                string,
+                { models?: { id?: string; name?: string }[] }
+            >;
+            for (const [prov, v] of Object.entries(d)) {
+                if (v && typeof v === "object" && !Array.isArray(v)) addFrom(prov, v.models);
+            }
+        } catch (err) {
+            logDebug(`读 models-store.json 失败: ${toErrorMessage(err)}`);
+        }
+
+        logDebug(`模型目录（合并两个文件）：${out.length} 个 · ${[...new Set(out.map((m) => m.provider))].length} 个供应商`);
+        return out;
+    }
+
+    /** 控件类型对应的“空值”（未配置时展示用 ✓）*/
+    function defaultForKind(kind: string): unknown {
+        if (kind === "boolean") return false;
+        if (kind === "number") return 0;
+        if (kind === "list") return [];
+        return "";
+    }
+
+    /** ★ 改动里有没有“需要重启 pi”的项（给用户提示 ✓）*/
+    function needsRestartHint(values: Record<string, unknown>): boolean {
+        return SETTINGS_GROUPS.some((g) =>
+            g.items.some((f) => f.needsRestart && f.key in values),
+        );
+    }
+
+    /**
+     * ★ 启用模型列表（B23）
+     *
+     * 【为什么存 globalState 而不是 VS Code 配置？】（用户定的 ✓）
+     *   · 它该由【我们自己的设置面板】管 ✗（B24 ✓）
+     *   · 放两处会分叉 ✗（Ctrl+, 改一个、面板改一个 → 谁赢？）
+     *
+     * 【格式】`provider/id` ✓
+     * 【空数组】= 不限制 ✓ 用全部可用模型 ✓
+     */
+    function getEnabledModels(): string[] {
+        const v = context.globalState.get<string[]>(MODEL_STORE_KEY, []);
+        return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+    }
+
+    /** ★ 把模型候选推给前端（带 current 标记 ✓）*/
+    async function postModelList(): Promise<void> {
+        try {
+            if (!cachedModels) {
+                const r = (await pi.sendRaw({ type: "get_available_models" })) as {
+                    data?: { models?: { id?: string; name?: string; provider?: string }[] };
+                };
+                cachedModels = r?.data?.models ?? [];
+                logInfo(`模型目录已缓存：${cachedModels.length} 个（死数据 ✓ reload 时才清 ✓）`);
+            }
+            const all = cachedModels;
+            const enabled = getEnabledModels();
+            const st = (await pi.sendRaw({ type: "get_state" })) as {
+                data?: { model?: { id?: string; provider?: string } };
+            };
+            const curId = st?.data?.model?.id;
+            const curProv = st?.data?.model?.provider;
+
+            const list = all
+                .filter((m) => m.id && m.provider)
+                .filter((m) => !enabled.length || enabled.includes(`${m.provider}/${m.id}`))
+                .map((m) => ({
+                    provider: m.provider as string,
+                    id: m.id as string,
+                    name: m.name,
+                    current: m.id === curId && m.provider === curProv,
+                }));
+            logInfo(
+                `模型候选：${list.length} 个（启用列表 ${enabled.length ? `${enabled.length} 项` : "空 → 全部"}）`,
+            );
+            chatView.post("modelList", list);
+        } catch (err) {
+            logError(`拉模型列表失败: ${toErrorMessage(err)}`);
+        }
+    }
+
+    /**
+     * ★★ 探针 + 取状态（一个动作两个用途 ✓ B23）
+     *
+     * 【为什么把它们放一起？】（用户提的架构问题 ✓）
+     *   “检测子进程是否启动成功” = 发个命令看有没有回执 ✓
+     *   “拿当前状态”             = 发 get_state 看它的 data ✓
+     *   → 而 get_state 【本身就是一个完美的探针】✗
+     *     所以这不是“把两件事绑在一起”✗ 而是“一个动作满足两个需求”✓
+     *
+     * 【什么时候调？】三个场合完全重合 ✓
+     *   · 惰启动完成时✓
+     *   · reload 后✓
+     *   · 切会话后✓
+     * 【平时靠事件增量】✗（entry_appended / thinking_level_changed ✓）
+     *
+     * @returns 探活结论（true = pi 确实活着并能应答 ✓）
+     */
+    async function pushPiState(): Promise<boolean> {
+        if (!pi.isStarted()) return false;
+        try {
+            const st = (await pi.sendRaw({ type: "get_state" })) as {
+                data?: {
+                    model?: { id?: string; provider?: string };
+                    thinkingLevel?: string;
+                    sessionFile?: unknown;
+                };
+            };
+            const d = st?.data;
+            if (!d) return false; // 应答了但没 data（罕异 ✓）
+
+            // ① ★ 模型 + 供应商 + 思考等级（修“模型没正确显示”✗）
+            const m = d.model;
+            chatView.post("modelInfo", {
+                model: m?.id ?? "",
+                provider: m?.provider ?? "",
+                thinkingLevel: d.thinkingLevel ?? "",
+            });
+
+            // ② 会话名（顺便 ✓ 原本就要问 get_state ✓）
+            const file = d.sessionFile;
+            if (typeof file === "string" && file) {
+                const nm = await sessionStore.findName(file);
+                chatView.post("sessionTitle", nm || shortIdOf(file));
+            } else {
+                chatView.post("sessionTitle", "");
+            }
+            return true;
+        } catch (err) {
+            logError(`探针失败（pi 可能没起来）: ${toErrorMessage(err)}`);
+            return false;
+        }
+    }
+
     async function currentSessionFile(): Promise<string | undefined> {
         if (!pi.isStarted()) return undefined;
         try {
@@ -895,30 +1390,13 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     async function pushCurrentSessionTitle(overrideName?: string): Promise<void> {
+        // ★ 改名后前端要【立刻】看到新名字 ✓ → 走 override 直推 ✓
         if (overrideName !== undefined) {
             chatView.post("sessionTitle", overrideName);
             return;
         }
-        if (!pi.isStarted()) {
-            chatView.post("sessionTitle", "");
-            return;
-        }
-        try {
-            const st = (await pi.sendRaw({ type: "get_state" })) as {
-                data?: { sessionFile?: unknown };
-            };
-            const file = st?.data?.sessionFile;
-            if (typeof file === "string" && file) {
-                // ★ 有名字就用名字；★ 没名字就用【短 id】
-                //   （用户定的：ID 是独特的 ✓ 看着烦自然会去改名 ✓）
-                const nm = await sessionStore.findName(file);
-                chatView.post("sessionTitle", nm || shortIdOf(file));
-                return;
-            }
-        } catch (err) {
-            logDebug(`取当前会话名失败（忽略）: ${toErrorMessage(err)}`);
-        }
-        chatView.post("sessionTitle", "");
+        // ★ 否则直接走统一探针（它会一并把模型 / 供应商 / 思考等级也推了 ✓）
+        await pushPiState();
     }
 
     /** 从会话文件路径里取【短 id】（文件名 2026-…Z_<uuid>.jsonl ✓）*/

@@ -59,6 +59,9 @@ export class ChatView implements vscode.WebviewViewProvider {
     }
 
     /** VS Code 在视图第一次显示时调用 */
+    /** ★ webview 就绪时的补充回调（B23：推模型 / 思考深度 ✓）*/
+    onReady?: () => void;
+
     resolveWebviewView(webviewView: vscode.WebviewView): void {
         this.view = webviewView;
 
@@ -89,6 +92,10 @@ export class ChatView implements vscode.WebviewViewProvider {
                 // ★ 工作目录（输入区下方极简栏）
                 this.post("cwd", this.cwd);
                 this.post("snapshot", this.chatState.snapshot());
+                // ★ 模型 / 思考深度（B23）：由 main.ts 的 onReady 回调补 ✓
+                //   为什么放回调而不是这里？→ 它要读 settings.json / 问 pi ✓
+                //   这两个都是【main.ts 的职责】✗（chat-view 只该管显示 ✓）
+                this.onReady?.();
                 return;
             }
 

@@ -38,6 +38,8 @@ export const ui = {
     pendingEl: null as HTMLElement | null,
     /** 重连提示气泡（同一气泡原地更新 ✓） */
     retryNoticeEl: null as HTMLElement | null,
+    /** ★ 本次压缩的气泡（B22）—— 同一批压缩原地更新 ✓ */
+    compactBubbleEl: null as HTMLElement | null,
 
     // ── 行为开关 ──
     /** 自动滚到底（用户往上翻时自动关闭 ✓） */

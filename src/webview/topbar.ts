@@ -31,11 +31,15 @@ interface UsageLike {
 export function updateStatusBar(usage?: UsageLike, model?: string): void {
     const u = usage || {};
 
-    // ★ 输入区下方：当前模型
-    if (model) {
-        footModel.textContent = model;
-        footModel.title = "当前模型：" + model;
-    }
+    // ★ 输入区下方的模型名【不再在这里改】✗（B23 改成单一来源 ✓）
+    //
+    // 【为什么移除？】两个地方都写它 → 互相覆盖 ✗ 实测踩到：
+    //   · setModelInfo()  → 带供应商（gpt-5.6-luna (openai) ✓）
+    //   · 这里（message_end 时）→ 只有 id ✗ 且可能是【旧模型】✗
+    //   结果：供应商被抹掉 ✗ 切模型后显示不更新 ✗
+    // ★ 现在：模型名只由 model-picker.ts 的 setModelInfo() 负责 ✓
+    //   数据源 = 探针 / 事件（都是 get_state 的权威值 ✓）
+    void model;
 
     // 花费
     sbCost.textContent = "¥ " + fmtCost(u.cost && u.cost.total);

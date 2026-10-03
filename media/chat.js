@@ -30,7 +30,15 @@
   var inputEl = needEl("input");
   var sendBtn = needEl("send");
   var btnReload = needEl("btn-reload");
+  var btnCompact = needEl("btn-compact");
   var queueBarEl = needEl("queue-bar");
+  var footThinking = needEl("foot-thinking");
+  var btnSettings = needEl("btn-settings");
+  var settingsPanel = needEl("settings-panel");
+  var settingsBody = needEl("settings-body");
+  var settingsSave = needEl("settings-save");
+  var settingsReload = needEl("settings-reload");
+  var settingsPath = needEl("settings-path");
   var statusBarEl = needEl("status-bar");
   var sbCost = needEl("sb-cost");
   var sbOut = needEl("sb-out");
@@ -59,7 +67,6 @@
   var sessionTitle = needEl("session-title");
   var noticeCollapse = needEl("notice-collapse");
   var noticeClear = needEl("notice-clear");
-  var noticeSettings = needEl("notice-settings");
 
   // src/webview/state.ts
   var ui = {
@@ -76,6 +83,8 @@
     pendingEl: null,
     /** 重连提示气泡（同一气泡原地更新 ✓） */
     retryNoticeEl: null,
+    /** ★ 本次压缩的气泡（B22）—— 同一批压缩原地更新 ✓ */
+    compactBubbleEl: null,
     // ── 行为开关 ──
     /** 自动滚到底（用户往上翻时自动关闭 ✓） */
     autoScroll: true,
@@ -338,9 +347,6 @@
     noticeClear.addEventListener("click", (e) => {
       e.stopPropagation();
       vscode.postMessage({ kind: "noticeClearAll" });
-    });
-    noticeSettings.addEventListener("click", (e) => {
-      e.stopPropagation();
     });
     setupDragGesture();
     syncBadge();
@@ -739,6 +745,428 @@ ${s.path}`;
     }
   }
 
+  // src/webview/compact.ts
+  var REASON_TEXT = {
+    manual: "\u624B\u52A8\u89E6\u53D1",
+    threshold: "\u4E0A\u4E0B\u6587\u63A5\u8FD1\u4E0A\u9650\uFF08\u81EA\u52A8\u9884\u9632\uFF09",
+    overflow: "\u2605 \u4E0A\u4E00\u6B21\u54CD\u5E94\u8D85\u7A97\u53E3\uFF08\u81EA\u52A8\u6551\u573A\uFF09"
+  };
+  function setupCompact() {
+    btnCompact.addEventListener("click", () => {
+      btnCompact.classList.add("spinning");
+      vscode.postMessage({ kind: "compact" });
+      setTimeout(() => btnCompact.classList.remove("spinning"), 3e4);
+    });
+  }
+  function ensureBubble() {
+    let el = ui.compactBubbleEl;
+    if (!el || el.dataset.done === "true") {
+      const wrap = document.createElement("div");
+      wrap.className = "bubble-wrap notice";
+      el = document.createElement("div");
+      el.className = "bubble notice compact";
+      el.dataset.done = "false";
+      wrap.appendChild(el);
+      messagesEl.appendChild(wrap);
+      ui.compactBubbleEl = el;
+      scrollToBottom();
+    }
+    return el;
+  }
+  function showCompactionStart(p) {
+    const el = ensureBubble();
+    el.classList.remove("failed", "ok");
+    el.dataset.done = "false";
+    const why = REASON_TEXT[p.reason ?? ""] ?? p.reason ?? "";
+    el.textContent = `\u6B63\u5728\u538B\u7F29\u4E0A\u4E0B\u6587\u2026\uFF08${why}\uFF09`;
+    btnCompact.classList.add("spinning");
+    scrollToBottom();
+  }
+  function showCompactionEnd(p) {
+    btnCompact.classList.remove("spinning");
+    const el = ensureBubble();
+    el.dataset.done = "true";
+    const fmt = (n) => typeof n === "number" ? n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n) : "?";
+    if (p.errorMessage) {
+      el.classList.add("failed");
+      el.textContent = `\u538B\u7F29\u5931\u8D25\uFF1A${p.errorMessage}`;
+      return;
+    }
+    if (p.aborted) {
+      el.textContent = "\u538B\u7F29\u88AB\u4E2D\u65AD";
+      return;
+    }
+    el.classList.add("ok");
+    const saved = typeof p.tokensBefore === "number" && typeof p.tokensAfter === "number" ? `\u3000${fmt(p.tokensBefore)} \u2192 ${fmt(p.tokensAfter)} tokens \u2713` : "";
+    const retry = p.willRetry ? "\u3000\u6B63\u5728\u91CD\u8BD5\u521A\u624D\u90A3\u6B21\u8BF7\u6C42\u2026" : "";
+    el.textContent = `\u538B\u7F29\u5B8C\u6210${saved}${retry}`;
+  }
+
+  // src/webview/model-picker.ts
+  var cachedModels = [];
+  var cachedLevels = [];
+  var pickerEl = null;
+  var pickerFor = null;
+  function closePicker() {
+    pickerEl?.remove();
+    pickerEl = null;
+    pickerFor = null;
+  }
+  function openPicker(anchor, forWhat, items) {
+    closePicker();
+    if (!items.length) {
+      log.info(`[picker] \u5019\u9009\u4E3A\u7A7A\uFF08${forWhat}\uFF09`);
+      return;
+    }
+    const box = document.createElement("div");
+    box.className = "picker";
+    for (const it of items) {
+      const b = document.createElement("button");
+      b.className = "picker-item";
+      b.dataset.current = it.current ? "true" : "false";
+      const main = document.createElement("span");
+      main.textContent = it.label;
+      b.appendChild(main);
+      if (it.sub) {
+        const sub = document.createElement("span");
+        sub.className = "pk-sub";
+        sub.textContent = it.sub;
+        b.appendChild(sub);
+      }
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closePicker();
+        it.onPick();
+      });
+      box.appendChild(b);
+    }
+    document.body.appendChild(box);
+    const a = anchor.getBoundingClientRect();
+    const r = box.getBoundingClientRect();
+    box.style.left = `${Math.max(4, Math.min(a.left, window.innerWidth - r.width - 6))}px`;
+    box.style.top = `${Math.max(4, a.top - r.height - 4)}px`;
+    if (a.top - r.height - 4 < 4) {
+      box.style.top = `${Math.min(window.innerHeight - r.height - 6, a.bottom + 4)}px`;
+    }
+    pickerEl = box;
+    pickerFor = forWhat;
+  }
+  document.addEventListener("click", closePicker);
+  window.addEventListener("blur", closePicker);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closePicker();
+  });
+  document.addEventListener(
+    "wheel",
+    (e) => {
+      if (pickerEl && pickerEl.contains(e.target)) e.stopPropagation();
+    },
+    { capture: true, passive: true }
+  );
+  function setupModelPicker() {
+    footModel.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (pickerFor === "model") return closePicker();
+      vscode.postMessage({ kind: "listModels" });
+    });
+    footThinking.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (pickerFor === "thinking") return closePicker();
+      vscode.postMessage({ kind: "listThinkingLevels" });
+    });
+  }
+  function setModelInfo(p) {
+    const model = p.model ?? "";
+    const provider = p.provider ?? "";
+    if (model) {
+      footModel.textContent = provider ? `${model} (${provider})` : model;
+      footModel.title = `\u5F53\u524D\u6A21\u578B\uFF1A${provider ? `${provider}/` : ""}${model}
+\u70B9\u51FB\u5207\u6362`;
+      delete footModel.dataset.empty;
+    } else {
+      footModel.textContent = "";
+      footModel.dataset.empty = "true";
+    }
+    const lv = p.thinkingLevel ?? "";
+    if (lv) {
+      footThinking.textContent = `thinking: ${lv}`;
+      footThinking.title = `\u601D\u8003\u6DF1\u5EA6\uFF1A${lv}
+\u70B9\u51FB\u5207\u6362`;
+      delete footThinking.dataset.empty;
+    } else {
+      footThinking.textContent = "";
+      footThinking.dataset.empty = "true";
+    }
+  }
+  function showModelPicker(models) {
+    cachedModels = models;
+    openPicker(
+      footModel,
+      "model",
+      models.map((m) => ({
+        label: m.name || m.id,
+        sub: m.provider,
+        current: m.current,
+        onPick: () => vscode.postMessage({ kind: "setModel", provider: m.provider, modelId: m.id })
+      }))
+    );
+  }
+  function showThinkingPicker(levels, current) {
+    cachedLevels = levels;
+    openPicker(
+      footThinking,
+      "thinking",
+      levels.map((lv) => ({
+        label: lv,
+        current: lv === current,
+        onPick: () => vscode.postMessage({ kind: "setThinkingLevel", level: lv })
+      }))
+    );
+  }
+
+  // src/webview/settings-panel.ts
+  var dirty = /* @__PURE__ */ new Map();
+  var original = /* @__PURE__ */ new Map();
+  var bodyBuilt = false;
+  function isEditing() {
+    return !settingsPanel.classList.contains("collapsed");
+  }
+  function markDirty(key, value, row) {
+    const orig = original.get(key);
+    if (JSON.stringify(orig) === JSON.stringify(value)) {
+      dirty.delete(key);
+      row.dataset.dirty = "false";
+    } else {
+      dirty.set(key, value);
+      row.dataset.dirty = "true";
+    }
+    settingsSave.disabled = dirty.size === 0;
+    settingsSave.textContent = dirty.size ? `\u4FDD\u5B58 (${dirty.size})` : "\u4FDD\u5B58";
+  }
+  function buildRow(f) {
+    const row = document.createElement("div");
+    row.className = "s-item";
+    row.dataset.dirty = "false";
+    const labelBox = document.createElement("div");
+    labelBox.className = "s-label";
+    const name = document.createElement("span");
+    name.textContent = f.label;
+    labelBox.appendChild(name);
+    if (f.desc) {
+      const d = document.createElement("span");
+      d.className = "s-desc";
+      d.textContent = f.desc;
+      labelBox.appendChild(d);
+    }
+    if (f.needsRestart) {
+      const r = document.createElement("span");
+      r.className = "s-desc";
+      r.textContent = "\u26A0 \u6539\u540E\u9700\u91CD\u542F pi";
+      labelBox.appendChild(r);
+    }
+    const ctl = document.createElement("div");
+    ctl.className = "s-ctl";
+    if (f.kind === "boolean") {
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = f.value === true;
+      cb.addEventListener("change", () => markDirty(f.key, cb.checked, row));
+      ctl.appendChild(cb);
+    } else if (f.kind === "select") {
+      const sel = document.createElement("select");
+      for (const o of f.options ?? []) {
+        const op = document.createElement("option");
+        op.value = o.value;
+        op.textContent = o.label;
+        sel.appendChild(op);
+      }
+      sel.value = String(f.value ?? "");
+      sel.addEventListener("change", () => markDirty(f.key, sel.value, row));
+      ctl.appendChild(sel);
+    } else if (f.kind === "number") {
+      const inp = document.createElement("input");
+      inp.type = "number";
+      if (f.min !== void 0) inp.min = String(f.min);
+      if (f.max !== void 0) inp.max = String(f.max);
+      inp.value = f.value === void 0 || f.value === null ? "" : String(f.value);
+      inp.addEventListener("input", () => {
+        const v = inp.value.trim();
+        markDirty(f.key, v === "" ? "" : Number(v), row);
+      });
+      ctl.appendChild(inp);
+    } else if (f.kind === "list") {
+      const box = document.createElement("div");
+      box.className = "s-list";
+      const items = Array.isArray(f.value) ? f.value.slice() : [];
+      const renderItems = () => {
+        box.textContent = "";
+        items.forEach((it, i) => {
+          const line = document.createElement("div");
+          line.className = "s-list-item";
+          const code = document.createElement("span");
+          code.textContent = it;
+          const del = document.createElement("button");
+          del.textContent = "\u2715";
+          del.title = "\u5220\u9664\u8FD9\u4E00\u9879";
+          del.addEventListener("click", () => {
+            items.splice(i, 1);
+            renderItems();
+            markDirty(f.key, items.slice(), row);
+          });
+          line.appendChild(code);
+          line.appendChild(del);
+          box.appendChild(line);
+        });
+        if (f.options?.length) {
+          const sel = document.createElement("select");
+          const empty = document.createElement("option");
+          empty.value = "";
+          empty.textContent = "\uFF0B \u4ECE\u5217\u8868\u9009\u4E00\u4E2A\u6DFB\u52A0\u2026";
+          sel.appendChild(empty);
+          for (const o of f.options) {
+            if (items.includes(o.value)) continue;
+            const op = document.createElement("option");
+            op.value = o.value;
+            op.textContent = o.label;
+            sel.appendChild(op);
+          }
+          sel.addEventListener("change", () => {
+            if (!sel.value) return;
+            items.push(sel.value);
+            renderItems();
+            markDirty(f.key, items.slice(), row);
+          });
+          box.appendChild(sel);
+        } else {
+          const add = document.createElement("input");
+          add.type = "text";
+          add.placeholder = "\u6DFB\u52A0\u4E00\u9879\u540E\u56DE\u8F66\u2026";
+          add.addEventListener("keydown", (e) => {
+            if (e.key !== "Enter") return;
+            const v = add.value.trim();
+            if (!v) return;
+            items.push(v);
+            add.value = "";
+            renderItems();
+            markDirty(f.key, items.slice(), row);
+          });
+          box.appendChild(add);
+        }
+      };
+      renderItems();
+      ctl.appendChild(box);
+    } else if (f.kind === "extlist") {
+      const box = document.createElement("div");
+      box.className = "s-extlist";
+      const enabledSet = new Set(Array.isArray(f.value) ? f.value : []);
+      const others = f.value?.filter(
+        (x) => !(f.options ?? []).some((o) => o.value === x)
+      );
+      const all = [
+        ...f.options ?? [],
+        // ★ settings 里有、但磁盘上找不到的（如 git: 或已卸载 ✓）也列出来 ✗
+        ...(others ?? []).map((x) => ({ value: x, label: x + "\uFF08\u4E0D\u5728\u672C\u5730 npm \u76EE\u5F55\uFF09" }))
+      ];
+      for (const o of all) {
+        const line = document.createElement("label");
+        line.className = "s-ext-item";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = enabledSet.has(o.value);
+        cb.addEventListener("change", () => {
+          if (cb.checked) enabledSet.add(o.value);
+          else enabledSet.delete(o.value);
+          const arr = all.filter((x) => enabledSet.has(x.value)).map((x) => x.value);
+          markDirty(f.key, arr, row);
+        });
+        const txt = document.createElement("span");
+        txt.textContent = o.label;
+        txt.title = o.value;
+        line.appendChild(cb);
+        line.appendChild(txt);
+        box.appendChild(line);
+      }
+      ctl.appendChild(box);
+    } else {
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.value = String(f.value ?? "");
+      inp.addEventListener("input", () => markDirty(f.key, inp.value, row));
+      ctl.appendChild(inp);
+    }
+    row.appendChild(labelBox);
+    row.appendChild(ctl);
+    return row;
+  }
+  function renderSettings(p) {
+    settingsPath.textContent = p.path ?? "";
+    settingsPath.title = p.path ?? "";
+    dirty.clear();
+    original = /* @__PURE__ */ new Map();
+    settingsSave.disabled = true;
+    settingsSave.textContent = "\u4FDD\u5B58";
+    settingsBody.textContent = "";
+    for (const g of p.groups ?? []) {
+      const t = document.createElement("div");
+      t.className = "sg-title";
+      t.textContent = g.title;
+      t.dataset.collapsed = "false";
+      const body = document.createElement("div");
+      body.className = "sg-body";
+      t.addEventListener("click", () => {
+        const nowCollapsed = t.dataset.collapsed !== "true";
+        t.dataset.collapsed = nowCollapsed ? "true" : "false";
+        body.classList.toggle("collapsed", nowCollapsed);
+      });
+      settingsBody.appendChild(t);
+      for (const f of g.items) {
+        original.set(f.key, f.value);
+        body.appendChild(buildRow(f));
+      }
+      settingsBody.appendChild(body);
+      void g;
+    }
+    bodyBuilt = true;
+  }
+  function setSettingsOpen(open) {
+    settingsPanel.classList.toggle("collapsed", !open);
+    if (!open) return;
+    vscode.postMessage({ kind: "openSettings" });
+  }
+  function setupSettingsPanel() {
+    btnSettings.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setSettingsOpen(!isEditing());
+    });
+    settingsReload.addEventListener("click", () => {
+      dirty.clear();
+      settingsSave.disabled = true;
+      settingsSave.textContent = "\u4FDD\u5B58";
+      vscode.postMessage({ kind: "openSettings" });
+    });
+    settingsSave.addEventListener("click", () => {
+      if (!dirty.size) return;
+      const values = {};
+      for (const [k, v] of dirty) values[k] = v;
+      vscode.postMessage({ kind: "saveSettings", values });
+    });
+    document.addEventListener("click", (e) => {
+      if (!isEditing()) return;
+      const t = e.target;
+      if (t?.closest(
+        "#settings-panel button, #settings-panel input, #settings-panel select, .s-item, .sg-title, #btn-settings"
+      )) {
+        return;
+      }
+      if (dirty.size) {
+        settingsSave.focus();
+        return;
+      }
+      setSettingsOpen(false);
+    });
+    void bodyBuilt;
+  }
+
   // src/webview/inserting.ts
   var pending = [];
   var seq = 0;
@@ -1048,10 +1476,7 @@ ${s.path}`;
   // src/webview/topbar.ts
   function updateStatusBar(usage, model) {
     const u = usage || {};
-    if (model) {
-      footModel.textContent = model;
-      footModel.title = "\u5F53\u524D\u6A21\u578B\uFF1A" + model;
-    }
+    void model;
     sbCost.textContent = "\xA5 " + fmtCost(u.cost && u.cost.total);
     sbOut.textContent = "out " + fmtNum(u.output);
     const inp = Number(u.input) || 0;
@@ -1175,6 +1600,11 @@ ${s.path}`;
       case "retryNotice":
         showRetryNotice(p);
         return;
+      // ★ 压缩（B22）：开始/结束共用一种 patch，原地更新同一个气泡 ✓
+      case "compaction":
+        if (p.phase === "start") showCompactionStart(p);
+        else showCompactionEnd(p);
+        return;
       case "toolStart":
         removePending();
         setToolState(createToolBubble(p.callId, p.name), "running");
@@ -1290,6 +1720,22 @@ ${s.path}`;
           applyPatch(data.payload ?? {});
           if (refreshForkButtons()) syncPadding();
           return;
+        // ★ 模型 / 思考等级状态（B23）—— 探针 + 事件增量推来的 ✓
+        case "modelInfo":
+          setModelInfo(data.payload ?? {});
+          return;
+        // ★ 设置面板（B24）
+        case "settings":
+          renderSettings(data.payload ?? {});
+          return;
+        case "modelList":
+          showModelPicker(data.payload ?? []);
+          return;
+        case "thinkingLevels": {
+          const pl = data.payload ?? {};
+          showThinkingPicker(pl.levels ?? [], pl.current);
+          return;
+        }
         case "queueUpdate": {
           setQueueing(data.payload?.steering ?? []);
           return;
@@ -1330,6 +1776,9 @@ ${s.path}`;
   safe("input", setupInput);
   safe("noticeBoard", setupNoticeBoard);
   safe("sessions", setupSessions);
+  safe("compact", setupCompact);
+  safe("modelPicker", setupModelPicker);
+  safe("settings", setupSettingsPanel);
   safe("hostBridge", setupHostBridge);
   post("ready");
 })();
