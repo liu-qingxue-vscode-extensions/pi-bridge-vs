@@ -28,12 +28,13 @@ import * as vscode from "vscode";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
-import { initLogger, logInfo, logError, logDebug } from "./logger.js";
+import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
 import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
 import { ChatView } from "./view/chat-view.js";
 import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
 import { toChatPatch } from "./bridge/format-backend.js";
+import { messagesToPatches, type ReplayMessage } from "./bridge/replay.js";
 import { SessionStore } from "./pi/session-store.js";
 import { ChatState } from "./view/chat-state.js";
 import { toErrorMessage } from "./utils.js";
@@ -135,11 +136,59 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
-            // ★ 列出会话（★ 打开面板时按需拉取 —— 不预先扫描 ✗）
+            // ★ webview 的日志 → 写进输出面板（★ 不要写进调试板 ✗）
+            //   level 由前端指定：debug / info / warn / error ✓
+            if (msg.kind === "webviewLog") {
+                const m = msg as { level?: string; text?: unknown };
+                const text = `[webview] ${String(m.text ?? "")}`;
+                if (m.level === "error") logError(text);
+                else if (m.level === "warn") logWarn(text);
+                else if (m.level === "debug") logDebug(text);
+                else logInfo(text);
+                return;
+            }
+
+            // ★ 拉取会话列表（打开面板时按需请求 ✓）
             //   ★ 这是【第一级】IO：只扫文件名（零内容 IO ✓）名字/异常状态从缓存取 ✓
             if (msg.kind === "listSessions") {
                 const list = await sessionStore.listEntries();
                 chatView.post("sessions", list);
+                void pushCurrentSessionTitle();
+                return;
+            }
+
+            // ★ 给【当前会话】改名（点按钮行中间的标题区 ✓）
+            if (msg.kind === "renameSession") {
+                try {
+                    const st = (await pi.sendRaw({ type: "get_state" })) as {
+                        data?: { sessionFile?: unknown };
+                    };
+                    const file = st?.data?.sessionFile;
+                    if (typeof file !== "string" || !file) {
+                        throw new Error("拿不到当前会话文件（pi 还没启动？）");
+                    }
+                    const old = await sessionStore.findName(file);
+                    const name = await vscode.window.showInputBox({
+                        title: "修改会话名",
+                        prompt: "给这个会话起个名字（留空或取消 = 不改）",
+                        value: old ?? "",
+                    });
+                    if (name === undefined) return; // 取消 ✓
+                    const trimmed = name.trim();
+                    if (!trimmed) return; // 空 → 不改 ✓
+
+                    await pi.sendRaw({ type: "set_session_name", name: trimmed });
+
+                    // ★ 只更新缓存（不重读文件 ✓ 用户定的 ✓）
+                    await sessionStore.setName(file, trimmed);
+                    const list = await sessionStore.listEntries();
+                    chatView.post("sessions", list);
+                    void pushCurrentSessionTitle(trimmed);
+                    logInfo(`会话已改名：${trimmed}`);
+                } catch (err) {
+                    logError(`改名失败: ${toErrorMessage(err)}`);
+                    void vscode.window.showErrorMessage(`改名失败：${toErrorMessage(err)}`);
+                }
                 return;
             }
 
@@ -185,14 +234,13 @@ export function activate(context: vscode.ExtensionContext): void {
                         sessionPath: msg.path,
                     });
 
-                    // ★ 清空当前界面（新会话的内容）
-                    //   注：历史消息的【重放】是下一步 —— 需要把 pi 的 message
-                    //       转成我们的气泡结构（新转换器 ✓）
+                    // ★ 清空当前界面 + ★ 重放该会话的历史消息 ✓
+                    //   （否则切过去是一片空白 ✗）
                     chatState.reset();
-                    chatState.clearNotices();
+                    await replaySessionMessages();
                     chatView.post("cwd", pi.getCwd());
-                    chatView.post("noticesCleared", true);
                     chatView.post("snapshot", chatState.snapshot());
+                    chatView.post("sessions", await sessionStore.listEntries());
                     void vscode.window.showInformationMessage(
                         `已切换到会话 ${info.name ?? info.id.slice(0, 8)}`,
                     );
@@ -257,17 +305,78 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
             // ★ 重启 pi（应用最新启动参数）—— 也是本地消息 ✓
+            //
+            // 【关键：reload 要【携带会话】✓（用户早就提的）】
+            //   reload 前是哪个会话，reload 之后还得是它 ✓
+            //   否则得重新去面板里找一遍 ✗
             if (msg.kind === "reloadPi") {
-                logInfo("用户请求重启 pi（应用最新启动参数）");
+                logInfo("=== 用户请求重启 pi ===");
+
+                // ① 先问 pi：现在是哪个会话文件（★ 必须在 stop 之前问 ✗）
+                let prevSession: string | null = null;
+                const wasStarted = pi.isStarted();
+                logInfo(`  reload 前：pi ${wasStarted ? "已启动" : "★ 未启动（无会话可携带）"}`);
+                if (wasStarted) {
+                    try {
+                        const st = (await pi.sendRaw({ type: "get_state" })) as {
+                            data?: { sessionFile?: unknown; messageCount?: unknown };
+                        };
+                        const f = st?.data?.sessionFile;
+                        if (typeof f === "string" && f) {
+                            prevSession = f;
+                            logInfo(`  reload 前会话：${f}（${st.data?.messageCount} 条消息）`);
+                        } else {
+                            logInfo("  ★ reload 前拿不到 sessionFile");
+                        }
+                    } catch (err) {
+                        logError(`  ★ reload 前取 sessionFile 失败: ${toErrorMessage(err)}`);
+                    }
+                }
+
+                // ② 重启（新参数生效）
                 await pi.reload();
-                // ★ pi 换了新进程 → 它不认识旧对话了 ✗ → 前端也必须清空 ✓
-                //   （否则上下文对不上，接着聊会得到错误结果）
                 chatState.reset();
-                // ★ 通知也清掉：那都是【上一个 pi 进程】生命周期里的事 ✓
-                //   （用户拍板：刷了就行，不用加“旧”标记）
+                logInfo("  重启完成");
+
+                // ③ ★ 切回原会话 + 重放历史 ✓
+                if (prevSession) {
+                    try {
+                        const r = (await pi.sendRaw({
+                            type: "switch_session",
+                            sessionPath: prevSession,
+                        })) as {
+                            success?: boolean;
+                            error?: string;
+                            data?: { cancelled?: boolean };
+                        };
+                        logInfo(
+                            `  切回：success=${r.success} cancelled=${r.data?.cancelled}` +
+                                (r.error ? ` error=${r.error}` : ""),
+                        );
+                        if (r.success && !r.data?.cancelled) {
+                            await replaySessionMessages();
+                            // ★ 再确认一次（防“切了但没生效”✗）
+                            const after = (await pi.sendRaw({ type: "get_state" })) as {
+                                data?: { sessionFile?: unknown; messageCount?: unknown };
+                            };
+                            logInfo(
+                                `  ★ 校验：现在 = ${after.data?.sessionFile}（${after.data?.messageCount} 条）`,
+                            );
+                        } else {
+                            logError("  ★ 切回没成功 → 退回空会话");
+                        }
+                    } catch (err) {
+                        logError(`  ★ 切回会话异常（退回空会话）: ${toErrorMessage(err)}`);
+                    }
+                }
+
+                // ★ 通知清掉（那是上一个进程生命周期的事 ✓）
                 chatState.clearNotices();
                 chatView.post("noticesCleared", true);
-                chatView.post("snapshot", chatState.snapshot()); // 空快照 → 前端重放=清空 ✓
+                chatView.post("cwd", pi.getCwd());
+                chatView.post("snapshot", chatState.snapshot());
+                chatView.post("sessions", await sessionStore.listEntries());
+                logInfo("=== 重启流程结束 ===");
                 return;
             }
             logDebug(`前端消息: ${JSON.stringify(msg)}`);
@@ -319,6 +428,56 @@ export function activate(context: vscode.ExtensionContext): void {
         // 调试板的配置监听（改 hiddenTypes / enabled 时重推历史 ✓）
         debugPanel,
     );
+
+    // ★ 把【当前会话的历史消息】重放进 ChatState（切换会话 / 重开后用 ✓）
+    //
+    // 数据源：pi 的 get_messages ✓
+    //   ★ 它返回的 message 结构与事件流里的一致 → 直接复用我们的气泡逻辑 ✓
+    async function replaySessionMessages(): Promise<void> {
+        const resp = (await pi.sendRaw({ type: "get_messages" })) as {
+            data?: { messages?: ReplayMessage[] };
+        };
+        const messages = resp?.data?.messages;
+        if (!Array.isArray(messages) || messages.length === 0) {
+            logDebug("会话没有历史消息");
+            return;
+        }
+        logInfo(`重放历史消息 ${messages.length} 条`);
+        for (const patch of messagesToPatches(messages)) {
+            // ★ 走 ChatState.apply：与实时流同一条渲染路径 ✓
+            chatState.apply(patch as never);
+        }
+    }
+
+    // ★ 把【当前会话的名字】推给前端标题区（按钮行中间 ✓）
+    //
+    // 【怎么知道“当前”是哪个会话？】
+    //   问 pi 的 get_state（sessionFile ✓）
+    //   ★ 但 get_state 会【触发懒启动】✗ → 所以先判断 isStarted ✓
+    //     （用户还没发过消息就不该因为“打开面板”而启动 pi ✓）
+    async function pushCurrentSessionTitle(overrideName?: string): Promise<void> {
+        if (overrideName !== undefined) {
+            chatView.post("sessionTitle", overrideName);
+            return;
+        }
+        if (!pi.isStarted()) {
+            chatView.post("sessionTitle", "");
+            return;
+        }
+        try {
+            const st = (await pi.sendRaw({ type: "get_state" })) as {
+                data?: { sessionFile?: unknown };
+            };
+            const file = st?.data?.sessionFile;
+            if (typeof file === "string" && file) {
+                chatView.post("sessionTitle", (await sessionStore.findName(file)) ?? "");
+                return;
+            }
+        } catch (err) {
+            logDebug(`取当前会话名失败（忽略）: ${toErrorMessage(err)}`);
+        }
+        chatView.post("sessionTitle", "");
+    }
 
     logInfo("pi-bridge-vs 激活完成（pi 将在首条消息时启动）");
 }

@@ -164,21 +164,29 @@ export function setupNoticeBoard(): void {
     noticeCollapse.addEventListener("click", () => setExpanded(false));
 
     /**
-     * ★ 点【面板空白处】也收起（用户要求 ✓）
-     *
-     * 【为什么不是“只有底部按钮能收”✗】
-     *   面板展开后会占据一大片区域（固定高度 40vh ✓）
-     *   要点到底部按钮才能收 → 鼠标要跑很远 ✗
-     *   而“点空白收起”是面板类 UI 的通用习惯 ✓
-     *
-     * 【判定】
-     *   点在【条目】上（或其按钮）→ 不收 ✓（那是操作区）
-     *   其余（背景 / 空隙 / 空列表区域）→ 收 ✓
-     *   底部热区自己的 click 也会冒泡到这里 → 重复调用幂等，无害 ✓
+     * ★ 点【面板内空白】→ 收起 ✓（保留这个习惯 ✓）
+     *   只排除交互元素（条目 / 按钮）✗
      */
     noticePanel.addEventListener("click", (e) => {
-        const target = e.target as HTMLElement | null;
-        if (target?.closest(".notice-item")) return; // 条目区域不收起 ✓
+        const t = e.target as HTMLElement | null;
+        if (t?.closest("button, .notice-item")) return;
+        setExpanded(false);
+    });
+
+    /**
+     * ★ 点【面板外面】任何地方 → 收起 ✓（与服务面板一致 ✓）
+     *
+     * 【标准弹层模式】
+     *   document 上监听 → 判断位置：
+     *     · 面板内     → 不动 ✓（里面的按钮要能正常用 ✗）
+     *     · 触发栏/铃  → 不动 ✓（否则“刚展开就被收起”✗）
+     *     · 其余任何地方 → 收起 ✓
+     */
+    document.addEventListener("click", (e) => {
+        const t = e.target as Node | null;
+        if (!ui.panelExpanded || !t) return;
+        if (noticePanel.contains(t)) return; // 面板内 ✓
+        if (statusBarEl.contains(t)) return; // 顶栏（触发区）✓
         setExpanded(false);
     });
 

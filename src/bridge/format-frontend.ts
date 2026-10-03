@@ -24,6 +24,10 @@ export type FrontendMessage =
     | { kind: "reloadPi" }
     // ★ 会话管理（B15）—— 【本地】消息 ✓（由 main.ts 处理，不发 pi）
     | { kind: "newSession" }
+    // ★ webview 的日志 → 输出面板（★ 与调试板无关 ✗）
+    | { kind: "webviewLog"; level: "debug" | "info" | "warn" | "error"; text: string }
+    // ★ 给当前会话改名（宿主弹输入框 + 发 set_session_name ✓）
+    | { kind: "renameSession" }
     // ★ 拉取会话列表（打开面板时按需请求 ✓）
     | { kind: "listSessions" }
     // ★ 刷新会话信息（★ 第二级 IO：读文件补名字 ✓ 用户手动触发 ✓）

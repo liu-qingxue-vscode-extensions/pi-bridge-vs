@@ -18,7 +18,7 @@
  *   ★ 按【cwd】分组（当前 cwd 默认展开、其他折叠 ✓）
  *   ★ 数据从哪来？打开面板时向宿主要（listSessions ✓）—— 不预先扫描 ✗
  */
-import { vscode } from "./vscode-api.js";
+import { vscode, log } from "./vscode-api.js";
 import {
     btnSessions,
     btnNewSession,
@@ -27,6 +27,7 @@ import {
     sessionEmpty,
     sessionPanelClose,
     btnRefreshSessions,
+    sessionTitle,
 } from "./dom.js";
 
 /** 宿主推来的会话元数据（与 src/pi/session-store.ts 的 SessionInfo 同构 ✓） */
@@ -60,6 +61,45 @@ export function setCurrentCwd(p: string): void {
     currentCwd = p;
 }
 
+/**
+ * ★ 设置/刷新【标题栏的会话名】（按钮行中间那个 ✓）
+ *
+ * 【为什么要动态调字号？】（用户的要求 ✓）
+ *   标题区宽度【固定】✗ 但会话名长度【各不相同】✗
+ *   "pi-bridge" 很短 ✓ / "这个是我 你之前的指引下我去学习…" 很长 ✗
+ *   → ★ 名字长就自动缩字号，尽量把名字完整显示出来 ✓
+ *   → 缩到最小（9px）还放不下 → 交给 CSS 的 ellipsis 省略 ✓
+ *
+ * 【为什么用 JS 而不是 CSS？】
+ *   CSS 没有"字号自适应容器"的能力 ✗
+ *   （SVG 有 textLength ✓ transform:scale 会把字压扁 ✗）
+ *   → JS 测量一次、按比例算出来 ✓（不试探、不循环 ✓）
+ */
+export function setSessionTitle(name: string | undefined): void {
+    const el = sessionTitle;
+    const text = (name ?? "").trim();
+    log.info(`标题：收到会话名「${text || "（空）"}」`);
+
+    el.textContent = text || "未命名会话";
+    el.classList.toggle("empty", !text);
+    el.title = text ? `会话名：${text}（点击修改）` : "点击给这个会话命名";
+
+    // ★ 字号自适应（先重置再量 ✓ 否则会越缩越小 ✗）
+    const BASE = 13;
+    const MIN = 9;
+    el.style.fontSize = `${BASE}px`;
+    const w = el.clientWidth;
+    const sw = el.scrollWidth;
+    if (w > 0 && sw > w) {
+        const ratio = w / sw;
+        const size = Math.max(MIN, BASE * ratio);
+        el.style.fontSize = `${size}px`;
+        log.debug(`标题：字号 ${BASE}→${size.toFixed(1)}px（容器 ${w}px / 文本 ${sw}px）`);
+    } else {
+        log.debug(`标题：字号保持 ${BASE}px（容器 ${w}px / 文本 ${sw}px）`);
+    }
+}
+
 /** 时间显示：MM-DD HH:MM（列表里足够 ✓） */
 function fmtTime(ts: number): string {
     if (!ts) return "?";
@@ -84,6 +124,7 @@ function prettyPath(p: string): string {
  *   点会话条目   = 切换会话（同 cwd → 不重载 ✓；跨 cwd → 重载 ✓ 下一步做）
  */
 export function renderSessions(list: SessionInfo[]): void {
+    log.info(`会话列表：收到 ${list.length} 条`);
     sessionList.innerHTML = "";
     sessionEmpty.style.display = list.length ? "none" : "";
 
@@ -193,7 +234,6 @@ export function renderSessions(list: SessionInfo[]): void {
 export function setupSessions(): void {
     // ① [☰ 会话] → 展开/收起 ✓（展开时会自动去拉列表 ✓）
     btnSessions.addEventListener("click", () => setSessionsExpanded());
-
     // ② [＋ 新建] → 通知宿主新建会话
     //   ★ 宿主目前只记日志（下一轮接 pi 的 new_session ✓）
     //     为什么现在就发？先把【前端 → 宿主】这条线接通（不然按钮是死的 ✗）
@@ -207,18 +247,49 @@ export function setupSessions(): void {
     // ④ ★ 刷新（面板内左侧竖栏的 ⟳）—— 唯一会读文件的操作 ✓
     //   平时列表只扫文件名（零内容 IO ✓）；点这里才去读会话名 + 检异常 ✓
     btnRefreshSessions.addEventListener("click", () => {
+        log.info("点了【刷新会话】→ 请宿主全量重读会话文件");
         btnRefreshSessions.classList.add("spinning");
         vscode.postMessage({ kind: "refreshSessions" });
         setTimeout(() => btnRefreshSessions.classList.remove("spinning"), 600);
     });
 
-    // ④ 点面板空白处 → 收起 ✓（与通知面板一致 ✓）
+    // ⑤ 点【标题区】（按钮行中间）→ 改名 ✓
+    //   语义：它既是展示（当前会话名）也是按钮（点它改 ✓）
+    sessionTitle.addEventListener("click", () => {
+        log.info("点了【会话名】→ 请宿主弹输入框改名");
+        vscode.postMessage({ kind: "renameSession" });
+    });
+
+    // ⑥ ★ 点【面板外面】任何地方 → 收起 ✓
+    //
+    // 【为什么要在 document 上监听？】
+    //   以前是“点面板内的空白 → 收起”（监听在 panel 自己身上 ✗）
+    //   → 导致两个问题：
+    //     ① 面板内的【按钮】也被当成空白 ✗ → 点刷新就把面板弹回去了 ✓
+    //     ② 点【面板外面】反而没反应 ✗
+    //
+    // 【标准弹层模式】
+    //   document 上监听 → 判断点击位置：
+    //     · 面板内     → 不动 ✓（包含里面的按钮：按钮先执行自己的动作 ✓）
+    //     · 触发按钮上 → 不动 ✓（否则“刚展开就被收起”✗）
+    //     · 其余任何地方 → 收起 ✓
+    document.addEventListener("click", (e) => {
+        const t = e.target as Node | null;
+        if (!expanded || !t) return;
+        if (sessionPanel.contains(t)) return; // 面板内 ✓
+        if (btnSessions.contains(t)) return; // 触发按钮 ✓
+        setSessionsExpanded(false);
+    });
+
+    // ★ 点面板内【空白】→ 收起 ✓（用户要保留这个习惯 ✓）
+    //
+    // 【判定】只排除【交互元素】（条目 / 按钮 / 分组标题）✗
+    //   · 点按钮（含刷新 ⟳）→ 不收起 ✓（否则按钮没法用 ✗）
+    //   · 点条目 → 不收起 ✓
+    //   · 其余（背景 / 空隙 / 空列表区）→ 收起 ✓
     sessionPanel.addEventListener("click", (e) => {
-        const target = e.target as HTMLElement | null;
-        // ★ 条目 / 分组标题 / 按钮 都不收起 ✗
-        //   （分组标题自己要处理“展开/折叠”—— 如果它冒泡到这里，
-        //     就会【刚展开就被收起】✗ 这正是用户报的那个 bug ✓）
-        if (target?.closest(".session-item, .sg-head, .session-group")) return;
+        const t = e.target as HTMLElement | null;
+        if (t?.closest("button, .session-item, .sg-head")) return;
         setSessionsExpanded(false);
     });
 }

@@ -20,11 +20,22 @@ import type {
     RpcCommand,
     JsonAgentSessionEvent,
     RpcExtensionUIResponse,
+    RpcResponse,
 } from "@earendil-works/pi-coding-agent";
 import { logDebug, logInfo, logError } from "../logger.js";
 
 /** 事件订阅回调 */
-export type PiEventHandler = (event: JsonAgentSessionEvent) => void;
+/**
+ * 事件订阅回调
+ *
+ * ★ 与以前的区别：现在【回执也算事件】✓
+ *   pi 的 stdout 里混着两类：
+ *     · 事件（message_* / agent_* / …）—— pi 主动推的
+ *     · 回执（response）—— 我们主动发的命令的结果
+ *   两条【都该进调试板】✗（以前只广播事件 ✗ → 主动命令“看不到” ✓）
+ *   → 所以回调参数放宽为联合类型 ✓
+ */
+export type PiEventHandler = (event: JsonAgentSessionEvent | RpcResponse) => void;
 
 /**
  * 解析 pi CLI（dist/cli.js）的绝对路径
@@ -106,13 +117,13 @@ export class PiClient {
         const client = new OwnRpcClient({
             cwd: this.cwd,
             cliPath: this.cliPath,
-            // --no-session：不写会话文件
+            // ★ 不再强加 --no-session ✓（用户要求：要传就【手动传，有传参的地方 ✓）
             //
-            // 【为什么？】
-            // 1. 开发阶段不需要持久化（会话管理将来由我们自己实现）
-            // 2. 避免污染用户的 TUI 会话列表（~/.pi/agent/sessions/）
-            // 3. 避免被外部工具破坏（如 pi-web 会往会话文件追加无 id 的条目，导致链断）
-            args: ["--no-session", ...extraArgs],
+            // 【历史】之前加它是为了：
+            //   · 开发阶段不持久化 ✓ 不污染 TUI 会话列表 ✓
+            //   但现在我们【要做真会话】（列表 / 切换 / 改名 ✓）
+            //   → 必须让 pi 正常写会话文件 ✓
+            args: [...extraArgs],
             // ★ 注入日志：传输层不依赖 vscode，日志由本层提供 ✓
             logger: { debug: logDebug, error: logError },
         });
@@ -193,6 +204,11 @@ export class PiClient {
         logInfo(`[PiClient] 改工作目录: ${this.cwd} → ${trimmed}（需重启生效）`);
         this.cwd = trimmed;
         return true;
+    }
+
+    /** 是否已经启动过（reload 前探针用 ✓） */
+    isStarted(): boolean {
+        return this.started;
     }
 
     /**

@@ -14,19 +14,40 @@
  * 【为什么 index.ts 必须存在？】
  *   构建工具（esbuild）需要一个人口文件；而且"启动顺序"本身就是一种信息 ✓
  */
-import { post } from "./vscode-api.js";
+import { post, log } from "./vscode-api.js";
 import { setupInput } from "./input.js";
 import { setupNoticeBoard } from "./noticeboard.js";
 import { setupSessions } from "./sessions.js";
 import { setupHostBridge } from "./apply.js";
 
-// ① 交互绑定（幂等，只会绑一次 ✓）
-setupInput();
-setupNoticeBoard();
-setupSessions();
+/**
+ * ★ 每个 setup 都独立 try/catch —— 【一处出错不能搞崩整个界面】✓
+ *
+ * 【为什么要这样？】（真实教训 ✗）
+ *   之前 setupSessions() 里有个 null.addEventListener → 抛错
+ *   → 它【后面】的 setupHostBridge() 就不会执行 ✗
+ *   → 宿主推什么都收不到 → OCR“界面啥也没有”✗（非常难排查 ✓）
+ *   → 现在：谁崩谁自己记一笔，其他照常工作 ✓
+ */
+function safe(name: string, fn: () => void): void {
+    try {
+        fn();
+    } catch (err) {
+        // ★ 双写：console（devtools 能看到完整堆栈 ✓）+ 输出面板（随手可见 ✓）
+        console.error(`[pi-bridge] ★ ${name} 初始化失败:`, err);
+        log.error(
+            `★ ${name} 初始化失败（其余功能继续）: ${err instanceof Error ? err.message : String(err)}`,
+        );
+    }
+}
 
-// ② 宿主消息监听
-setupHostBridge();
+// ① 交互绑定（幂等，只会绑一次 ✓）
+safe("input", setupInput);
+safe("noticeBoard", setupNoticeBoard);
+safe("sessions", setupSessions);
+
+// ② 宿主消息监听（★ 最关键：无论前面谁崩，它必须挂上 ✓）
+safe("hostBridge", setupHostBridge);
 
 // ③ 通知宿主：webview 已就绪 → 请求重放快照
 //    （webview 被销毁重建后靠这个恢复画面 —— "显示器"没脑子，状态都在插件端）

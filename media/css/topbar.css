@@ -104,6 +104,38 @@
   color: var(--vscode-foreground);
 }
 
+/* ★ 当前会话名（按钮行中间）—— 既是展示也是按钮（点击改名 ✓）
+   ★ 固定宽度（可配）：不撑满中间 ✗ —— 否则看着像一条滑轨 ✓
+     width 用 max-width + flex:1 实现：
+       · flex:1 让它在两侧按钮之间【居中】✓
+       · max-width 把它【封顶】成固定宽度 ✓
+       · 两个合起来 = 一块居中、宽度固定的区域 ✓ */
+#session-title {
+  flex: 1;
+  min-width: 0;
+  max-width: var(--pi-session-title-width, 160px);
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font: inherit;
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background .14s ease;
+}
+#session-title:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+}
+#session-title.empty {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
 /* ===== 会话面板（点 [☰ 会话] 在按钮行下方滑出）=====
    ★ 与通知面板同一套机制（固定高度 + 列表滚动 + 热区钉底 ✓）
    ★ 背景色可配：留空 = 跟随主题（默认给一个略降的面板色，让它看得出是“一整块”✓）*/

@@ -91,8 +91,17 @@ export class OwnRpcClient {
     /** stderr 累积（挂监听前产生的也会留在这里，onStderr 时补发 ✓） */
     private stderrText = "";
 
-    /** 事件订阅者 */
-    private readonly eventHandlers = new Set<(e: JsonAgentSessionEvent) => void>();
+    /**
+     * 回执 / 事件的订阅者
+     *
+     * ★ 两种都会送进来：
+     *   · pi 主动推的事件（message_* / agent_* / …）
+     *   · 【我们主动发的命令的回执】（switch_session / get_messages …）
+     *     —— 回执我们【先交给 pending 表】，但【同时】也广播一份 ✓
+     *     为什么？调试板需要看到它 ✗
+     *     （之前只给 pending ✗ → 主动命令在调试板上“消失”了 ✓）
+     */
+    private readonly eventHandlers = new Set<(e: Incoming) => void>();
 
     /** stderr 订阅者 */
     private readonly stderrHandlers = new Set<(text: string) => void>();
@@ -251,8 +260,8 @@ export class OwnRpcClient {
         };
     }
 
-    /** 订阅事件流（stdout 里非回执的部分） */
-    onEvent(handler: (event: JsonAgentSessionEvent) => void): () => void {
+    /** 订阅事件 / 回执流（★ 含主动命令的回执 ✓） */
+    onEvent(handler: (event: Incoming) => void): () => void {
         this.eventHandlers.add(handler);
         return () => {
             this.eventHandlers.delete(handler);
@@ -303,21 +312,20 @@ export class OwnRpcClient {
             return;
         }
 
-        // ① 回执：只认"带 id 且 id 在 pending 里"的 ✓
+        // ① 回执：匹配 pending 则先 resolve（让调用方拿到 ✓）
         if (data.type === "response") {
             const id = (data as { id?: string }).id;
             if (id && this.pending.has(id)) {
                 const pending = this.pending.get(id)!;
                 this.pending.delete(id);
                 pending.resolve(data);
-                return;
+                // ★ 但【不 return】—— 还要广播给订阅者（调试板要看 ✓）
             }
-            // 没有 id / 匹配不上 → 落到事件流（调试板能看到 ✓）
         }
 
-        // ② 其余全部当事件 ✓（含 agent_* / message_* / extension_ui_request / …）
+        // ② 全部当事件广播（含回执 ✓）
         for (const handler of this.eventHandlers) {
-            handler(data as JsonAgentSessionEvent);
+            handler(data);
         }
     }
 

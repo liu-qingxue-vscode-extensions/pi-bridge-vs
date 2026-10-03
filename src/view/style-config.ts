@@ -77,6 +77,9 @@ export function readStyleVars(): Record<string, string> {
     // ★ 按钮行（顶栏下方那一行）：高度可配 → 里面的方块按钮【等比】跟着变 ✓
     num("appToolbarHeight", "--pi-app-toolbar-height");
 
+    // ★ 会话名展示区宽度（固定 ✓ 名字长时自动缩字号 ✓）
+    num("sessionTitleWidth", "--pi-session-title-width");
+
     // ★ 会话面板（B15）
     num("sessionPanelHeight", "--pi-session-panel-height", "vh");
     raw("sessionPanelBg", "--pi-session-panel-bg");

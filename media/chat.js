@@ -5,40 +5,60 @@
   function post(kind, payload) {
     vscode.postMessage(payload === void 0 ? { kind } : { kind, payload });
   }
+  function send(level, text) {
+    vscode.postMessage({ kind: "webviewLog", level, text });
+  }
+  var log = {
+    debug: (text) => send("debug", text),
+    info: (text) => send("info", text),
+    warn: (text) => send("warn", text),
+    error: (text) => send("error", text)
+  };
 
   // src/webview/dom.ts
-  var messagesEl = document.getElementById("messages");
-  var inputEl = document.getElementById("input");
-  var sendBtn = document.getElementById("send");
-  var btnReload = document.getElementById("btn-reload");
-  var statusBarEl = document.getElementById("status-bar");
-  var sbCost = document.getElementById("sb-cost");
-  var sbOut = document.getElementById("sb-out");
-  var sbCache = document.getElementById("sb-cache");
-  var sbBattery = document.getElementById("sb-battery");
-  var sbBatteryFill = document.getElementById("sb-battery-fill");
-  var sbBatteryPct = document.getElementById("sb-battery-pct");
-  var footModel = document.getElementById("foot-model");
-  var footCwd = document.getElementById("foot-cwd");
-  var inputAreaEl = document.getElementById("input-area");
-  var topArea = document.getElementById("top-area");
-  var noticeToolbar = document.getElementById("notice-toolbar");
-  var noticePanel = document.getElementById("notice-panel");
-  var noticeList = document.getElementById("notice-list");
-  var noticeEmpty = document.getElementById("notice-empty");
-  var noticeCount = document.getElementById("notice-count");
-  var noticeBell = document.getElementById("notice-bell");
-  var noticeBadge = document.getElementById("notice-badge");
-  var btnSessions = document.getElementById("btn-sessions");
-  var btnNewSession = document.getElementById("btn-new-session");
-  var sessionPanel = document.getElementById("session-panel");
-  var sessionList = document.getElementById("session-list");
-  var sessionEmpty = document.getElementById("session-empty");
-  var sessionPanelClose = document.getElementById("session-panel-close");
-  var btnRefreshSessions = document.getElementById("btn-refresh-sessions");
-  var noticeCollapse = document.getElementById("notice-collapse");
-  var noticeClear = document.getElementById("notice-clear");
-  var noticeSettings = document.getElementById("notice-settings");
+  function needEl(id) {
+    const el = document.getElementById(id);
+    if (el) return el;
+    vscode.postMessage({
+      kind: "webviewLog",
+      level: "error",
+      text: `\u2605 \u627E\u4E0D\u5230 DOM \u5143\u7D20 #${id} \u2014\u2014 HTML \u4E0E TS \u4E0D\u4E00\u81F4\uFF1F`
+    });
+    return document.createElement("div");
+  }
+  var messagesEl = needEl("messages");
+  var inputEl = needEl("input");
+  var sendBtn = needEl("send");
+  var btnReload = needEl("btn-reload");
+  var statusBarEl = needEl("status-bar");
+  var sbCost = needEl("sb-cost");
+  var sbOut = needEl("sb-out");
+  var sbCache = needEl("sb-cache");
+  var sbBattery = needEl("sb-battery");
+  var sbBatteryFill = needEl("sb-battery-fill");
+  var sbBatteryPct = needEl("sb-battery-pct");
+  var footModel = needEl("foot-model");
+  var footCwd = needEl("foot-cwd");
+  var inputAreaEl = needEl("input-area");
+  var topArea = needEl("top-area");
+  var noticeToolbar = needEl("notice-toolbar");
+  var noticePanel = needEl("notice-panel");
+  var noticeList = needEl("notice-list");
+  var noticeEmpty = needEl("notice-empty");
+  var noticeCount = needEl("notice-count");
+  var noticeBell = needEl("notice-bell");
+  var noticeBadge = needEl("notice-badge");
+  var btnSessions = needEl("btn-sessions");
+  var btnNewSession = needEl("btn-new-session");
+  var sessionPanel = needEl("session-panel");
+  var sessionList = needEl("session-list");
+  var sessionEmpty = needEl("session-empty");
+  var sessionPanelClose = needEl("session-panel-close");
+  var btnRefreshSessions = needEl("btn-refresh-sessions");
+  var sessionTitle = needEl("session-title");
+  var noticeCollapse = needEl("notice-collapse");
+  var noticeClear = needEl("notice-clear");
+  var noticeSettings = needEl("notice-settings");
 
   // src/webview/state.ts
   var ui = {
@@ -116,7 +136,7 @@
   }
 
   // src/webview/input.ts
-  function send() {
+  function send2() {
     const text = inputEl.value.trim();
     if (!text) return;
     ui.userAborted = false;
@@ -175,13 +195,13 @@
         ui.userAborted = true;
         vscode.postMessage({ kind: "abort" });
       } else {
-        send();
+        send2();
       }
     });
     inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        send();
+        send2();
       }
     });
     inputEl.addEventListener("input", autoGrow);
@@ -295,8 +315,15 @@
     statusBarEl.addEventListener("click", () => setExpanded());
     noticeCollapse.addEventListener("click", () => setExpanded(false));
     noticePanel.addEventListener("click", (e) => {
-      const target = e.target;
-      if (target?.closest(".notice-item")) return;
+      const t = e.target;
+      if (t?.closest("button, .notice-item")) return;
+      setExpanded(false);
+    });
+    document.addEventListener("click", (e) => {
+      const t = e.target;
+      if (!ui.panelExpanded || !t) return;
+      if (noticePanel.contains(t)) return;
+      if (statusBarEl.contains(t)) return;
       setExpanded(false);
     });
     noticeClear.addEventListener("click", (e) => {
@@ -358,6 +385,27 @@
   function setCurrentCwd(p) {
     currentCwd = p;
   }
+  function setSessionTitle(name) {
+    const el = sessionTitle;
+    const text = (name ?? "").trim();
+    log.info(`\u6807\u9898\uFF1A\u6536\u5230\u4F1A\u8BDD\u540D\u300C${text || "\uFF08\u7A7A\uFF09"}\u300D`);
+    el.textContent = text || "\u672A\u547D\u540D\u4F1A\u8BDD";
+    el.classList.toggle("empty", !text);
+    el.title = text ? `\u4F1A\u8BDD\u540D\uFF1A${text}\uFF08\u70B9\u51FB\u4FEE\u6539\uFF09` : "\u70B9\u51FB\u7ED9\u8FD9\u4E2A\u4F1A\u8BDD\u547D\u540D";
+    const BASE = 13;
+    const MIN = 9;
+    el.style.fontSize = `${BASE}px`;
+    const w = el.clientWidth;
+    const sw = el.scrollWidth;
+    if (w > 0 && sw > w) {
+      const ratio = w / sw;
+      const size = Math.max(MIN, BASE * ratio);
+      el.style.fontSize = `${size}px`;
+      log.debug(`\u6807\u9898\uFF1A\u5B57\u53F7 ${BASE}\u2192${size.toFixed(1)}px\uFF08\u5BB9\u5668 ${w}px / \u6587\u672C ${sw}px\uFF09`);
+    } else {
+      log.debug(`\u6807\u9898\uFF1A\u5B57\u53F7\u4FDD\u6301 ${BASE}px\uFF08\u5BB9\u5668 ${w}px / \u6587\u672C ${sw}px\uFF09`);
+    }
+  }
   function fmtTime(ts) {
     if (!ts) return "?";
     const d = new Date(ts);
@@ -369,6 +417,7 @@
     return p;
   }
   function renderSessions(list) {
+    log.info(`\u4F1A\u8BDD\u5217\u8868\uFF1A\u6536\u5230 ${list.length} \u6761`);
     sessionList.innerHTML = "";
     sessionEmpty.style.display = list.length ? "none" : "";
     const groups = /* @__PURE__ */ new Map();
@@ -464,13 +513,25 @@ ${s.path}`;
     });
     sessionPanelClose.addEventListener("click", () => setSessionsExpanded(false));
     btnRefreshSessions.addEventListener("click", () => {
+      log.info("\u70B9\u4E86\u3010\u5237\u65B0\u4F1A\u8BDD\u3011\u2192 \u8BF7\u5BBF\u4E3B\u5168\u91CF\u91CD\u8BFB\u4F1A\u8BDD\u6587\u4EF6");
       btnRefreshSessions.classList.add("spinning");
       vscode.postMessage({ kind: "refreshSessions" });
       setTimeout(() => btnRefreshSessions.classList.remove("spinning"), 600);
     });
+    sessionTitle.addEventListener("click", () => {
+      log.info("\u70B9\u4E86\u3010\u4F1A\u8BDD\u540D\u3011\u2192 \u8BF7\u5BBF\u4E3B\u5F39\u8F93\u5165\u6846\u6539\u540D");
+      vscode.postMessage({ kind: "renameSession" });
+    });
+    document.addEventListener("click", (e) => {
+      const t = e.target;
+      if (!expanded || !t) return;
+      if (sessionPanel.contains(t)) return;
+      if (btnSessions.contains(t)) return;
+      setSessionsExpanded(false);
+    });
     sessionPanel.addEventListener("click", (e) => {
-      const target = e.target;
-      if (target?.closest(".session-item, .sg-head, .session-group")) return;
+      const t = e.target;
+      if (t?.closest("button, .session-item, .sg-head")) return;
       setSessionsExpanded(false);
     });
   }
@@ -1028,6 +1089,11 @@ ${s.path}`;
         case "sessions":
           renderSessions(data.payload ?? []);
           return;
+        case "sessionTitle": {
+          const nm = String(data.payload ?? "");
+          setSessionTitle(nm);
+          return;
+        }
         case "noticesCleared":
           clearNotices();
           return;
@@ -1036,9 +1102,19 @@ ${s.path}`;
   }
 
   // src/webview/index.ts
-  setupInput();
-  setupNoticeBoard();
-  setupSessions();
-  setupHostBridge();
+  function safe(name, fn) {
+    try {
+      fn();
+    } catch (err) {
+      console.error(`[pi-bridge] \u2605 ${name} \u521D\u59CB\u5316\u5931\u8D25:`, err);
+      log.error(
+        `\u2605 ${name} \u521D\u59CB\u5316\u5931\u8D25\uFF08\u5176\u4F59\u529F\u80FD\u7EE7\u7EED\uFF09: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+  safe("input", setupInput);
+  safe("noticeBoard", setupNoticeBoard);
+  safe("sessions", setupSessions);
+  safe("hostBridge", setupHostBridge);
   post("ready");
 })();

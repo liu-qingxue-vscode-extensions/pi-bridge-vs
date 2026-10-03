@@ -275,6 +275,13 @@
                         "minimum": 20,
                         "maximum": 80,
                         "description": "按钮行（顶栏下方那一行）的高度（px）。★ 里面的方块按钮会【等比】跟着变大 —— 调这个就能整体缩放按钮。"
+                    },
+                    "pi-bridge.style.sessionTitleWidth": {
+                        "type": "number",
+                        "default": 160,
+                        "minimum": 60,
+                        "maximum": 600,
+                        "description": "按钮行中间【会话名展示区】的宽度（px）。名字太长时会自动缩小字号；缩到最小还放不下才用省略号。"
                     }
                 }
             },
@@ -417,10 +424,11 @@
     },
     "activationEvents": [],
     "scripts": {
-        "compile": "tsc -p ./ && node scripts/build-webview.mjs",
+        "compile": "tsc -p ./ && tsc -p tsconfig.webview.json --noEmit && node scripts/build-webview.mjs",
         "watch": "tsc --watch -p ./",
         "vscode:prepublish": "npm run compile",
-        "watch:webview": "node scripts/build-webview.mjs --watch"
+        "watch:webview": "node scripts/build-webview.mjs --watch",
+        "check:webview": "tsc -p tsconfig.webview.json --noEmit"
     },
     "engines": {
         "vscode": "^1.135.0"

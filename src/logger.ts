@@ -19,10 +19,16 @@ export function logInfo(msg: string): void {
     channel?.info(msg);
 }
 
+/** ★ warn：异常但可恢复（比如“拿不到某字段，走回退分支”） */
+export function logWarn(msg: string): void {
+    channel?.warn(msg);
+}
+
 export function logError(msg: string): void {
     channel?.error(msg);
 }
 
+/** ★ debug：高频细节（默认看不到 —— 排查时才把级别调下来 ✓） */
 export function logDebug(msg: string): void {
     channel?.debug(msg);
 }

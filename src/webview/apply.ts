@@ -23,7 +23,7 @@ import { appendStopNote, showRetryNotice } from "./notices.js";
 import { updateStatusBar } from "./topbar.js";
 import { appendNotice, clearNotices, removeNotice, renderNotices, resetNotices, setExpanded } from "./noticeboard.js";
 import { applyStyleVars, autoGrow, setAgentState, showCwd } from "./input.js";
-import { setCurrentCwd, renderSessions } from "./sessions.js";
+import { setupSessions, setCurrentCwd, renderSessions, setSessionTitle } from "./sessions.js";
 
 /** 气泡快照的形状（对应插件端 Bubble ✓） */
 interface SnapBlock {
@@ -347,6 +347,12 @@ export function setupHostBridge(): void {
                 // ★ 会话列表（按 cwd 分组渲染 ✓）
                 renderSessions((data.payload ?? []) as never);
                 return;
+            case "sessionTitle": {
+                // ★ 按钮行中间的当前会话名（含动态字号 ✓）
+                const nm = String(data.payload ?? "");
+                setSessionTitle(nm);
+                return;
+            }
             case "noticesCleared":
                 clearNotices();
                 return;

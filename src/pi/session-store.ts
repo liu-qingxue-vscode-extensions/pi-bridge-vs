@@ -28,7 +28,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import * as vscode from "vscode";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { logDebug } from "../logger.js";
+import { logDebug, logInfo, logError } from "../logger.js";
 
 /** 一条会话的元信息（界面列表用 ✓） */
 export interface SessionInfo {
@@ -212,7 +212,7 @@ export class SessionStore {
                 .filter((d) => d.isDirectory())
                 .map((d) => String(d.name));
         } catch {
-            logDebug(`[sessions] 读不到会话目录: ${root}`);
+            logError(`[sessions] 读不到会话目录: ${root}`);
             return [];
         }
 
@@ -295,7 +295,7 @@ export class SessionStore {
         if (cleaned) await this.persist();
 
         out.sort((a, b) => b.createdAt - a.createdAt);
-        logDebug(
+        logInfo(
             `[sessions] 条目 ${out.length} 个（补 cwd ${cwdAdded} / 清理 ${cleaned}）` +
                 `★ 零内容 IO ✓`,
         );
@@ -303,7 +303,36 @@ export class SessionStore {
     }
 
     /**
-     * ★ 第二级：手动刷新 —— 读文件补名字 / 标异常（这是唯一的内容 IO ✓）
+     * ★ 手动更新某个会话的【名字缓存】（改名后调 ✓）
+     *
+     * 【为什么不一全量刷新？】（用户定的 ✓）
+     *   改名是【我们自己发起的】→ 结果我们知道 ✓
+     *   重读 80 个文件就为了刷新一个名字 → 浪费 ✗
+     *   → 直接写缓存 ✓ 刷新按钮留给“后端其它行为改了文件”的情况 ✓
+     */
+    async setName(path: string, name: string): Promise<void> {
+        this.data.files[path] = { ...(this.data.files[path] ?? {}), name };
+        await this.persist();
+    }
+
+    /**
+     * ★ 取当前会话文件（改名时要知道改哪个 ✓）
+     * ★ 它不缓存 sessionFile —— 直接让调用方问 pi（get_state ✓）
+     */
+    async findName(path: string): Promise<string | undefined> {
+        return this.data.files[path]?.name;
+    }
+
+    /**
+     * ★ 第二级：手动刷新 —— 【全量】读文件补名字 / 标异常（唯一的内容 IO ✓）
+     *
+     * 【★ 为什么必须是全量，不能增量？】（用户点清楚的 ✓）
+     *   会话名是【后来才可能出现】的：
+     *     · 一个会话可能开了很久都没名字 ✓
+     *     · 后来 pi 追加了 session_info → 名字才出现 ✓
+     *   如果做“已读过就跳过”的增量 ✗
+     *     → 那批“当时没名字”的会话永远看不到新名字 ✗
+     *   → 所以每次刷新都【重读全部】✓（代价：80 文件 × 读头尾 ≈ 几十毫秒 ✓ 可接受）
      *
      * 维护边界 = 用户点【刷新】的那一刻 ✓
      * @returns 统计（好在界面/日志里给个反馈 ✓）
@@ -326,7 +355,7 @@ export class SessionStore {
         }
         await this.persist();
 
-        logDebug(`[sessions] 刷新完成：${files.length} 个文件 / ${named} 有名字 / ${broken} 异常`);
+        logInfo(`[sessions] 刷新完成：${files.length} 个文件 / ${named} 有名字 / ${broken} 异常`);
         return { total: files.length, named, broken };
     }
 }
