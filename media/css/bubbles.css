@@ -3,35 +3,92 @@
    ★ 改这一块只需动本文件 ✓ */
 
 /* ===== 气泡（每个内容段 = 一个气泡）=====
-   ★ 间距只用 margin-top（相邻兄弟），避免和 margin-bottom 叠加 */
-.bubble {
-  width: var(--pi-bubble-width, 88%);   /* AI 气泡：固定宽度（流式无法预测）*/
-  padding: var(--pi-bubble-padding, 8px 12px);
-  border-radius: var(--pi-bubble-radius, 6px);
-  /* ★ 默认透明：各类型自己指定背景，避免“改一处动全部” */
-  background: transparent;
-  border: var(--pi-border-w, 1px) solid var(--pi-border-bubble, transparent);
-  white-space: pre-wrap;
-  word-break: break-word;
-  /* ★★ 关键：禁止 flex 压缩 —— 否则内容变多时气泡会被挤成一条线 ✗
-     （#messages 是 flex 纵向容器，item 默认 flex-shrink: 1）*/
-  flex-shrink: 0;
+   ★ 结构：wrapper（布局） + .bubble（视觉）
+     .bubble-wrap    ← 管【宽度 / 对齐 / 间距】（参与 #messages 的 flex 布局 ✓）
+       ├ .bubble     ← 管【背景 / 边框 / 圆角 / padding】（视觉 ✓）
+       └ .bubble-actions  ← 悬浮动作区（宽度跟随 ✓）
+
+   【为什么拆开？】
+     动作区要【跟气泡同宽】✓ 而它在气泡【外面】✗
+     → 必须有个共同的父（wrapper）来定宽度 ✓
+     否则【把按钮塞进气泡】会被背景包住 ✗（用户否掉的方案 ✓）
+
+   ★ 间距只用 margin-top（相邻 wrapper），避免和 margin-bottom 叠加 ✓
+*/
+.bubble-wrap {
+    display: flex;
+    flex-direction: column;   /* 气泡 + 动作区 上下排 ✓ */
+    width: var(--pi-bubble-width, 88%); /* AI：固定宽度（流式无法预测）*/
+    /* ★★ 禁止 flex 压缩 —— 否则内容变多时会被挤成一条线 ✗ */
+    flex-shrink: 0;
 }
 /* 默认间距（相邻气泡之间）*/
-.bubble + .bubble { margin-top: var(--pi-gap-turn, 10px); }
+.bubble-wrap + .bubble-wrap { margin-top: var(--pi-gap-turn, 10px); }
 
 /* ---- 用户消息：靠右 + 【自适应宽度】（不固定）---- */
+/* ★ 宽度全用【百分比】（用户要求 ✓）—— 这样在任何视口宽度下比例一致 ✓ */
+.bubble-wrap.user {
+    align-self: flex-end;                     /* ★ 可靠右对齐 */
+    width: auto;                              /* 内容多宽就多宽 */
+    min-width: var(--pi-user-min-width, 5%);  /* ★ 最小宽度（百分比 ✓）短消息不缩成一条线 */
+    /* ★ 最大宽度：【独立配置】（不再复用 --pi-bubble-width ✗）
+       用户要求单独一个最大宽度 ✓ 超过就换行 ✓ */
+    max-width: var(--pi-user-max-width, 88%);
+}
+/* ★ 用户气泡的【颜色/边框】（视觉属性 —— 仍在 .bubble 上 ✓）*/
 .bubble.user {
-  align-self: flex-end;                     /* ★ 可靠右对齐 */
-  width: auto;                              /* 内容多宽就多宽 */
-  min-width: var(--pi-user-min-width, 48px); /* 短消息不会缩成一条线 */
-  max-width: var(--pi-bubble-width, 88%);   /* 超过上限就换行 */
-  background: var(--pi-bg-user, var(--vscode-button-background));
-  color: var(--vscode-button-foreground);
-  border-color: var(--pi-border-user, var(--pi-border-bubble, transparent));
+    background: var(--pi-bg-user, var(--vscode-button-background));
+    color: var(--vscode-button-foreground);
+    border-color: var(--pi-border-user, var(--pi-border-bubble, transparent));
 }
 /* 用户消息 → AI 第一个气泡（覆盖默认间距）*/
-.bubble.user + .bubble { margin-top: var(--pi-gap-user-first, 12px); }
+.bubble-wrap.user + .bubble-wrap { margin-top: var(--pi-gap-user-first, 12px); }
+
+/* ===== 气泡本体（只管视觉）===== */
+.bubble {
+    width: 100%;                          /* ★ 跟随 wrapper（同一宽度 ✓）*/
+    padding: var(--pi-bubble-padding, 8px 12px);
+    border-radius: var(--pi-bubble-radius, 6px);
+    /* ★ 默认透明：各类型自己指定背景，避免“改一处动全部” */
+    background: transparent;
+    border: var(--pi-border-w, 1px) solid var(--pi-border-bubble, transparent);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ===== ★ 悬浮动作区（无边框无背景 → 悬空感 ✓）=====
+   ★ 宽度：width:100% → 自动 = 上面那个气泡的宽度 ✓
+   ★ 平时透明 → 鼠标进气泡才显 ✓（不抢戏 ✓）
+   ★ 它【在气泡区内占高】✓ 但【不侵入间距】✗（间距在 wrapper 之间 ✓）*/
+.bubble-actions {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 2px 0;
+    opacity: 0;
+    transition: opacity .12s ease;
+    user-select: none;
+}
+.bubble-wrap:hover .bubble-actions { opacity: 1; }
+/* ★ 用户气泡：动作区【右对齐】（左到右第一个也是复制 ✓ 靠右端 ✓）*/
+.bubble-wrap.user .bubble-actions { justify-content: flex-end; }
+
+.bubble-action {
+    padding: 1px 6px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease;
+}
+.bubble-action:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+    color: var(--vscode-foreground);
+}
 
 /* ---- 思考气泡：可折叠（点头部切换）---- */
 /* ===== 通用折叠头（思考 / 工具共用）=====
@@ -87,13 +144,15 @@
 .bubble.thinking[data-open="false"] .think-body { display: none; }
 
 /* ---- 占位三点（发送后、等第一个数据包）---- */
+/* ★ 宽度由 wrapper 控制（现在 wrapper 才是 #messages 的直接子项 ✓）*/
 .bubble.pending {
-  background: none;
-  border: none;
-  padding: 2px 0;
-  width: auto;
-  color: var(--vscode-descriptionForeground);
+    background: none;
+    border: none;
+    padding: 2px 0;
+    color: var(--vscode-descriptionForeground);
 }
+/* 三点所在的那一行宽度【自适应】（不占满 ✓）*/
+.bubble-wrap.pending { width: auto; }
 .dots { display: inline-flex; gap: 4px; align-items: center; height: 1.1em; }
 .dots i {
   width: 5px;
@@ -124,10 +183,8 @@
 /* ===== 重连提示气泡（auto_retry_start / auto_retry_end）=====
    不进快照 → webview 重建后自然消失（和字段语义一致 ✓）*/
 .bubble.notice {
-  /* ★ 不写 width / align-self，而是【继承 .bubble】：
-     · 宽度 → var(--pi-bubble-width) ✓
-     · 对齐 → 跟正文一样靠左（与 #messages 的 align-items 一致）✓
-     · 间距 → .bubble + .bubble 的 --pi-gap-turn ✓ */
+  /* ★ 宽度/对齐/间距【现在由 wrapper 负责】
+       （.bubble-wrap.notice → 继承默认：88% 宽 + 靠左 ✓）*/
   padding: 5px 12px;
   border-radius: 999px;
   font-size: 12px;
@@ -159,12 +216,12 @@
 .notice-text { min-width: 0; word-break: break-word; }
 
 /* ===== 气泡之间的间距（按【前 → 后】分别控制；只写 margin-top，不叠加）===== */
-.bubble.thinking + .bubble.text { margin-top: var(--pi-gap-thinking-text, 4px); }
-.bubble.thinking + .bubble.tool { margin-top: var(--pi-gap-thinking-tool, 4px); }
-.bubble.text + .bubble.tool { margin-top: var(--pi-gap-text-tool, 6px); }
-.bubble.tool + .bubble.text { margin-top: var(--pi-gap-tool-text, 4px); }
-.bubble.tool + .bubble.thinking { margin-top: var(--pi-gap-tool-thinking, 4px); }
-.bubble.text + .bubble.thinking { margin-top: var(--pi-gap-text-thinking, 4px); }
+.bubble-wrap.thinking + .bubble-wrap.text { margin-top: var(--pi-gap-thinking-text, 4px); }
+.bubble-wrap.thinking + .bubble-wrap.tool { margin-top: var(--pi-gap-thinking-tool, 4px); }
+.bubble-wrap.text + .bubble-wrap.tool { margin-top: var(--pi-gap-text-tool, 6px); }
+.bubble-wrap.tool + .bubble-wrap.text { margin-top: var(--pi-gap-tool-text, 4px); }
+.bubble-wrap.tool + .bubble-wrap.thinking { margin-top: var(--pi-gap-tool-thinking, 4px); }
+.bubble-wrap.text + .bubble-wrap.thinking { margin-top: var(--pi-gap-text-thinking, 4px); }
 
 /* ===== 居中内容列模式（centerColumn = true）=====
    原理：把左右 padding 设为 (100% - 列宽)/2 → 自动形成居中的内容列
@@ -177,6 +234,12 @@
   padding-left: calc((100% - var(--pi-bubble-width, 88%)) / 2);
   padding-right: calc((100% - var(--pi-bubble-width, 88%)) / 2);
 }
-:root.centered .bubble { width: 100%; }                 /* 占满内容列 */
-:root.centered .bubble.user { width: auto; max-width: 100%; align-self: flex-end; }
+:root.centered .bubble-wrap { width: 100%; }  /* ★ 占满内容列（改 wrapper ✗ 不是内层）*/
+:root.centered .bubble { width: 100%; }       /* 内层跟 wrapper ✓ */
+:root.centered .bubble-wrap.user {
+    width: auto;
+    /* ★ 用配置（以前写死 100% → 把用户的 userMaxWidth 覆盖了 ✗ 实测踩到 ✓）*/
+    max-width: var(--pi-user-max-width, 88%);
+    align-self: flex-end;
+}
 :root.centered #input-box { width: 100%; margin: 0; }   /* 输入框与气泡同宽 ✓ */

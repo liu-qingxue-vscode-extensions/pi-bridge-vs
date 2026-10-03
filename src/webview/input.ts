@@ -74,6 +74,13 @@ export function applyStyleVars(vars?: Record<string, string>): void {
     ui.defaultToolCollapsed = !!vars && vars["--pi-tool-collapsed"] === "on";
     ui.noticeAutoOpen = !!vars && vars["--pi-notice-auto-open"] === "on";
 
+    // ★ 工具气泡的两个滚动开关（切类 ✓ CSS 没有布尔变量 ✗）
+    root.classList.toggle("no-arg-scroll", !!vars && vars["--pi-tool-arg-scroll"] === "off");
+    root.classList.toggle(
+        "no-result-scroll",
+        !!vars && vars["--pi-tool-result-scroll"] === "off",
+    );
+
     // ★ 工具结果“洏几行”：格式 "头:尾"（如 "3:2"）；解析失败 → 置空（不启用 ✓）
     ui.toolPeek = parsePeek(vars?.["--pi-tool-peek-lines"]);
 }

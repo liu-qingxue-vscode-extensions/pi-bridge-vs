@@ -8,11 +8,20 @@
  *   · 结果可能【晚到】（来自另一条消息，用 callId 找回 ✓）
  *   · 执行中还会来流式输出（partialResult.content 是【累积全文】✗ 不是增量）
  */
+import { messagesEl } from "./dom.js";
 import { ui } from "./state.js";
 import { CARET_SVG, createHead, scrollToBottom } from "./bubbles.js";
 
-/** 新建工具气泡（外框 + 上半调用 + 下半结果占位） */
+/** 新建工具气泡（外框 + 上半调用 + 下半结果占位）
+ *
+ * ★ 与正文气泡同构：外面也包一层 wrapper（负责宽度/对齐/间距 ✓）
+ *   现在【不加】动作区（用户定的：工具暂不做复制 ✓）
+ *   以后要加按钮，直接往 wrapper 里追就行 ✓
+ */
 export function createToolBubble(callId: string, toolName?: string): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "bubble-wrap tool";
+
     const div = document.createElement("div");
     div.className = "bubble tool";
     div.dataset.callId = callId;
@@ -35,7 +44,8 @@ export function createToolBubble(callId: string, toolName?: string): HTMLElement
 
     div.appendChild(head);
     div.appendChild(body);
-    document.getElementById("messages")!.appendChild(div);
+    wrap.appendChild(div);
+    messagesEl.appendChild(wrap);
     ui.bubble = div;
     scrollToBottom();
     return div;

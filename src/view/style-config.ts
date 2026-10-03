@@ -36,7 +36,8 @@ export function readStyleVars(): Record<string, string> {
     num("bubbleRadius", "--pi-bubble-radius");
     raw("bubblePadding", "--pi-bubble-padding");
     num("sideGap", "--pi-side-gap"); // 气泡与视图左右边界的间距
-    num("userMinWidth", "--pi-user-min-width"); // 用户气泡的最小宽度
+    num("userMinWidth", "--pi-user-min-width", "%"); // 用户气泡的最小宽度（百分比 ✓）
+    num("userMaxWidth", "--pi-user-max-width", "%"); // ★ 用户气泡的最大宽度（超过就换行 ✓）
 
     // 居中内容列开关：布尔不能直接当 CSS 变量用 → 传一个特殊值，webview 收到后切换 CSS 类
     vars["--pi-centered-mode"] = cfg.get<boolean>("centerColumn", false) ? "on" : "off";
@@ -50,6 +51,10 @@ export function readStyleVars(): Record<string, string> {
     if (typeof peek === "string" && peek.trim() !== "") {
         vars["--pi-tool-peek-lines"] = peek.trim();
     }
+
+    // ★ 限高值也可以配（不想被写死在 CSS 里 ✓）
+    num("toolArgMaxHeight", "--pi-tool-arg-max");
+    num("toolResultMaxHeight", "--pi-tool-result-max");
 
     // 默认折叠开关（同样用特殊值传，webview 自己处理）
     vars["--pi-think-collapsed"] = cfg.get<boolean>("thinkCollapsed", false) ? "on" : "off";
@@ -79,6 +84,11 @@ export function readStyleVars(): Record<string, string> {
 
     // ★ 会话名展示区宽度（固定 ✓ 名字长时自动缩字号 ✓）
     num("sessionTitleWidth", "--pi-session-title-width");
+
+    // ★ 工具气泡的两个滚动开关（用户要求 ✓）
+    //   关掉 → 全部展开（屏幕大时舒服 ✓）
+    vars["--pi-tool-arg-scroll"] = cfg.get<boolean>("toolArgsScroll", true) ? "on" : "off";
+    vars["--pi-tool-result-scroll"] = cfg.get<boolean>("toolResultScroll", true) ? "on" : "off";
 
     // ★ 会话面板（B15）
     num("sessionPanelHeight", "--pi-session-panel-height", "vh");

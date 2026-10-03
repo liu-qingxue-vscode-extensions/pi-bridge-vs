@@ -11,6 +11,10 @@ import { createHead, scrollToBottom } from "./bubbles.js";
 
 /** 建思考气泡（可折叠：点头部切展开/收起） */
 export function createThinkingBubble(label?: string): HTMLElement {
+    // ★ 包 wrapper（与正文/工具同构 ✓）
+    const wrap = document.createElement("div");
+    wrap.className = "bubble-wrap thinking";
+
     const div = document.createElement("div");
     div.className = "bubble thinking";
     div.dataset.open = ui.defaultThinkCollapsed ? "false" : "true";
@@ -24,9 +28,10 @@ export function createThinkingBubble(label?: string): HTMLElement {
     body.className = "think-body";
     div.appendChild(head);
     div.appendChild(body);
-    messagesEl.appendChild(div);
+    wrap.appendChild(div);
+    messagesEl.appendChild(wrap);
     scrollToBottom();
-    ui.lastThinkBubble = div;
+    ui.lastThinkBubble = div; // ★ 记气泡本体（改文案时用 ✓）
     return div;
 }
 

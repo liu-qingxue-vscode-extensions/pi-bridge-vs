@@ -190,8 +190,7 @@ export function activate(context: vscode.ExtensionContext): void {
             // ★ 拉取会话列表（打开面板时按需请求 ✓）
             //   ★ 这是【第一级】IO：只扫文件名（零内容 IO ✓）名字/异常状态从缓存取 ✓
             if (msg.kind === "listSessions") {
-                const list = await sessionStore.listEntries();
-                chatView.post("sessions", list);
+                await postSessionList();
                 void pushCurrentSessionTitle();
                 return;
             }
@@ -533,6 +532,41 @@ export function activate(context: vscode.ExtensionContext): void {
         const m = /_([0-9a-f-]{6,})\.jsonl$/i.exec(base);
         return m ? m[1].slice(0, 8) : base.replace(/\.jsonl$/i, "").slice(0, 12);
     }
+
+    /**
+     * ★ 推【会话列表】给前端（scope 过滤在这里做 ✓）
+     *
+     * 【为什么抽成函数？】
+     *   它被【两处】调用：
+     *     ① 前端请求（打开面板 ✓）
+     *     ② ★ 配置变化（scope 改了要【立刻重新过滤】✓ 用户要求的 ✓）
+     *   scope 本质上是“前端显示范围”→ 应该【实时生效】✗ 不是等重开面板 ✓
+     */
+    async function postSessionList(): Promise<void> {
+        const all = await sessionStore.listEntries();
+        // ★ scope（用户定的 ✓）：
+        //   "current" = 只看当前 cwd 的会话（受限模式 ✓）
+        //   "all"     = 所有 cwd（前端按 cwd 分组显示 ✓）
+        const scope = vscode.workspace
+            .getConfiguration("pi-bridge.sessions")
+            .get<string>("scope", "all");
+        const cur = pi.getCwd();
+        const list = scope === "current" ? all.filter((s) => s.cwd === cur || !s.cwd) : all;
+        logInfo(
+            `会话列表：scope=${scope} → ${list.length}/${all.length} 条` +
+                (scope === "current" ? `（当前 cwd=${cur}）` : ""),
+        );
+        chatView.post("sessions", list);
+    }
+
+    // ★ scope 改了 → 立刻重新推列表（不用重开面板 ✓）
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration("pi-bridge.sessions")) {
+                void postSessionList();
+            }
+        }),
+    );
 
     logInfo("pi-bridge-vs 激活完成（pi 将在首条消息时启动）");
 }

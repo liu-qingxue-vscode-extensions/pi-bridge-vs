@@ -238,6 +238,8 @@ export function renderSessions(list: SessionInfo[]): void {
             row.addEventListener("click", () => {
                 // ★ 切会话（下一步接 switch_session ✓）
                 vscode.postMessage({ kind: "switchSession", path: s.path, cwd: key });
+                // ★ 切换后【立刻收起面板】（用户要求 ✓）
+                setSessionsExpanded(false);
             });
             body.appendChild(row);
         }

@@ -179,6 +179,11 @@
     ui.defaultThinkCollapsed = !!vars && vars["--pi-think-collapsed"] === "on";
     ui.defaultToolCollapsed = !!vars && vars["--pi-tool-collapsed"] === "on";
     ui.noticeAutoOpen = !!vars && vars["--pi-notice-auto-open"] === "on";
+    root.classList.toggle("no-arg-scroll", !!vars && vars["--pi-tool-arg-scroll"] === "off");
+    root.classList.toggle(
+      "no-result-scroll",
+      !!vars && vars["--pi-tool-result-scroll"] === "off"
+    );
     ui.toolPeek = parsePeek(vars?.["--pi-tool-peek-lines"]);
   }
   function parsePeek(raw) {
@@ -506,6 +511,7 @@ ${s.path}`;
 ${s.path}`;
         row.addEventListener("click", () => {
           vscode.postMessage({ kind: "switchSession", path: s.path, cwd: key });
+          setSessionsExpanded(false);
         });
         body.appendChild(row);
       }
@@ -551,11 +557,39 @@ ${s.path}`;
     ui.autoScroll = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
   });
   function createBubble(kind) {
+    const wrap = document.createElement("div");
+    wrap.className = "bubble-wrap " + kind;
     const div = document.createElement("div");
     div.className = "bubble " + kind;
-    messagesEl.appendChild(div);
+    wrap.appendChild(div);
+    if (kind === "text" || kind === "user") {
+      wrap.appendChild(makeActions(div));
+    }
+    messagesEl.appendChild(wrap);
     scrollToBottom();
     return div;
+  }
+  function makeActions(source) {
+    const box = document.createElement("div");
+    box.className = "bubble-actions";
+    const copy = document.createElement("button");
+    copy.className = "bubble-action";
+    copy.textContent = "\u590D\u5236";
+    copy.title = "\u590D\u5236\u8FD9\u6761\u6D88\u606F\u7684\u6587\u672C";
+    copy.addEventListener("click", () => {
+      void navigator.clipboard.writeText(source.textContent ?? "").then(
+        () => {
+          copy.textContent = "\u5DF2\u590D\u5236";
+          setTimeout(() => copy.textContent = "\u590D\u5236", 1200);
+        },
+        () => {
+          copy.textContent = "\u590D\u5236\u5931\u8D25";
+          setTimeout(() => copy.textContent = "\u590D\u5236", 1200);
+        }
+      );
+    });
+    box.appendChild(copy);
+    return box;
   }
   var CARET_SVG = '<svg class="head-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
   function createHead(labelText, onToggle) {
@@ -577,11 +611,14 @@ ${s.path}`;
   }
   function showPending() {
     if (ui.pendingEl) return;
+    const wrap = document.createElement("div");
+    wrap.className = "bubble-wrap pending";
     const el = document.createElement("div");
     el.className = "bubble pending";
     el.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
-    messagesEl.appendChild(el);
-    ui.pendingEl = el;
+    wrap.appendChild(el);
+    messagesEl.appendChild(wrap);
+    ui.pendingEl = wrap;
     scrollToBottom();
   }
   function removePending() {
@@ -593,6 +630,8 @@ ${s.path}`;
 
   // src/webview/thinking.ts
   function createThinkingBubble(label) {
+    const wrap = document.createElement("div");
+    wrap.className = "bubble-wrap thinking";
     const div = document.createElement("div");
     div.className = "bubble thinking";
     div.dataset.open = ui.defaultThinkCollapsed ? "false" : "true";
@@ -604,7 +643,8 @@ ${s.path}`;
     body.className = "think-body";
     div.appendChild(head);
     div.appendChild(body);
-    messagesEl.appendChild(div);
+    wrap.appendChild(div);
+    messagesEl.appendChild(wrap);
     scrollToBottom();
     ui.lastThinkBubble = div;
     return div;
@@ -636,6 +676,8 @@ ${s.path}`;
 
   // src/webview/tool.ts
   function createToolBubble(callId, toolName) {
+    const wrap = document.createElement("div");
+    wrap.className = "bubble-wrap tool";
     const div = document.createElement("div");
     div.className = "bubble tool";
     div.dataset.callId = callId;
@@ -653,7 +695,8 @@ ${s.path}`;
     body.appendChild(call);
     div.appendChild(head);
     div.appendChild(body);
-    document.getElementById("messages").appendChild(div);
+    wrap.appendChild(div);
+    messagesEl.appendChild(wrap);
     ui.bubble = div;
     scrollToBottom();
     return div;
@@ -796,10 +839,13 @@ ${s.path}`;
     removePending();
     let el = ui.retryNoticeEl;
     if (!el || el.dataset.final === "true") {
+      const wrap = document.createElement("div");
+      wrap.className = "bubble-wrap notice";
       el = document.createElement("div");
       el.className = "bubble notice retry";
       el.dataset.final = "false";
-      messagesEl.appendChild(el);
+      wrap.appendChild(el);
+      messagesEl.appendChild(wrap);
       ui.retryNoticeEl = el;
     }
     const isFinal = p.final === true;

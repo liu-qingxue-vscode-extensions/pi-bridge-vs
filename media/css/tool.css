@@ -33,10 +33,18 @@
 .bubble.tool[data-open="false"] .tool-body { display: none; }
 .bubble.tool .tool-result {
   background: var(--pi-bg-tool-result, var(--vscode-textBlockQuote-background));
-  max-height: 220px;
+  /* ★ 结果区限高 → 超出滚动 ✓（用户可关：见文件末尾的开关规则 ✓）*/
+  max-height: var(--pi-tool-result-max, 220px);
   overflow-y: auto;
 }
 .bubble.tool .tool-result .result-toggle {
+  /* ★★ 关键：标题行【固定住】（sticky）—— 否则内容一滚，标题就看不到了 ✗
+     用户明确要求：“第一行也就是标题行不要被滑块给滑走，固定住”✓ */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  /* ★ 必须给【不透明背景】✗ 否则滚动的文字会从标题下面穿过去 ✓ */
+  background: var(--pi-bg-tool-result, var(--vscode-textBlockQuote-background));
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -117,13 +125,36 @@
 .arg-toggle:hover .arg-key { text-decoration: underline; }
 .arg-key { color: var(--vscode-charts-orange); }
 .arg-key::after { content: ":"; }
-.arg-val { white-space: pre-wrap; word-break: break-word; }
+.arg-val {
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* ★ 每个参数的值【自己带滑块】（用户定的 ✓）
+     理由：一个参数可能很长（如 write 的 content），会撑爆整个气泡 ✗
+     ★ 参数名在【同一行左侧】→ 它不会被滑走 ✓（天然固定 ✓）*/
+  max-height: var(--pi-tool-arg-max, 180px);
+  overflow-y: auto;
+}
 /* 收起参数 → 只显示第一行 */
 .arg-row[data-open="false"] .arg-val {
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  max-height: none; /* ★ 收起态不需要滑块（就一行 ✓）*/
+}
+
+/* ===== ★ 两个滚动开关（用户要求 ✓）=====
+   :root 上挂类 → 关掉就全展开（屏幕大时舒服 ✓）
+     .no-arg-scroll    → 参数值不限高（全部展开 ✓）
+     .no-result-scroll → 结果区不限高（全部展开 ✓）
+   为什么用类而不是布尔 CSS 变量？→ CSS 没有布尔变量 ✗ 切换类最直接 ✓ */
+:root.no-arg-scroll .arg-val {
+  max-height: none;
+  overflow: visible;
+}
+:root.no-result-scroll .tool-result {
+  max-height: none;
+  overflow: visible;
 }
 
 /* ===== 工具：结果部分（按 type 分发）===== */

@@ -33,10 +33,14 @@ export function showRetryNotice(p: RetryPatch): void {
     //   → 用 attempt===1 会在旧气泡还活着时就新建 → 旧气泡变成【僵尸】永远转圈 ✗
     let el = ui.retryNoticeEl;
     if (!el || el.dataset.final === "true") {
+        // ★ 包 wrapper（与其它气泡同构 ✓）
+        const wrap = document.createElement("div");
+        wrap.className = "bubble-wrap notice";
         el = document.createElement("div");
         el.className = "bubble notice retry";
         el.dataset.final = "false";
-        messagesEl.appendChild(el);
+        wrap.appendChild(el);
+        messagesEl.appendChild(wrap);
         ui.retryNoticeEl = el;
     }
     const isFinal = p.final === true;
