@@ -1,0 +1,281 @@
+/*
+ * interaction.css —— 交互面板样式（B26）
+ *
+ * 【来源】从 media/css/input.css 的 .uir-* 搬过来（B25 写的 ✓）
+ * 【变化】宿主从「聊天侧栏里的一小块」变成「独立编辑器页面」✗
+ *   · 去掉 #ui-request 相关规则（那是侧栏的容器 ✗）
+ *   · ★ 显示区域【居中】✗（页面很宽 ✗ 不让文字拉满一行 ✓）
+ *   · ★ 控件尺寸加大 ✗（编辑器页面空间大 ✓ 按钮/输入框都按页面尺度做 ✓）
+ */
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--vscode-font-family);
+  font-size: 14px; /* ★ 页面尺度比侧栏大一档 ✓ */
+  color: var(--vscode-foreground);
+  background: transparent;
+}
+
+/* ★★ 显示区域居中（用户要求的 ✓）
+ *   内容仍然【左对齐】✗ 只是这一块整体居中 ✓ */
+#host {
+  box-sizing: border-box;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 28px 32px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+#empty { opacity: .55; font-size: 13px; padding: 6px 2px; }
+/* ★ 有内容时不再显示空态 ✗（之前忘了切 dataset → 空文本一直挂着 ✓）*/
+#host[data-empty="true"] #list { display: none; }
+#host[data-empty="false"] #empty { display: none; }
+
+#list { display: flex; flex-direction: column; gap: 14px; }
+
+.uir-box {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 22px;
+  border: 1px solid var(--vscode-focusBorder, var(--vscode-panel-border));
+  border-radius: 10px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, .08));
+}
+.uir-head { display: flex; align-items: flex-start; gap: 9px; font-size: 14px; }
+
+/* ★ “pi 需要回答”标签 */
+.uir-tag {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 5px;
+  font-size: 12px;
+  background: var(--vscode-charts-yellow, #d7a12c);
+  color: #1e1e1e;
+  margin-top: 2px;
+}
+/* ★ 方法名标签（select / confirm / input / editor ✓ 一眼看出要干啥 ✓）*/
+.uir-method {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  border: 1px solid var(--vscode-panel-border);
+  opacity: .8;
+  margin-top: 2px;
+}
+.uir-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.55;
+  /* ★★ 必须允许【换行 + 保留原格式】✗（B25 实测：扩展把富文本塞进 title ✓）
+   *   协议里 select 只有 options: string[] → 它这么干是“协议外玩法”✓ */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.uir-message {
+  font-size: 13px;
+  opacity: .85;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.uir-body { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 9px; }
+/* ★ select 的选项【各占一行】✗（长选项并排会撑爆卡片 ✓）
+ *   用 .uir-choice 精确标记 → 不误伤 confirm 的确定/取消（它们该并排 ✓）*/
+.uir-body > .uir-choice { flex: 1 1 100%; }
+
+/* ★★ 按钮：按【编辑器页面】的尺度做 ✗（不再是小标签 ✓）*/
+.uir-opt {
+  padding: 9px 18px;
+  border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-size: 13.5px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  min-height: 38px;
+  max-width: 100%;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.45;
+}
+.uir-opt:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24)); }
+.uir-opt.primary {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+  border-color: transparent;
+}
+.uir-opt.primary:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
+.uir-opt.cancel { opacity: .75; }
+.uir-opt.cancel:hover {
+  opacity: 1;
+  border-color: var(--vscode-charts-red, #e05252);
+  color: var(--vscode-charts-red, #e05252);
+}
+
+/* ★ 输入类控件：加大 ✗（用户：“这输入框得做得跟我对话输入框差不多大小才好”✓）*/
+.uir-body input[type="text"] {
+  flex: 1 1 320px;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  background: var(--vscode-input-background, transparent);
+  color: var(--vscode-input-foreground, var(--vscode-foreground));
+  font-size: 14px;
+  font-family: inherit;
+  min-height: 40px;
+}
+.uir-body textarea {
+  width: 100%;
+  min-height: 220px;
+  padding: 12px 14px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  background: var(--vscode-input-background, transparent);
+  color: var(--vscode-input-foreground, var(--vscode-foreground));
+  font-size: 14px;
+  line-height: 1.55;
+  font-family: var(--vscode-editor-font-family, monospace);
+  resize: vertical;
+}
+
+/* ══════════════ ★ B26：答卷模式（页签 + 每页一题 + 确认页）══════════════ */
+
+/* 页签条 ✓（题多时自动换行 ✓）*/
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+.tab {
+  min-width: 38px;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  opacity: .6;
+}
+.tab:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+}
+/* ★ 当前页：要一眼看出来 ✗（之前只改弱边框，看不出来 ✓）*/
+.tab.active {
+  opacity: 1;
+  font-weight: 700;
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-list-activeSelectionBackground, rgba(128, 128, 128, .3));
+  color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+}
+/* ★ 已答 = 绿 ✗ 取消 = 虚线灰 ✓ 一眼看出进度 ✓ */
+.tab.done { border-color: var(--vscode-charts-green, #3fb950); color: var(--vscode-charts-green, #3fb950); }
+.tab.skipped { border-style: dashed; opacity: .45; }
+.tab.submit { margin-left: 8px; }
+.tab-count { margin-left: auto; font-size: 12px; opacity: .7; }
+
+/* 导航行：按钮大一点 ✗ 最后一个靠右 ✓（单题页就一个“取消”✓）*/
+.nav { display: flex; align-items: center; gap: 10px; }
+.nav > .uir-opt:last-child { margin-left: auto; }
+.nav .navbtn { min-width: 110px; text-align: center; }
+.warn { font-size: 12.5px; color: var(--vscode-charts-yellow, #d7a12c); }
+
+/* 选中态（答卷模式回填 ✓）*/
+.uir-opt.selected {
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-list-activeSelectionBackground, rgba(128, 128, 128, .28));
+}
+.uir-opt:disabled { opacity: .4; cursor: not-allowed; }
+.uir-opt.submit-all { font-weight: 600; min-width: 130px; }
+
+/* 确认页：问题 → 答案列表 ✓ */
+.qa-list { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 14px; }
+.qa { display: flex; align-items: baseline; gap: 12px; font-size: 13.5px; }
+.qa-q {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: .85;
+}
+.qa-a {
+  flex: 0 1 auto;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--vscode-charts-green, #3fb950);
+}
+.qa-a.missing { color: var(--vscode-charts-yellow, #d7a12c); }
+.qa-edit {
+  flex: 0 0 auto;
+  padding: 3px 12px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.qa-edit:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24)); }
+.uir-info { padding: 14px 2px; opacity: .7; font-size: 13.5px; }
+
+/* ══════════════ ★ B26：一页的主体 / 历史页 / 自由书写 ══════════════ */
+.page-body { display: flex; flex-direction: column; gap: 14px; }
+
+/* ★ 历史页：已答已发送 → 只读 ✓ 一眼看出“这题已经走了”✗ */
+.hist-answer {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--vscode-charts-green, #3fb950);
+  border-radius: 5px;
+  background: rgba(63, 185, 80, .07);
+}
+.hist-tag { flex: 0 0 auto; font-size: 12.5px; color: var(--vscode-charts-green, #3fb950); }
+.hist-value {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ★ 自由书写行（select 下方永远有一条 ✓ TUI 里也都有 ✓）*/
+.free-row { display: flex; width: 100%; }
+.free-row input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 1px dashed var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vscode-input-foreground, var(--vscode-foreground));
+  font-size: 14px;
+  font-family: inherit;
+  min-height: 40px;
+}
+.free-row input[type="text"]:focus {
+  border-style: solid;
+  border-color: var(--vscode-focusBorder);
+}

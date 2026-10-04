@@ -81,6 +81,9 @@ export type FrontendMessage =
           /** 用户取消（Esc / 点取消 ✓）*/
           cancelled?: boolean;
       }
+    // ★ B26：侧栏[前往] → 把编辑器交互面板弹到前面 ✓
+    //   （也是一条【本地消息】✗ 不发 pi ✓）
+    | { kind: "interactionFocus" }
     // ★ 供应商凭据（B24）：写的是 auth.json ✗ 不是 settings.json ✓
     | { kind: "addApiKey"; provider: string; key: string }
     | { kind: "removeAuth"; provider: string }

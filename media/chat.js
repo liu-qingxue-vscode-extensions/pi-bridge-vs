@@ -19,15 +19,10 @@
   function needEl(id) {
     const el = document.getElementById(id);
     if (el) return el;
-    const ids = Array.from(document.querySelectorAll("[id]")).map((x) => x.id);
-    const head = document.body ? document.body.innerHTML.replace(/\s+/g, " ").slice(0, 400) : "(\u65E0 body)";
     vscode.postMessage({
       kind: "webviewLog",
       level: "error",
-      text: `\u2605 \u627E\u4E0D\u5230 DOM \u5143\u7D20 #${id}
-  readyState=${document.readyState} | \u811A\u672C src=${document.currentScript?.src ?? "?"}
-  \u5F53\u524D DOM \u91CC\u7684 id\uFF08\u5171 ${ids.length} \u4E2A\uFF09: ${ids.join(", ")}
-  body \u524D 400 \u5B57\u7B26: ${head}`
+      text: `\u2605 \u627E\u4E0D\u5230 DOM \u5143\u7D20 #${id} \u2014\u2014 HTML \u4E0E TS \u4E0D\u4E00\u81F4\uFF1F`
     });
     return document.createElement("div");
   }
@@ -348,8 +343,8 @@
     ui.notices = [];
     renderNotices();
   }
-  function setExpanded(next2) {
-    ui.panelExpanded = typeof next2 === "boolean" ? next2 : !ui.panelExpanded;
+  function setExpanded(next) {
+    ui.panelExpanded = typeof next === "boolean" ? next : !ui.panelExpanded;
     topArea.classList.toggle("expanded", ui.panelExpanded);
     noticeToolbar.classList.toggle("collapsed", !ui.panelExpanded);
     noticePanel.classList.toggle("collapsed", !ui.panelExpanded);
@@ -463,8 +458,8 @@
   // src/webview/sessions.ts
   var expanded = false;
   var currentCwd = "";
-  function setSessionsExpanded(next2) {
-    expanded = typeof next2 === "boolean" ? next2 : !expanded;
+  function setSessionsExpanded(next) {
+    expanded = typeof next === "boolean" ? next : !expanded;
     sessionPanel.classList.toggle("collapsed", !expanded);
     if (expanded) {
       activatePanel("sessions");
@@ -980,14 +975,14 @@ ${s.path}`;
       }))
     );
   }
-  function showThinkingPicker(levels, current2) {
+  function showThinkingPicker(levels, current) {
     cachedLevels = levels;
     openPicker(
       footThinking,
       "thinking",
       levels.map((lv) => ({
         label: lv,
-        current: lv === current2,
+        current: lv === current,
         onPick: () => vscode.postMessage({ kind: "setThinkingLevel", level: lv })
       }))
     );
@@ -1435,122 +1430,44 @@ ${s.path}`;
   }
 
   // src/webview/ui-request.ts
-  var current = null;
-  var queue = [];
-  function reply(id, r) {
-    vscode.postMessage({ kind: "uiResponse", id, ...r });
-  }
-  function next() {
-    current = null;
+  var hint = { active: false };
+  function showInteractionHint(h) {
+    hint = h;
     uiRequestEl.textContent = "";
-    uiRequestEl.dataset.empty = "true";
-    syncPadding();
-    const n = queue.shift();
-    if (n) showUiRequest(n);
-  }
-  function showUiRequest(p) {
-    if (current) {
-      queue.push(p);
+    uiRequestEl.dataset.empty = h.active ? "false" : "true";
+    if (!h.active) {
+      syncPadding();
       return;
     }
-    current = p;
-    uiRequestEl.dataset.empty = "false";
-    uiRequestEl.textContent = "";
     const box = document.createElement("div");
-    box.className = "uir-box";
-    const head = document.createElement("div");
-    head.className = "uir-head";
+    box.className = "hint-bar";
     const tag = document.createElement("span");
-    tag.className = "uir-tag";
-    tag.textContent = "pi \u9700\u8981\u56DE\u7B54";
+    tag.className = "hint-tag";
+    tag.textContent = "\u2691 pi \u9700\u8981\u56DE\u7B54";
     const title = document.createElement("span");
-    title.className = "uir-title";
-    title.textContent = p.title || p.message || "";
-    head.append(tag, title);
-    if (p.method !== "editor") {
-    }
-    box.appendChild(head);
-    if (p.message && p.title) {
-      const msg = document.createElement("div");
-      msg.className = "uir-message";
-      msg.textContent = p.message;
-      box.appendChild(msg);
-    }
-    const body = document.createElement("div");
-    body.className = "uir-body";
-    const done = (r) => {
-      reply(p.id, r);
-      next();
-    };
-    if (p.method === "select") {
-      for (const opt of p.options ?? []) {
-        const b = document.createElement("button");
-        b.className = "uir-opt uir-choice";
-        b.textContent = opt;
-        b.addEventListener("click", () => done({ value: opt }));
-        body.appendChild(b);
-      }
-    } else if (p.method === "confirm") {
-      const yes = document.createElement("button");
-      yes.className = "uir-opt primary";
-      yes.textContent = "\u786E\u5B9A";
-      yes.addEventListener("click", () => done({ confirmed: true }));
-      const no = document.createElement("button");
-      no.className = "uir-opt";
-      no.textContent = "\u53D6\u6D88";
-      no.addEventListener("click", () => done({ confirmed: false }));
-      body.append(yes, no);
-    } else if (p.method === "input") {
-      const inp = document.createElement("input");
-      inp.type = "text";
-      inp.placeholder = p.placeholder ?? "";
-      inp.value = p.prefill ?? "";
-      const ok = document.createElement("button");
-      ok.className = "uir-opt primary";
-      ok.textContent = "\u786E\u5B9A";
-      ok.addEventListener("click", () => done({ value: inp.value }));
-      inp.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") done({ value: inp.value });
-        if (e.key === "Escape") done({ cancelled: true });
-      });
-      body.append(inp, ok);
-      setTimeout(() => inp.focus(), 0);
-    } else if (p.method === "editor") {
-      const ta = document.createElement("textarea");
-      ta.rows = 6;
-      ta.value = p.prefill ?? "";
-      const ok = document.createElement("button");
-      ok.className = "uir-opt primary";
-      ok.textContent = "\u63D0\u4EA4";
-      ok.addEventListener("click", () => done({ value: ta.value }));
-      const cancel = document.createElement("button");
-      cancel.className = "uir-opt";
-      cancel.textContent = "\u53D6\u6D88";
-      cancel.addEventListener("click", () => done({ cancelled: true }));
-      const bar = document.createElement("div");
-      bar.className = "uir-bar";
-      bar.append(ok, cancel);
-      body.append(ta, bar);
-      setTimeout(() => ta.focus(), 0);
-    }
-    if (p.method === "select") {
-      const cancel = document.createElement("button");
-      cancel.className = "uir-opt cancel";
-      cancel.textContent = "\u53D6\u6D88";
-      cancel.addEventListener("click", () => done({ cancelled: true }));
-      body.appendChild(cancel);
-    }
-    box.appendChild(body);
+    title.className = "hint-title";
+    title.textContent = h.title || "\uFF08\u65E0\u6807\u9898\uFF09";
+    title.title = h.title || "";
+    const go = document.createElement("button");
+    go.className = "hint-btn";
+    go.textContent = "\u524D\u5F80";
+    go.addEventListener("click", () => vscode.postMessage({ kind: "interactionFocus" }));
+    const cancel = document.createElement("button");
+    cancel.className = "hint-btn danger";
+    cancel.textContent = "\u53D6\u6D88";
+    cancel.addEventListener("click", () => {
+      if (hint.id) vscode.postMessage({ kind: "uiResponse", id: hint.id, cancelled: true });
+    });
+    box.append(tag, title, go, cancel);
     uiRequestEl.appendChild(box);
     requestAnimationFrame(() => syncPadding());
   }
   function setupUiRequest() {
     document.addEventListener("keydown", (e) => {
-      if (e.key !== "Escape" || !current) return;
+      if (e.key !== "Escape" || !hint.active || !hint.id) return;
       const t = e.target;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
-      reply(current.id, { cancelled: true });
-      next();
+      vscode.postMessage({ kind: "uiResponse", id: hint.id, cancelled: true });
     });
   }
 
@@ -2127,9 +2044,13 @@ ${s.path}`;
         case "skillDetail":
           renderSkillDetail(data.payload ?? {});
           return;
-        // ★ 扩展交互请求（B25 回复桥）
-        case "uiRequest":
-          showUiRequest(data.payload ?? {});
+        // ★ 侧栏交互提示（B26）：完整问答已搬到编辑器面板 ✓
+        case "interactionHint":
+          showInteractionHint(data.payload ?? {});
+          return;
+        // ★ B26：交互面板关闭后，焦点回到输入框 ✓
+        case "focusInput":
+          inputEl.focus();
           return;
         // ★ 宿主让前端做的两个动作（B25）
         case "insertToInput": {

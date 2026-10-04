@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- CSP 同 chat.html：脚本只认本次 nonce ✓ -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'nonce-{{nonce}}';">
+<link rel="stylesheet" href="{{css}}">
+</head>
+<body>
+  <!-- ★ 独立编辑器页面（不再是侧栏里的小卡片 ✓）-->
+  <!-- 页面很宽 → 卡片不需要限高，让整页自己滚 ✓ -->
+  <!-- ★ data-empty 默认 true → 避免“空态文本一闪”✗（JS 加载完会重算 ✓）-->
+  <div id="host" data-empty="true">
+    <div id="empty">pi 没有待回答的问题</div>
+    <div id="list"></div>
+  </div>
+
+  <script nonce="{{nonce}}" src="{{js}}"></script>
+</body>
+</html>

@@ -222,126 +222,59 @@
    *   → 不写这行就会【继承 none】✓ → 整块交互卡片【点不动】✓
    *     （用户：“有确认和取消按钮完全点不动”✓）*/
   pointer-events: auto;
-  /* ★★ 高度限制（B25 用户报的：“上面内容被盖住、下面看不到”✓）
-   *   卡片可能很高（富文本 title + 很多选项 + 分页 ✓）
-   *   → 自己内部滚 ✗ 不要爬到输入框上面去盖住消息区 ✓
-   *   40vh 大约不到一半屏 ✓ 够看 ✓ */
-  max-height: 30vh;
-  overflow-y: auto;
 }
 #ui-request[data-empty="true"], #ui-request:empty { display: none; }
 
-.uir-box {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  border: 1px solid var(--vscode-focusBorder, var(--vscode-panel-border));
-  border-radius: 6px;
-  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, .08));
-}
-.uir-head {
-  display: flex;
-  align-items: flex-start;  /* ★ 多行 title 时标签顶对齐 ✓ */
-  gap: 7px;
-  font-size: 12px;
-}
-/* ★ “pi 需要回答”小标签（一眼看出这是【卡住的】✓）*/
-.uir-tag {
-  flex: 0 0 auto;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 10px;
-  background: var(--vscode-charts-yellow, #d7a12c);
-  color: #1e1e1e;
-  margin-top: 1px;
-}
-.uir-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-weight: 600;
-  /* ★★ 必须允许【换行 + 保留原格式】✗（B25 踩到 ✓）
-   *   实测：ask-user-question 扩展把【富文本塞进了 title】✗
-   *     （多段、用 ─── 分隔、甚至分行说明 ✓）
-   *   而协议里 select 【只有 options: string[]】✗
-   *   → 它这么干是“协议外玩法”✓ 但既然会碰上就得能看 ✓
-   *   之前我写的是【单行省略】✗ → 看着挤成一团 ✓
-   *   → 现在：换行 + 保留空白 ✓（与 uir-message 一致 ✓）*/
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.uir-message {
-  font-size: 11px;
-  opacity: .8;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.uir-body {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 6px;
-}
-/* ★ 选项多时纵向排列更省横空间 ✗（B25：4 个长选项并排会把卡片撑爆 ✓）
-   → 只对【 select 的选项】生效 ✗（用 .uir-choice 标记 ✓）
-     其他控件（确定/取消/输入框）不受影响 ✓ */
-.uir-body > .uir-choice {
-  flex: 1 1 100%;
-}
-/* 选项按钮（select 的每个选项也是这个 ✓）*/
-.uir-opt {
-  padding: 3px 11px;
-  border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
-  border-radius: 4px;
-  background: transparent;
-  color: var(--vscode-foreground);
-  font-size: 11px;
-  font-family: inherit;
-  cursor: pointer;
-  text-align: left;
-  /* ★ 选项文字可能很长（如 ask-user-question 的“选项+描述”✓）
-   *   → 允许换行 + 限制最大宽度 ✓（否则会把卡片撑得很宽/很高 ✓）*/
-  max-width: 100%;
-  white-space: normal;
-  word-break: break-word;
-  line-height: 1.35;
-}
-.uir-opt:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24)); }
-.uir-opt.primary {
-  background: var(--vscode-button-background, #0e639c);
-  color: var(--vscode-button-foreground, #fff);
-  border-color: transparent;
-}
-.uir-opt.primary:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
-.uir-opt.cancel { opacity: .7; margin-left: auto; }
-.uir-opt.cancel:hover { opacity: 1; border-color: var(--vscode-charts-red, #e05252); color: var(--vscode-charts-red, #e05252); }
-/* 输入类控件 ✓ */
-.uir-body input[type="text"] {
-  flex: 1 1 220px;
-  min-width: 0;
-  padding: 3px 7px;
-  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
-  border-radius: 4px;
-  background: var(--vscode-input-background, transparent);
-  color: var(--vscode-input-foreground, var(--vscode-foreground));
-  font-size: 12px;
-  font-family: inherit;
-}
-.uir-body textarea {
-  width: 100%;
-  padding: 4px 7px;
-  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
-  border-radius: 4px;
-  background: var(--vscode-input-background, transparent);
-  color: var(--vscode-input-foreground, var(--vscode-foreground));
-  font-size: 12px;
-  font-family: var(--vscode-editor-font-family, monospace);
-  resize: vertical;
-}
-.uir-bar { display: flex; gap: 6px; }
 
 /* ★★ B25：按钮搬走后，输入区只剩发送 ✗
    原来右侧的组（模型/思考/重载）靠 #btn-reload { margin-left: auto } 顶到右边 ✓
    那条规则随搬迁删掉了 → ★ 发送会贴左 ✓
    → 给发送自己加弹性 ✓ */
 #input-bar #send { margin-left: auto; }
+
+/* ══════════════ ★★ B26：交互提示条 ══════════════
+   完整问答（选项 / 输入 / 编辑）已【搬到编辑器面板】✗
+   侧栏这里只剩一条提示 + [前往] [取消] ✓
+   设计依据：一行高 ✓ 不抢输入区的视觉重量 ✓ 不占地方 ✓ */
+.hint-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 9px;
+  border: 1px solid var(--vscode-charts-yellow, #d7a12c);
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, .08));
+  font-size: 11px;
+}
+.hint-tag {
+  flex: 0 0 auto;
+  color: var(--vscode-charts-yellow, #d7a12c);
+  font-weight: 600;
+}
+.hint-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* ★ 一行截断（悬停看全文 ✓ 扩展的 title 可能非常长 ✓）*/
+  white-space: nowrap;
+  opacity: .9;
+}
+.hint-btn {
+  flex: 0 0 auto;
+  padding: 2px 9px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.hint-btn:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24)); }
+.hint-btn.danger { opacity: .75; }
+.hint-btn.danger:hover {
+  opacity: 1;
+  border-color: var(--vscode-charts-red, #e05252);
+  color: var(--vscode-charts-red, #e05252);
+}

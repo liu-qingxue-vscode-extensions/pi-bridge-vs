@@ -104,6 +104,20 @@ export class ChatView implements vscode.WebviewViewProvider {
         });
     }
 
+    /**
+     * ★ 焦点回到输入框（B26）
+     *   交互面板关闭 / 答完问题后调用 ✓
+     *
+     * 【为什么两步？】
+     *   ① view.show(true) ✗ —— 侧栏可能被折叠或切到别的视图了 ✓
+     *      传 preserveFocus=true → 把侧栏【显示出来】但不抢编辑器区的焦点 ✓
+     *   ② 通知 webview 里把 textarea 聚焦（真正让光标落在输入框 ✓）
+     */
+    focusInput(): void {
+        this.view?.show?.(true);
+        this.post("focusInput", null);
+    }
+
     /** 扩展宿主 → 前端（view 不存在时静默丢弃） */
     post(kind: string, payload: unknown): void {
         this.view?.webview.postMessage({ kind, payload });

@@ -46,6 +46,11 @@
             {
                 "command": "pi-bridge.showChangelog",
                 "title": "pi-bridge: 打开更新日志"
+            },
+            {
+                "command": "pi-bridge.showInteraction",
+                "title": "Pi：打开交互面板",
+                "category": "Pi"
             }
         ],
         "keybindings": [
@@ -504,6 +509,22 @@
                         "minimum": 0,
                         "maximum": 10,
                         "markdownDescription": "左侧竖线的宽度（px）。**设 0 = 不显示**。默认 2。"
+                    }
+                }
+            },
+            {
+                "title": "pi-bridge：交互",
+                "properties": {
+                    "pi-bridge.interaction.autoClose": {
+                        "type": "boolean",
+                        "default": true,
+                        "markdownDescription": "所有问题答完后**自动关闭**交互面板。\n\n关掉的话面板会一直留着，下次提问直接复用这个页面。\n\n★ 用户**手动关闭**面板 = 直接取消全部未答请求（不受本开关影响）"
+                    },
+                    "pi-bridge.interaction.closeDelay": {
+                        "type": "number",
+                        "default": 600,
+                        "minimum": 0,
+                        "markdownDescription": "答完最后一题后，等多少毫秒再关闭交互面板。\n\n★ 为什么需要它？\n串行扩展（如 ask-user-question 连问 4 个）是【答完一个才发下一个】。若立刻关面板，会闪 N 次。\n填 **0** = 立刻关（每次都关，会闪）。"
                     }
                 }
             }

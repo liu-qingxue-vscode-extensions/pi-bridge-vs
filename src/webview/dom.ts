@@ -26,18 +26,16 @@ import { vscode } from "./vscode-api.js";
 export function needEl(id: string): HTMLElement {
     const el = document.getElementById(id);
     if (el) return el;
-    // ★ 找不到 → 【把【现场【打出来】✗（B25 调试：光说“找不到”不够 ✓
-    //   我们要知道：HTML 到底长什么样？有哪些 id？脚本跑得早不早？
-    const ids = Array.from(document.querySelectorAll("[id]")).map((x) => (x as HTMLElement).id);
-    const head = document.body ? document.body.innerHTML.replace(/\s+/g, " ").slice(0, 400) : "(无 body)";
+    // ★ 找不到 → 报告给宿主（输出面板能看到 ✓ 不用开 devtools ✓）
+    //
+    // ★★ B25 临时加的“详细诊断”（DOM id 列表 / body 快照 / readyState）已删 ✗
+    //   那是为了排查“HTML 注释没闭合 → 后面的元素被吞掉”✓
+    //   → 现在这类错误由 scripts/check-html.mjs 在【编译期】拦住 ✓
+    //     运行时不再需要把整个 DOM 打出来 ✓
     vscode.postMessage({
         kind: "webviewLog",
         level: "error",
-        text:
-            `★ 找不到 DOM 元素 #${id}\n` +
-            `  readyState=${document.readyState} | 脚本 src=${(document.currentScript as HTMLScriptElement | null)?.src ?? "?"}\n` +
-            `  当前 DOM 里的 id（共 ${ids.length} 个）: ${ids.join(", ")}\n` +
-            `  body 前 400 字符: ${head}`,
+        text: `★ 找不到 DOM 元素 #${id} —— HTML 与 TS 不一致？`,
     });
     return document.createElement("div"); // 占位：后续 addEventListener 不会崩 ✓
 }

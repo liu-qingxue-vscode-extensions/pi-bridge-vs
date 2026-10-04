@@ -26,7 +26,7 @@ import { showCompactionEnd, showCompactionStart } from "./compact.js";
 import { setModelInfo, showModelPicker, showThinkingPicker } from "./model-picker.js";
 import { renderSettings } from "./settings-panel.js";
 import { renderSkillDetail, renderSkills } from "./skills-panel.js";
-import { showUiRequest } from "./ui-request.js";
+import { showInteractionHint } from "./ui-request.js";
 import { updateStatusBar } from "./topbar.js";
 import { appendNotice, clearNotices, removeNotice, renderNotices, resetNotices, setExpanded } from "./noticeboard.js";
 import { applyStyleVars, autoGrow, setAgentState, showCwd, syncPadding } from "./input.js";
@@ -388,9 +388,13 @@ export function setupHostBridge(): void {
             case "skillDetail":
                 renderSkillDetail((data.payload ?? {}) as never);
                 return;
-            // ★ 扩展交互请求（B25 回复桥）
-            case "uiRequest":
-                showUiRequest((data.payload ?? {}) as never);
+            // ★ 侧栏交互提示（B26）：完整问答已搬到编辑器面板 ✓
+            case "interactionHint":
+                showInteractionHint((data.payload ?? {}) as never);
+                return;
+            // ★ B26：交互面板关闭后，焦点回到输入框 ✓
+            case "focusInput":
+                inputEl.focus();
                 return;
             // ★ 宿主让前端做的两个动作（B25）
             case "insertToInput": {

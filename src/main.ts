@@ -34,6 +34,7 @@ import { getAgentDir, getPackageDir, VERSION } from "@earendil-works/pi-coding-a
 import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
 import { ChatView } from "./view/chat-view.js";
+import { InteractionPanel } from "./view/interaction-panel.js";
 import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
 import {
     readSettings,
@@ -183,9 +184,10 @@ export function activate(context: vscode.ExtensionContext): void {
             const needReply = ["select", "confirm", "input", "editor"];
             if (ev.method && needReply.includes(ev.method) && ev.id) {
                 logInfo(`扩展交互请求：${ev.method} ← ${ev.title ?? ""}`);
-                chatView.post("uiRequest", {
+                // ★★ B26：问答【搬到编辑器面板】✗（侧栏天然逼仄 ✓ 面板宽得多 ✓）
+                interactionPanel.push({
                     id: ev.id,
-                    method: ev.method,
+                    method: ev.method as "select" | "confirm" | "input" | "editor",
                     title: ev.title ?? "",
                     message: ev.message,
                     options: ev.options,
@@ -193,6 +195,7 @@ export function activate(context: vscode.ExtensionContext): void {
                     prefill: ev.prefill,
                     timeout: ev.timeout,
                 });
+                pushHint(); // ★ 侧栏只留一条临时提示（带 [前往][取消] ✓）
                 return; // ★ 不再往下走（它没有被 toChatPatch 处理 ✓）
             }
         }
@@ -225,6 +228,62 @@ export function activate(context: vscode.ExtensionContext): void {
             if (patch) chatState.apply(patch);
         }
     });
+
+    // ★★ 交互面板（B26）：pi 扩展提问 → 【独立编辑器页面】✗
+    //   为什么放 chatView 之前？→ 它们只通过闭包互相引用 ✓ 顺序无所谓 ✓
+    //   （onEvent 里的 uiRequest 分流会用它 ✓ 那时它已赋值 ✓）
+    const interactionPanel = new InteractionPanel(
+        context.extensionUri,
+        (id, res) => handleUiResponse(id, res, "panel"),
+        () => pushHint(),
+        () =>
+            vscode.workspace
+                .getConfiguration("pi-bridge")
+                .get<boolean>("interaction.autoClose", true),
+        // ★ 关闭延迟（毫秒 ✗ 0 = 立刻关 ✓ 默认 600 ✓）
+        //   用来【吸收串行连问】的下一个请求 ✗（否则面板会闪 N 次 ✓）
+        () =>
+            vscode.workspace
+                .getConfiguration("pi-bridge")
+                .get<number>("interaction.closeDelay", 600),
+        () => chatView.focusInput(),
+    );
+
+    /** ★ 侧栏提示条内容（B26）：只报告“有没有待答 + 当前问题标题” ✓ */
+    const pushHint = (): void => {
+        const cur = interactionPanel.current();
+        chatView.post("interactionHint", {
+            active: !!cur,
+            id: cur?.id,
+            title: cur?.title ?? "",
+        });
+    };
+
+    /**
+     * ★ 扩展交互回复的【唯一出口】（B26）
+     *   来源可能是编辑器面板 ✗ 也可能是侧栏的[取消]按钮 ✓
+     *   不管哪种都：写 stdin → 从面板队列移除 → 刷新侧栏提示 ✓
+     */
+    const handleUiResponse = (
+        id: string,
+        r: { value?: string; confirmed?: boolean; cancelled?: boolean },
+        from: "panel" | "sidebar",
+    ): void => {
+        const res: { id: string; value?: string; confirmed?: boolean; cancelled?: boolean } = { id };
+        if (r.cancelled) {
+            res.cancelled = true;
+        } else if (typeof r.confirmed === "boolean") {
+            res.confirmed = r.confirmed;
+        } else {
+            res.value = r.value ?? "";
+        }
+        logInfo(`回诉扩展交互（${from}）：${id.slice(0, 8)} → ${JSON.stringify(res)}`);
+        // ★ 为什么不走 send()？→ pi 对 extension_ui_response 【不发回执】✗
+        //   走 send() 会挂到 30s 超时 ✓ 还会报一个无意义的错 ✓
+        pi.replyExtensionUi({ type: "extension_ui_response", ...res } as never);
+        // ★ 面板侧同步移除（侧栏取消时，面板也得把那个问题拿掉 ✓）
+        interactionPanel.resolved(id);
+    };
 
     // 4. 数据流 ②：聊天视图的消息 → format 表（白名单）→ pi
     const chatView = new ChatView(
@@ -482,18 +541,19 @@ export function activate(context: vscode.ExtensionContext): void {
             //   → 走 send() 会挂到 30s 超时 ✓ 还会报一个无意义的错 ✓
             //   → 用 replyExtensionUi（直接写 stdin ✓）
             if (msg.kind === "uiResponse") {
-                const res: { id: string; value?: string; confirmed?: boolean; cancelled?: boolean } = {
-                    id: msg.id,
-                };
-                if (msg.cancelled) {
-                    res.cancelled = true;
-                } else if (typeof msg.confirmed === "boolean") {
-                    res.confirmed = msg.confirmed;
-                } else {
-                    res.value = msg.value ?? "";
-                }
-                logInfo(`回诉扩展交互：${msg.id.slice(0, 8)} → ${JSON.stringify(res)}`);
-                pi.replyExtensionUi({ type: "extension_ui_response", ...res } as never);
+                // ★ B26：答复来源可能是【编辑器面板】✗ 也可能是【侧栏的[取消]】✓
+                //   不管哪种，都走同一个出口 ✓
+                handleUiResponse(
+                    msg.id,
+                    { value: msg.value, confirmed: msg.confirmed, cancelled: msg.cancelled },
+                    "sidebar",
+                );
+                return;
+            }
+
+            // ★ B26：侧栏[前往] → 把编辑器面板弹到前面 ✓
+            if (msg.kind === "interactionFocus") {
+                interactionPanel.show();
                 return;
             }
 
@@ -855,6 +915,11 @@ export function activate(context: vscode.ExtensionContext): void {
         // ctrl+alt+d / 命令面板 → 打开调试板
         vscode.commands.registerCommand("pi-bridge.showDebug", () => {
             debugPanel.show();
+        }),
+
+        // ★ 命令面板 → 打开交互面板（B26 ✓ 没有待答请求时是空操作 ✓）
+        vscode.commands.registerCommand("pi-bridge.showInteraction", () => {
+            interactionPanel.show();
         }),
 
         // ★ ctrl+alt+n → 展开/收起通知板
