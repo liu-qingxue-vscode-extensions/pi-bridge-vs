@@ -8,6 +8,17 @@
     answers: /* @__PURE__ */ new Map(),
     /** 当前页码（0..queue.length-1 = 问题页；queue.length = 确认页 ✓）*/
     page: 0,
+    /**
+     * ★ 键盘选中的选项下标（B27 ✓）
+     *   -1 = “输入框”那一环 ✗（只对有输入框的页有意义 ✓）
+     *   ≥0 = 选项列表里的下标 ✓
+     *
+     * 【★ 为什么初始是 0 而不是 -1？】（用户报的体验 ✓）
+     *   “我期望的是一弹过去焦点也过去 ✗ 这样我按一下 Enter 就能直接通过 ✓”
+     *   → 默认就选中【第一个选项】✗ → Enter 直接提交它 ✓ 不用先按方向键 ✓
+     *   → 如果用户想打字，按一下 ↑ 就回到输入框（会自动聚焦 ✓）
+     */
+    kbd: 0,
     /** ★ 已提交 → 前端不再响应宿主的队列更新 ✗（否则会闪 ✓）*/
     submitted: false,
     /**
@@ -54,94 +65,84 @@
   }
 
   // src/interaction/controls.ts
+  var FREE_RE = /(type\s+something|^\s*\d+[.、)]?\s*(other|其他|自定义|自己(写|输入)))/i;
+  function isFreeOption(opt) {
+    return FREE_RE.test(opt);
+  }
+  function splitOptions(q) {
+    const real = [];
+    let freeText;
+    for (const o of q.options ?? []) {
+      if (isFreeOption(o) && freeText === void 0) freeText = o;
+      else real.push(o);
+    }
+    return { real, freeText };
+  }
   function buildControls(q, cur, onDraft, onCommit) {
     const body = document.createElement("div");
-    body.className = "uir-body";
     if (q.method === "select") {
-      for (const opt of q.options ?? []) {
+      body.className = "q-options";
+      const { real } = splitOptions(q);
+      real.forEach((opt, i) => {
         const b = document.createElement("button");
-        b.className = "uir-opt uir-choice";
-        if (cur?.value === opt) b.classList.add("selected");
+        b.className = "opt";
+        b.dataset.kbdIndex = String(i);
+        if (state.kbd < 0 && cur?.value === opt) b.classList.add("selected");
+        if (state.kbd === i) b.classList.add("kbd");
         b.textContent = opt;
-        b.addEventListener("click", () => {
-          clearSelected(body);
-          b.classList.add("selected");
-          freeInp.value = "";
-          onCommit({ value: opt });
-        });
+        b.addEventListener("click", () => onCommit({ value: opt }));
         body.appendChild(b);
-      }
-      const row = document.createElement("div");
-      row.className = "free-row";
-      const freeInp = document.createElement("input");
-      freeInp.type = "text";
-      freeInp.placeholder = "\u270D \u81EA\u5DF1\u5199\u2026";
-      const isFree = cur?.value !== void 0 && !(q.options ?? []).includes(cur.value);
-      if (isFree) freeInp.value = cur?.value ?? "";
-      freeInp.addEventListener("input", () => {
-        clearSelected(body);
-        onDraft({ value: freeInp.value });
       });
-      freeInp.addEventListener("keydown", (e) => {
-        if (e.key !== "Enter") return;
-        e.preventDefault();
-        onCommit({ value: freeInp.value });
-      });
-      row.appendChild(freeInp);
-      body.appendChild(row);
       return body;
     }
     if (q.method === "confirm") {
+      body.className = "opt-row";
       const pairs = [
         ["\u786E\u5B9A", true],
         ["\u53D6\u6D88", false]
       ];
-      for (const [text, val] of pairs) {
+      pairs.forEach(([text, val], i) => {
         const b = document.createElement("button");
-        b.className = "uir-opt" + (val ? " primary" : "");
-        if (cur?.confirmed === val) b.classList.add("selected");
+        b.className = "opt";
+        b.dataset.kbdIndex = String(i);
+        if (state.kbd < 0 && cur?.confirmed === val) b.classList.add("selected");
+        if (state.kbd === i) b.classList.add("kbd");
         b.textContent = text;
-        b.addEventListener("click", () => {
-          clearSelected(body);
-          b.classList.add("selected");
-          onCommit({ confirmed: val });
-        });
+        b.addEventListener("click", () => onCommit({ confirmed: val }));
         body.appendChild(b);
-      }
-      return body;
-    }
-    if (q.method === "input") {
-      const inp = document.createElement("input");
-      inp.type = "text";
-      inp.placeholder = q.placeholder ?? "";
-      inp.value = cur?.value ?? q.prefill ?? "";
-      inp.addEventListener("input", () => onDraft({ value: inp.value }));
-      inp.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          onCommit({ value: inp.value });
-        }
-        if (e.key === "Escape") inp.blur();
       });
-      body.appendChild(inp);
-      setTimeout(() => inp.focus(), 0);
       return body;
     }
-    const ta = document.createElement("textarea");
-    ta.value = cur?.value ?? q.prefill ?? "";
-    ta.addEventListener("input", () => onDraft({ value: ta.value }));
-    ta.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        onCommit({ value: ta.value });
-      }
-    });
-    body.appendChild(ta);
-    setTimeout(() => ta.focus(), 0);
+    if (q.method === "editor") {
+      const ta = document.createElement("textarea");
+      ta.className = "editor-area";
+      ta.value = cur?.value ?? q.prefill ?? "";
+      ta.addEventListener("input", () => onDraft({ value: ta.value }));
+      ta.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          onCommit({ value: ta.value });
+        }
+      });
+      body.appendChild(ta);
+      const bar = document.createElement("div");
+      bar.className = "opt-row";
+      bar.style.marginTop = "12px";
+      const ok = document.createElement("button");
+      ok.className = "opt primary";
+      ok.textContent = "\u63D0\u4EA4\uFF08Ctrl+Enter\uFF09";
+      ok.addEventListener("click", () => onCommit({ value: ta.value }));
+      bar.append(ok);
+      body.appendChild(bar);
+      setTimeout(() => ta.focus(), 0);
+      return body;
+    }
+    body.className = "q-options";
     return body;
   }
-  function clearSelected(scope) {
-    scope.querySelectorAll(".selected").forEach((e) => e.classList.remove("selected"));
+  function isFreeValue(q, cur) {
+    if (!cur || cur.value === void 0) return false;
+    return !(q.options ?? []).includes(cur.value);
   }
 
   // src/interaction/pages.ts
@@ -150,51 +151,50 @@
     if (a.confirmed !== void 0) return a.confirmed ? "\u786E\u5B9A" : "\u53D6\u6D88";
     return a.value ?? "";
   }
+  function titleEl(q) {
+    const t = document.createElement("div");
+    t.className = "q-title";
+    t.textContent = q.title || q.message || "";
+    return t;
+  }
+  function messageEl(q) {
+    if (!q.message || !q.title) return void 0;
+    const m = document.createElement("div");
+    m.className = "q-message";
+    m.textContent = q.message;
+    return m;
+  }
   function historyBody(hist) {
     const wrap = document.createElement("div");
-    wrap.className = "page-body";
-    const q = document.createElement("div");
-    q.className = "uir-title";
-    q.textContent = hist.q.title || hist.q.message || "";
-    wrap.appendChild(q);
+    wrap.appendChild(titleEl(hist.q));
     const row = document.createElement("div");
-    row.className = "hist-answer";
+    row.className = "hist-row";
     const tag = document.createElement("span");
     tag.className = "hist-tag";
     tag.textContent = "\u2713 \u5DF2\u7B54\uFF08\u5DF2\u53D1\u9001\uFF09";
     const val = document.createElement("span");
     val.className = "hist-value";
     val.textContent = answerText(hist.a);
-    val.title = val.textContent;
     row.append(tag, val);
     wrap.appendChild(row);
     return wrap;
   }
   function questionBody(q, cur, onDraft, onCommit) {
     const wrap = document.createElement("div");
-    wrap.className = "page-body";
-    const t = document.createElement("div");
-    t.className = "uir-title";
-    t.textContent = q.title || q.message || "";
-    wrap.appendChild(t);
-    if (q.message && q.title) {
-      const m = document.createElement("div");
-      m.className = "uir-message";
-      m.textContent = q.message;
-      wrap.appendChild(m);
-    }
+    wrap.appendChild(titleEl(q));
+    const m = messageEl(q);
+    if (m) wrap.appendChild(m);
     wrap.appendChild(buildControls(q, cur, onDraft, onCommit));
     return wrap;
   }
-  function confirmBody(queue, answers, onEdit) {
+  function confirmBody(queue, answers, onEdit, onSubmit, canSubmit, missing) {
     const wrap = document.createElement("div");
-    wrap.className = "page-body";
     const t = document.createElement("div");
-    t.className = "uir-title";
+    t.className = "q-title";
     t.textContent = "\u786E\u8BA4\u63D0\u4EA4";
     wrap.appendChild(t);
     const sub = document.createElement("div");
-    sub.className = "uir-message";
+    sub.className = "q-message";
     sub.textContent = "\u68C0\u67E5\u4E00\u904D \u2014\u2014 \u70B9[\u63D0\u4EA4\u5168\u90E8]\u4F1A\u4E00\u6B21\u6027\u53D1\u7ED9 pi \u2713";
     wrap.appendChild(sub);
     const list = document.createElement("div");
@@ -219,6 +219,22 @@
       list.appendChild(row);
     });
     wrap.appendChild(list);
+    const bar = document.createElement("div");
+    bar.className = "opt-row";
+    bar.style.marginTop = "14px";
+    if (!canSubmit) {
+      const hint = document.createElement("span");
+      hint.className = "q-hint";
+      hint.textContent = `\u2605 \u8FD8\u6709 ${missing} \u9898\u6CA1\u7B54`;
+      bar.appendChild(hint);
+    }
+    const ok = document.createElement("button");
+    ok.className = "opt primary";
+    ok.textContent = "\u63D0\u4EA4\u5168\u90E8";
+    ok.disabled = !canSubmit;
+    ok.addEventListener("click", onSubmit);
+    bar.appendChild(ok);
+    wrap.appendChild(bar);
     return wrap;
   }
 
@@ -232,135 +248,185 @@
       return;
     }
     if (totalPages() === 0) return;
-    const box = document.createElement("div");
-    box.className = "batch";
-    box.append(tabBar(h), current(h), nav(h));
-    listEl2.appendChild(box);
+    listEl2.append(tabBar(h), content(h), composer(h));
   }
   function tabBar(h) {
     const bar = document.createElement("div");
     bar.className = "tabs";
-    state.history.forEach((entry, i) => {
+    const addTab = (label, page, cls, tip) => {
       const b = document.createElement("button");
-      b.className = "tab done";
-      if (entry.a.cancelled) {
-        b.classList.remove("done");
-        b.classList.add("skipped");
-      }
-      if (state.page === i) b.classList.add("active");
-      b.textContent = String(i + 1);
-      b.title = `\u5DF2\u7B54\uFF1A${entry.q.title.split("\n")[0].slice(0, 60)}`;
-      b.addEventListener("click", () => jump(h, i));
+      b.className = "tab " + cls;
+      if (state.page === page) b.classList.add("active");
+      b.textContent = label;
+      b.title = tip;
+      b.addEventListener("click", () => jump(h, page));
       bar.appendChild(b);
+    };
+    state.history.forEach((entry, i) => {
+      const cls = entry.a.cancelled ? "skipped" : "done";
+      addTab(`\u2713 ${i + 1}`, i, cls, `\u5DF2\u7B54\uFF1A${entry.q.title.split("\n")[0].slice(0, 60)}`);
     });
     state.queue.forEach((q, i) => {
-      const b = document.createElement("button");
-      b.className = "tab";
       const idx = state.history.length + i;
-      if (state.page === idx) b.classList.add("active");
-      if (state.answers.has(q.id)) b.classList.add("done");
-      b.textContent = String(idx + 1);
-      b.title = q.title.split("\n")[0].slice(0, 60);
-      b.addEventListener("click", () => jump(h, idx));
-      bar.appendChild(b);
+      addTab(String(idx + 1), idx, state.answers.has(q.id) ? "done" : "", q.title.split("\n")[0].slice(0, 60));
     });
-    if (isBatch()) {
-      const s = document.createElement("button");
-      s.className = "tab submit";
-      if (state.page === confirmPage()) s.classList.add("active");
-      s.textContent = "\u2713 \u63D0\u4EA4";
-      s.addEventListener("click", () => jump(h, confirmPage()));
-      bar.appendChild(s);
-    }
-    const count = document.createElement("span");
-    count.className = "tab-count";
-    count.textContent = isBatch() ? `\u5DF2\u7B54 ${state.queue.length - unansweredCount()}/${state.queue.length}` : state.queue.length > 0 ? "\u5F85\u56DE\u7B54" : "\u7B49\u5F85\u4E0B\u4E00\u4E2A\u2026";
-    bar.appendChild(count);
+    if (isBatch()) addTab("\u63D0\u4EA4", confirmPage(), "submit", "\u68C0\u67E5\u5E76\u4E00\u6B21\u6027\u63D0\u4EA4\u5168\u90E8\u7B54\u6848");
     return bar;
   }
-  function current(h) {
-    if (state.page < state.history.length) {
-      return historyBody(state.history[state.page]);
-    }
+  function content(h) {
+    const box = document.createElement("div");
+    box.className = "content";
+    const page = document.createElement("div");
+    page.className = "page";
+    page.appendChild(currentPage(h));
+    box.appendChild(page);
+    return box;
+  }
+  function currentPage(h) {
+    if (state.page < state.history.length) return historyBody(state.history[state.page]);
     if (isBatch() && state.page >= confirmPage()) {
       return confirmBody(
         state.queue,
         state.answers,
-        (i) => jump(h, state.history.length + i)
+        (i) => jump(h, state.history.length + i),
+        () => h.submitAll(),
+        state.queue.every((q2) => state.answers.has(q2.id)),
+        unansweredCount()
       );
     }
-    const qi = state.page - state.history.length;
-    const q = state.queue[qi];
+    const q = state.queue[state.page - state.history.length];
     if (!q) return info("\u7B49\u5F85\u4E0B\u4E00\u4E2A\u95EE\u9898\u2026");
     return questionBody(
       q,
       state.answers.get(q.id),
-      // onDraft：内容变了 → ★ 只写草稿 ✗ 绝不提交 ✓
       (r) => {
         state.answers.set(q.id, r);
         if (isTyping()) return;
         h.redraw();
       },
-      // onCommit：明确的“提交这个答案”动作 ✗
-      (r) => {
-        state.answers.set(q.id, r);
-        if (isBatch()) {
-          advanceToNextUnanswered();
-          h.redraw();
-        } else {
-          h.sendNow(q.id, r);
-        }
-      }
+      (r) => commit(h, q, r)
     );
   }
-  function nav(h) {
+  function commit(h, q, r) {
+    state.answers.set(q.id, r);
+    state.kbd = 0;
+    if (isBatch()) {
+      advanceToNextUnanswered();
+      h.redraw();
+    } else {
+      h.sendNow(q.id, r);
+    }
+  }
+  function composer(h) {
+    const wrap = document.createElement("div");
+    wrap.className = "composer";
+    const inner = document.createElement("div");
+    inner.className = "composer-inner";
+    const q = pendingQuestion();
+    const hasInput = !!q && (q.method === "select" || q.method === "input");
     const bar = document.createElement("div");
-    bar.className = "nav";
-    const prev = mkBtn("\u2190 \u4E0A\u4E00\u9898", () => jump(h, state.page - 1));
+    bar.className = "composer-bar";
+    const send = document.createElement("button");
+    send.className = "send";
+    send.title = "\u63D0\u4EA4\uFF08Enter\uFF09";
+    send.innerHTML = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 13.5a.75.75 0 0 1-.75-.75V4.56L4.53 7.28a.75.75 0 0 1-1.06-1.06l4-4a.75.75 0 0 1 1.06 0l4 4a.75.75 0 0 1-1.06 1.06L8.75 4.56v8.19a.75.75 0 0 1-.75.75Z"/></svg>';
+    send.disabled = true;
+    let submit;
+    if (hasInput && q) {
+      const ta = document.createElement("textarea");
+      ta.rows = 1;
+      const cur = state.answers.get(q.id);
+      if (q.method === "input") {
+        ta.placeholder = q.placeholder ?? "\u8F93\u5165\u540E\u6309 Enter \u63D0\u4EA4";
+        ta.value = cur?.value ?? q.prefill ?? "";
+      } else {
+        const { freeText } = splitOptions(q);
+        ta.placeholder = freeText ?? "\u270D \u4E5F\u53EF\u4EE5\u81EA\u5DF1\u5199\u2026\uFF08Enter \u63D0\u4EA4\uFF09";
+        if (isFreeValue(q, cur)) ta.value = cur?.value ?? "";
+      }
+      ta.addEventListener("input", () => {
+        state.answers.set(q.id, { value: ta.value });
+        state.kbd = -1;
+        autoGrow(ta);
+        send.disabled = ta.value.trim() === "";
+      });
+      ta.addEventListener("focus", () => {
+        if (state.kbd === -1) return;
+        state.kbd = -1;
+        h.redraw();
+      });
+      ta.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          submit?.();
+        }
+        if (e.key === "Escape") ta.blur();
+      });
+      ta.addEventListener("dragover", (ev) => ev.preventDefault());
+      ta.addEventListener("drop", (ev) => {
+        ev.preventDefault();
+        const text = ev.dataTransfer?.getData("text/plain") ?? "";
+        if (text) ta.value += text;
+      });
+      inner.appendChild(ta);
+      submit = () => commit(h, q, { value: ta.value });
+      send.disabled = ta.value.trim() === "";
+      autoGrow(ta);
+      setTimeout(() => {
+        if (q.method === "input" || state.kbd < 0) ta.focus();
+        autoGrow(ta);
+      }, 0);
+    }
+    send.addEventListener("click", () => submit?.());
+    inner.appendChild(bar);
+    const nav = document.createElement("div");
+    nav.className = "nav-row";
+    const prev = mkNav("\u2190 \u4E0A\u4E00\u9875", () => jump(h, state.page - 1));
     prev.disabled = state.page <= 0;
-    bar.appendChild(prev);
-    const onQuestion = !(state.page < state.history.length) && !(isBatch() && state.page >= confirmPage());
-    if (onQuestion) {
-      const q = state.queue[state.page - state.history.length];
-      bar.appendChild(
-        mkBtn("\u53D6\u6D88\u672C\u9898", () => {
-          if (!q) return;
-          if (isBatch()) {
-            state.answers.set(q.id, { cancelled: true });
-            advanceToNextUnanswered();
-            h.redraw();
-          } else {
-            h.sendNow(q.id, { cancelled: true });
-          }
-        }, "cancel")
-      );
-    }
-    if (isBatch() && state.page < confirmPage()) {
-      const last = state.page === confirmPage() - 1;
-      bar.appendChild(
-        mkBtn(last ? "\u53BB\u786E\u8BA4 \u2192" : "\u4E0B\u4E00\u9898 \u2192", () => jump(h, state.page + 1), "navbtn")
-      );
-    }
-    return bar;
+    nav.appendChild(prev);
+    const cancel = mkNav("\u53D6\u6D88\u672C\u9875", () => {
+      if (q) commit(h, q, { cancelled: true });
+    }, "danger");
+    cancel.disabled = !q;
+    nav.appendChild(cancel);
+    const lastPage = isBatch() ? confirmPage() : totalPages() - 1;
+    const isLastQ = isBatch() && state.page === confirmPage() - 1;
+    const next = mkNav(isLastQ ? "\u53BB\u786E\u8BA4 \u2192" : "\u4E0B\u4E00\u9875 \u2192", () => jump(h, state.page + 1));
+    next.disabled = state.page >= lastPage;
+    nav.appendChild(next);
+    nav.appendChild(send);
+    inner.appendChild(nav);
+    wrap.appendChild(inner);
+    return wrap;
+  }
+  function pendingQuestion() {
+    if (state.page < state.history.length) return void 0;
+    if (isBatch() && state.page >= confirmPage()) return void 0;
+    return state.queue[state.page - state.history.length];
   }
   function jump(h, page) {
     state.page = Math.max(0, Math.min(page, confirmPage()));
+    state.kbd = 0;
     h.redraw();
   }
   function isTyping() {
     const ae = document.activeElement;
     return !!ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA");
   }
-  function mkBtn(text, onClick, extra = "") {
+  function mkNav(text, onClick, extra = "") {
     const b = document.createElement("button");
-    b.className = "uir-opt " + extra;
+    b.className = "nav-btn " + extra;
     b.textContent = text;
     b.addEventListener("click", onClick);
     return b;
   }
+  function autoGrow(ta) {
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 180) + "px";
+  }
   function info(text) {
     const d = document.createElement("div");
-    d.className = "uir-info";
+    d.className = "info";
     d.textContent = text;
     return d;
   }
@@ -409,15 +475,107 @@
     if (msg?.kind === "queue") {
       applyQueue(msg.payload ?? []);
       redraw();
+      setTimeout(() => {
+        if (!document.hasFocus()) {
+          document.body.tabIndex = -1;
+          document.body.focus();
+        }
+      }, 0);
     }
   });
+  function paintKbd() {
+    document.querySelectorAll("[data-kbd-index]").forEach((el) => {
+      el.classList.toggle("kbd", Number(el.dataset.kbdIndex) === state.kbd);
+    });
+    const cur = document.activeElement;
+    const inText = !!cur && (cur.tagName === "TEXTAREA" || cur.tagName === "INPUT");
+    if (state.kbd >= 0 && inText) {
+      cur.blur();
+      document.body.tabIndex = -1;
+      document.body.focus();
+    }
+  }
+  function pendingQ() {
+    if (state.page < state.history.length) return void 0;
+    if (state.queue.length >= 2 && state.page >= state.history.length + state.queue.length) return void 0;
+    return state.queue[state.page - state.history.length];
+  }
+  function optionsOf(q) {
+    if (q.method === "select") return splitOptions(q).real;
+    if (q.method === "confirm") return ["\u786E\u5B9A", "\u53D6\u6D88"];
+    return [];
+  }
   document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || state.submitted || state.queue.length === 0) return;
-    const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
-    if (state.page < state.history.length) return;
-    const q = state.queue[state.page - state.history.length];
-    if (!q) return;
+    if (state.submitted) return;
+    const el = document.activeElement;
+    const inText = !!el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT");
+    const ta = inText && state.kbd < 0 ? el : null;
+    const q = pendingQ();
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      if (!q) return;
+      const opts = optionsOf(q);
+      if (opts.length === 0) return;
+      const n = opts.length;
+      const up = e.key === "ArrowUp";
+      const hasBox = q.method === "select" || q.method === "input";
+      if (!hasBox) {
+        e.preventDefault();
+        const cur = state.kbd;
+        state.kbd = up ? cur <= 0 ? n - 1 : cur - 1 : cur < 0 || cur >= n - 1 ? 0 : cur + 1;
+        paintKbd();
+        return;
+      }
+      if (ta) {
+        const start = ta.selectionStart ?? 0;
+        const end = ta.selectionEnd ?? start;
+        const atEdge = up ? !ta.value.slice(0, start).includes("\n") : !ta.value.slice(end).includes("\n");
+        if (!atEdge) return;
+        e.preventDefault();
+        state.kbd = up ? n - 1 : 0;
+        paintKbd();
+        return;
+      }
+      e.preventDefault();
+      if (up) {
+        state.kbd = state.kbd <= 0 ? -1 : state.kbd - 1;
+      } else {
+        state.kbd = state.kbd >= n - 1 ? -1 : state.kbd + 1;
+      }
+      paintKbd();
+      if (state.kbd < 0) document.querySelector(".composer textarea")?.focus();
+      return;
+    }
+    if (e.key === "Enter" && !inText && q && state.kbd >= 0) {
+      const opt = optionsOf(q)[state.kbd];
+      if (opt === void 0) return;
+      e.preventDefault();
+      const r = q.method === "confirm" ? { confirmed: opt === "\u786E\u5B9A" } : { value: opt };
+      handlers.sendNow(q.id, r);
+      return;
+    }
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      const left = e.key === "ArrowLeft";
+      if (ta) {
+        const start = ta.selectionStart ?? 0;
+        const end = ta.selectionEnd ?? start;
+        const atEdge = left ? start === 0 && end === 0 : start === ta.value.length && end === ta.value.length;
+        if (!atEdge) return;
+      }
+      const isBatchMode = state.queue.length >= 2;
+      const maxPage = isBatchMode ? state.history.length + state.queue.length : state.history.length + state.queue.length - 1;
+      if (maxPage < 0) return;
+      let target = left ? state.page - 1 : state.page + 1;
+      if (target < 0) target = maxPage;
+      if (target > maxPage) target = 0;
+      if (target === state.page) return;
+      e.preventDefault();
+      state.page = target;
+      state.kbd = -1;
+      redraw();
+      return;
+    }
+    if (e.key !== "Escape" || !q) return;
+    if (inText) return;
     if (state.queue.length >= 2) {
       state.answers.set(q.id, { cancelled: true });
       advanceToNextUnanswered();
@@ -425,20 +583,6 @@
       return;
     }
     handlers.sendNow(q.id, { cancelled: true });
-  });
-  document.addEventListener("keydown", (e) => {
-    if (state.submitted) return;
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
-    if (state.history.length + state.queue.length === 0) return;
-    const last = state.history.length + state.queue.length + (state.queue.length >= 2 ? 1 : 0);
-    const next = e.key === "ArrowRight" ? state.page + 1 : state.page - 1;
-    const clamped = Math.max(0, Math.min(next, last));
-    if (clamped === state.page) return;
-    state.page = clamped;
-    redraw();
   });
   vscode.postMessage({ kind: "ready" });
 })();

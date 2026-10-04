@@ -24,6 +24,7 @@
  *     队列变成 >= 2 → 【不发】✗ 转答卷模式 ✓（刚才的答案保留为草稿 ✓）
  *   —— 这就是用户说的“判定点是提交那一刻”✓
  */
+import { splitOptions } from "./controls.js";
 import { advanceToNextUnanswered, applyQueue, state } from "./state.js";
 import type { UiReq, UiRes } from "./types.js";
 import { render, type Handlers } from "./views.js";
@@ -96,19 +97,190 @@ window.addEventListener("message", (e: MessageEvent) => {
     if (msg?.kind === "queue") {
         applyQueue((msg.payload as UiReq[]) ?? []);
         redraw();
+        // ★★ 关键修复（B27 ✗）
+        //   webview 内部的 activeElement 可能是 body ✗
+        //   而 body 【不可聚焦】→ 键盘事件上不来 ✓
+        //   → 给它一个 tabindex 并主动聚焦 ✓
+        //   （用户已确认修复后焦点正常 ✓）
+        setTimeout(() => {
+            if (!document.hasFocus()) {
+                document.body.tabIndex = -1;
+                document.body.focus();
+            }
+        }, 0);
     }
 });
 
-// ★ Esc：历史页无操作 ✓ / 待答页 → 串行立刻发 ✗ 答卷写草稿 ✓
-document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || state.submitted || state.queue.length === 0) return;
-    const t = e.target as HTMLElement | null;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
-    // 在历史页 → 没东西可取消 ✓
-    if (state.page < state.history.length) return;
+/** ★★ 只重画选项的键盘高亮 ✗ 不重建 DOM ✓
+ *  【为何需要它？】用户报：“我在上边切选项，下面输入框的文字在闪”✓
+ *   根因：↑↓ 走 redraw() → textarea 被销毁重建 → 文字重插 → 闪 ✓
+ *   → 切选项只动 .kbd 类 ✗ DOM 其他部分一律不动 ✓
+ */
+function paintKbd(): void {
+    document.querySelectorAll<HTMLElement>("[data-kbd-index]").forEach((el) => {
+        el.classList.toggle("kbd", Number(el.dataset.kbdIndex) === state.kbd);
+    });
+    // ★★ 在选项上时，必须把焦点从输入框里【拿开】✗
+    //   否则键盘事件会继续被输入框“吃掉”（光标导航 ✓）
+    //   只有 kbd < 0（输入框那一环）才把焦点给它 ✓
+    const cur = document.activeElement as HTMLElement | null;
+    const inText = !!cur && (cur.tagName === "TEXTAREA" || cur.tagName === "INPUT");
+    if (state.kbd >= 0 && inText) {
+        cur.blur();
+        document.body.tabIndex = -1;
+        document.body.focus();
+    }
+}
 
-    const q = state.queue[state.page - state.history.length];
-    if (!q) return;
+/** 当前待答页的题（历史/确认页 → undefined ✓）*/
+function pendingQ(): UiReq | undefined {
+    if (state.page < state.history.length) return undefined;
+    if (state.queue.length >= 2 && state.page >= state.history.length + state.queue.length) return undefined;
+    return state.queue[state.page - state.history.length];
+}
+
+/** 当前题的选项列表 ✗（select 的真选项 / confirm 的确定取消 ✓）*/
+function optionsOf(q: UiReq): string[] {
+    if (q.method === "select") return splitOptions(q).real;
+    if (q.method === "confirm") return ["确定", "取消"];
+    return [];
+}
+
+/** ★★ 键盘（B27：★ 边界穿越 ✗）
+ *
+ * 【用户定的规则】
+ *   ↑  输入框在【首行】再按 ↑   → 跳到选项列表（最后一个 ✓）
+ *      选项列表里再按 ↑          → 上一个选项 ✓
+ *   ↓  选项列表【最后一个】再按 ↓ → 回到输入框 ✓
+ *   ←  输入框在【最左端】再按 ←   → 上一页 ✓
+ *   →  输入框在【最右端】再按 →   → 下一页 ✓
+ *   Enter ✗ 输入框里 / 选项列表 → 提交 ✓
+ *
+ * 【★ 为什么用“边界”而不是“抢”？】
+ *   输入框里上下左右是【光标导航】✗ 直接抢掉就没法编辑多行文本了 ✓
+ *   → 只有光标已经到边界、再按一下才“越界”到别的控件 ✓
+ */
+document.addEventListener("keydown", (e) => {
+    if (state.submitted) return;
+    const el = document.activeElement as HTMLElement | null;
+    const inText = !!el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT");
+    // ★★ 关键（B27 ✗ 用户报的怪现象 ✓）
+    //
+    //   “按 ↓ 选中第一个后再按 ↓ 无反应”
+    //   “按 ← 要按好几下才切页 ✗ → 却正常”
+    //
+    //   根因：焦点【还在输入框里】✗ 但 kbd 已经 >= 0（在选项上）✓
+    //     → 于是 ←→↑↓ 全被当成“光标导航”✗（不在边界就不处理 ✓）
+    //     → ← 要求光标在【开头】✗ 而 → 只要在【末尾】✓
+    //       ⇒ 光标在末尾时 → 有效 ✗ ← 无效 ✓（完全对上用户的描述）
+    //
+    //   修：★ 只有 kbd < 0（处于“输入框”那一环）时，才把它当输入框 ✓
+    //       一旦走到选项上（kbd >= 0 ✗）→ 键盘就完全交给选项 ✓
+    const ta = inText && state.kbd < 0 ? (el as HTMLTextAreaElement) : null;
+    const q = pendingQ();
+
+    // ══ ↑ ↓（★ 循环 ✗）══
+    //
+    // 【有输入框的页】（select / input ✗）：
+    //   ↓ ： 1 → 2 → 3 → 【输入框】 → 1 → ...
+    //   ↑ ： 【输入框】 → 3 → 2 → 1 → 【输入框】 → ...
+    // 【没有输入框的页】（confirm ✗ 用户报的 bug ✓）：
+    //   ↓ ： 确认 → 取消 → 确认 → 取消 → ...
+    //   ★ 不能出现“什么都不选中”那一环 ✗
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        if (!q) return;
+        const opts = optionsOf(q);
+        if (opts.length === 0) return;
+        const n = opts.length;
+        const up = e.key === "ArrowUp";
+        // ★ confirm / editor 没有底部输入框 ✗ → 纯选项环 ✓
+        const hasBox = q.method === "select" || q.method === "input";
+
+        if (!hasBox) {
+            e.preventDefault();
+            const cur = state.kbd;
+            state.kbd = up ? (cur <= 0 ? n - 1 : cur - 1) : (cur < 0 || cur >= n - 1 ? 0 : cur + 1);
+            paintKbd(); // ★ 只改高亮 ✗ 不重建 ✓
+            return;
+        }
+
+        // 在输入框里 → 只有光标在【首/末行】才算越界 ✓（否则让光标自己走 ✓）
+        if (ta) {
+            const start = ta.selectionStart ?? 0;
+            const end = ta.selectionEnd ?? start;
+            const atEdge = up ? !ta.value.slice(0, start).includes("\n") : !ta.value.slice(end).includes("\n");
+            if (!atEdge) return;
+            e.preventDefault();
+            state.kbd = up ? n - 1 : 0;
+            paintKbd(); // ★ 同上 ✓
+            return;
+        }
+
+        // 已在选项上
+        e.preventDefault();
+        if (up) {
+            state.kbd = state.kbd <= 0 ? -1 : state.kbd - 1; // 第一个再↑ → 回输入框 ✓
+        } else {
+            state.kbd = state.kbd >= n - 1 ? -1 : state.kbd + 1; // 最后一个再↓ → 回输入框 ✓
+        }
+        paintKbd();
+        // ★ 回到“输入框”那一环时 ✗ 直接把焦点交给它 ✓（不重建 DOM ✓）
+        if (state.kbd < 0) document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus();
+        return;
+    }
+
+    // ══ Enter（提交键盘选中的选项 ✓）══
+    if (e.key === "Enter" && !inText && q && state.kbd >= 0) {
+        const opt = optionsOf(q)[state.kbd];
+        if (opt === undefined) return;
+        e.preventDefault();
+        const r: UiRes = q.method === "confirm" ? { confirmed: opt === "确定" } : { value: opt };
+        handlers.sendNow(q.id, r);
+        return;
+    }
+
+    // ══ ← →（输入框在边界时翻页 ✓）══
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        const left = e.key === "ArrowLeft";
+        if (ta) {
+            const start = ta.selectionStart ?? 0;
+            const end = ta.selectionEnd ?? start;
+            const atEdge = left ? start === 0 && end === 0 : start === ta.value.length && end === ta.value.length;
+            if (!atEdge) return; // 让光标自己走 ✓
+        }
+        // ★★ 关键修正（B27 ✗ 用户实测：“按→跳到第三题 / 再按变等待下一个问题”✓）
+        //
+        //   串行时 page 可能停在【虚构的“等待页”】✗
+        //     （= history + queue ✗ 比如答完 Q1 后 Q2 还没到 ✓）
+        //   那个位置能渲染（显示“等待下一个问题…”✓）但【不能手动走进去】✗
+        //   否则 page 越界 ✗ 下一题到达后也 clamp 不回来 ✓
+        //
+        //   → 所以：串行时最大只能到【最后一题】✗
+        //      只有批量模式才允许多走一步到【确认页】✓
+        const isBatchMode = state.queue.length >= 2;
+        const maxPage = isBatchMode
+            ? state.history.length + state.queue.length // 批：可以到确认页 ✓
+            : state.history.length + state.queue.length - 1; // 串行：到最后一题为止 ✓
+        if (maxPage < 0) return;
+
+        // ★★ 首尾循环（用户定的 ✓）
+        //   · 第 1 页按 ← → 跳到最后一页 ✓
+        //   · 最后一页按 → → 回到第 1 页 ✓
+        let target = left ? state.page - 1 : state.page + 1;
+        if (target < 0) target = maxPage;
+        if (target > maxPage) target = 0;
+        if (target === state.page) return; // 只有一页时不动 ✓
+
+        e.preventDefault();
+        state.page = target;
+        state.kbd = -1;
+        redraw();
+        return;
+    }
+
+    // ══ Esc：取消 ✓ ══
+    if (e.key !== "Escape" || !q) return;
+    if (inText) return; // 输入框里 Esc 交给控件自己（blur ✓）
     if (state.queue.length >= 2) {
         state.answers.set(q.id, { cancelled: true });
         advanceToNextUnanswered();
@@ -118,24 +290,13 @@ document.addEventListener("keydown", (e) => {
     handlers.sendNow(q.id, { cancelled: true });
 });
 
-// ★★ ← → 翻页（用户要求的 ✓）
-//   ★ 在输入框里打字时【不抢】✗（那要留给光标左右移动 ✓）
-document.addEventListener("keydown", (e) => {
-    if (state.submitted) return;
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    const t = e.target as HTMLElement | null;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
-    if (state.history.length + state.queue.length === 0) return;
-
-    // 答卷模式下多一个【确认页】✓
-    const last = state.history.length + state.queue.length + (state.queue.length >= 2 ? 1 : 0);
-    const next = e.key === "ArrowRight" ? state.page + 1 : state.page - 1;
-    const clamped = Math.max(0, Math.min(next, last));
-    if (clamped === state.page) return;
-    state.page = clamped;
-    redraw();
-});
+// （★ B27：旧的“← → 翻页”监听器已删除 ✗）
+//
+// 【为什么要删？】
+//   它与上面的完整键盘处理【重复】✗ → 每次按键被处理 2 次 ✓
+//   表现：按一下 → 页码跳【两格】（用户实测 p0→p2 ✓）✓
+//   而且它【没有边界检查】（直接 clamp 到 total ✗ 允许走进“虚拟等待页”✓）
+//     → 跳过去就显示“等待下一个问题…”✓
 
 // 告诉宿主：准备就绪 → 请重放队列 ✓
 vscode.postMessage({ kind: "ready" });

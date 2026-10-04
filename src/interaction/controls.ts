@@ -1,23 +1,54 @@
 /**
- * controls.ts —— 四种交互控件（B26）
+ * controls.ts —— 四种交互控件（B26 → B27 重做）
  *
  * 【★★ 两个回调解耦（关键 ✗）】
- *   onDraft  ：内容变了（打字 / 点了选项 ✓）→ 【只写草稿】✗ 绝不提交 ✓
- *   onCommit ：明确的“提交这个答案”动作 ✗（选项点击 / Enter / Ctrl+Enter ✓）
+ *   onDraft  ：内容变了（打字 ✓）→ 【只写草稿】✗ 绝不提交 ✓
+ *   onCommit ：明确的“提交这个答案”动作 ✗（选项点击 / Enter ✓）
  *
  * 【为什么必须分开？】
  *   ★ 如果“内容变化”就等于“提交”✗：
- *     串行模式下用户在「✍ 自己写…」框里打第一个字 → 答案就发出去了 ✗✗✗
+ *     串行模式下用户在输入框里打第一个字 → 答案就发出去了 ✗✗✗
  *     （然后扩展立刻发下一题 ✗ 后面打的字全丢了 ✓）
- *   → 所以：打字只写草稿 ✗ 提交必须是【一个明确的动作】✓
  *
- * 【各 method 的提交动作】
- *   select  → 点选项（一次点击就完成 ✓）/ 自由书写框按 Enter ✓
- *   confirm → 点确定/取消 ✓
- *   input   → 按 Enter ✓
- *   editor  → Ctrl/Cmd+Enter ✗（Enter 要留给换行 ✓）
+ * 【★★ B27 重做：自由书写框搬到【底部输入区】✗】
+ *   旧版：自由书写框挤在选项下面 ✗ 又小又土 ✗
+ *   新版：底部输入区（composer ✓）统一承担“自己写”✗
+ *   → 本模块只画【选项按钮】✓ 输入框交给 views.ts 的 composer ✓
  */
 import type { UiReq, UiRes } from "./types.js";
+import { state } from "./state.js";
+
+/**
+ * ★★ 识别“自由书写”选项 ✗（B27 修 bug ✓）
+ *
+ * 【它是什么？】
+ *   ask_user_question 之类的扩展会在 options 里塞一项 “Type something.”✗
+ *   ★ 期望客户端【弹一个输入框】✗ 而不是把它当普通选项 ✓
+ *
+ * 【★★ 旧版的 bug ✗（用户报的 ✓）】
+ *   我们把它当普通选项 ✗ → 点一下就【直接提交了 “Type something.” 这段文字】✗
+ *   → 用户看到的现象：“点一下直接返回空 / 直接取消本题”✓
+ *     （扩展收到那段文字无法识别 → 当成空/取消 ✓）
+ *
+ * 【修法】★ 不把它渲染成选项按钮 ✗ 而是让【底部输入区】承担 ✓
+ *   它的原文拿来当输入框的 placeholder ✓（用户一眼就知道要写 ✓）
+ */
+const FREE_RE = /(type\s+something|^\s*\d+[.、)]?\s*(other|其他|自定义|自己(写|输入)))/i;
+
+export function isFreeOption(opt: string): boolean {
+    return FREE_RE.test(opt);
+}
+
+/** 把 options 拆成【真选项】和【自由书写提示】✓ */
+export function splitOptions(q: UiReq): { real: string[]; freeText: string | undefined } {
+    const real: string[] = [];
+    let freeText: string | undefined;
+    for (const o of q.options ?? []) {
+        if (isFreeOption(o) && freeText === undefined) freeText = o;
+        else real.push(o);
+    }
+    return { real, freeText };
+}
 
 export function buildControls(
     q: UiReq,
@@ -26,103 +57,88 @@ export function buildControls(
     onCommit: (r: UiRes) => void,
 ): HTMLElement {
     const body = document.createElement("div");
-    body.className = "uir-body";
 
     if (q.method === "select") {
-        for (const opt of q.options ?? []) {
+        body.className = "q-options";
+        const { real } = splitOptions(q);
+        real.forEach((opt, i) => {
             const b = document.createElement("button");
-            // ★ .uir-choice → 各占一行 ✗（长选项并排会撑爆卡片 ✓）
-            b.className = "uir-opt uir-choice";
-            if (cur?.value === opt) b.classList.add("selected");
+            b.className = "opt";
+            // ★ data-kbd-index ✗ 让 ↑↓ 【只改高亮】而不重建整个面板 ✓
+            //   （用户报的：“我明明在上边切选项，下面输入框的文字在闪”✓）
+            b.dataset.kbdIndex = String(i);
+            // ★ selected 与 kbd 互斥 ✗
+            if (state.kbd < 0 && cur?.value === opt) b.classList.add("selected");
+            if (state.kbd === i) b.classList.add("kbd");
             b.textContent = opt;
-            b.addEventListener("click", () => {
-                clearSelected(body); // 单选 ✓
-                b.classList.add("selected");
-                freeInp.value = ""; // ★ 选了预选项就清掉自由书写框 ✗
-                onCommit({ value: opt });
-            });
+            b.addEventListener("click", () => onCommit({ value: opt })); // ★ 选项：一次点击即提交 ✓
             body.appendChild(b);
-        }
-
-        // ★★ 自由书写（B26）✗
-        //   TUI 里每个问答都有（ask_user_question 的 “Type something.” ✗）
-        //   ★ 协议里 select 只能回一个字符串 ✗ → 自由写的结果也是 value ✓
-        //     与选项同一个形状 ✓ 扩展无感 ✓
-        const row = document.createElement("div");
-        row.className = "free-row";
-        const freeInp = document.createElement("input");
-        freeInp.type = "text";
-        freeInp.placeholder = "✍ 自己写…";
-        // ★ 已答的值不在选项里 = 自由写的 ✓ 回填 ✓
-        const isFree = cur?.value !== undefined && !(q.options ?? []).includes(cur.value);
-        if (isFree) freeInp.value = cur?.value ?? "";
-        freeInp.addEventListener("input", () => {
-            clearSelected(body); // 一打字就取消选项高亮 ✓
-            onDraft({ value: freeInp.value }); // ★ 只写草稿 ✗
         });
-        freeInp.addEventListener("keydown", (e) => {
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            onCommit({ value: freeInp.value }); // ★ 这才提交 ✓
-        });
-        row.appendChild(freeInp);
-        body.appendChild(row);
         return body;
     }
 
     if (q.method === "confirm") {
+        body.className = "opt-row";
         const pairs: Array<[string, boolean]> = [
             ["确定", true],
             ["取消", false],
         ];
-        for (const [text, val] of pairs) {
+        pairs.forEach(([text, val], i) => {
             const b = document.createElement("button");
-            b.className = "uir-opt" + (val ? " primary" : "");
-            if (cur?.confirmed === val) b.classList.add("selected");
+            // ★★ 不要 primary ✗（用户反复报：“选中的明明是取消，确定还是高亮”✓）
+            //   根因：.primary = 蓝底 ✗ 它【永远】看着像选中 ✓
+            b.className = "opt";
+            b.dataset.kbdIndex = String(i);
+            if (state.kbd < 0 && cur?.confirmed === val) b.classList.add("selected");
+            if (state.kbd === i) b.classList.add("kbd");
             b.textContent = text;
-            b.addEventListener("click", () => {
-                clearSelected(body);
-                b.classList.add("selected");
-                onCommit({ confirmed: val });
-            });
+            b.addEventListener("click", () => onCommit({ confirmed: val }));
             body.appendChild(b);
-        }
-        return body;
-    }
-
-    if (q.method === "input") {
-        const inp = document.createElement("input");
-        inp.type = "text";
-        inp.placeholder = q.placeholder ?? "";
-        inp.value = cur?.value ?? q.prefill ?? "";
-        inp.addEventListener("input", () => onDraft({ value: inp.value }));
-        inp.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") {
-                e.preventDefault();
-                onCommit({ value: inp.value });
-            }
-            if (e.key === "Escape") inp.blur(); // 让全局 Esc 处理（= 取消 ✓）
         });
-        body.appendChild(inp);
-        setTimeout(() => inp.focus(), 0);
         return body;
     }
 
-    // editor ✓（★ Enter 留给换行 ✗ 用 Ctrl/Cmd+Enter 提交 ✓）
-    const ta = document.createElement("textarea");
-    ta.value = cur?.value ?? q.prefill ?? "";
-    ta.addEventListener("input", () => onDraft({ value: ta.value }));
-    ta.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            onCommit({ value: ta.value });
-        }
-    });
-    body.appendChild(ta);
-    setTimeout(() => ta.focus(), 0);
+    if (q.method === "editor") {
+        // ★ editor 要长文本 ✗ 放在内容区（不进 composer ✓）
+        const ta = document.createElement("textarea");
+        ta.className = "editor-area";
+        ta.value = cur?.value ?? q.prefill ?? "";
+        ta.addEventListener("input", () => onDraft({ value: ta.value }));
+        ta.addEventListener("keydown", (e) => {
+            // ★ Enter 留给换行 ✗ 用 Ctrl/Cmd+Enter 提交 ✓
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                onCommit({ value: ta.value });
+            }
+        });
+        body.appendChild(ta);
+
+        // ★★ editor 自己的按钮行 ✗（用户定的：单独配一个 ✓）
+        //   为什么不在底部 composer？→ editor 的输入区就在内容区 ✗
+        //    底部再摆一个空输入框很怪 ✓
+        const bar = document.createElement("div");
+        bar.className = "opt-row";
+        bar.style.marginTop = "12px";
+        const ok = document.createElement("button");
+        ok.className = "opt primary";
+        ok.textContent = "提交（Ctrl+Enter）";
+        ok.addEventListener("click", () => onCommit({ value: ta.value }));
+        // ★ “取消本页”不在这里 ✗ —— 底部导航行已经有一个了 ✓
+        //   （用户：“取消本页倒是有点多余了”✓）
+        bar.append(ok);
+        body.appendChild(bar);
+
+        setTimeout(() => ta.focus(), 0);
+        return body;
+    }
+
+    // ★ input：输入框在底部 composer 里 ✗ 这里只留空 ✓
+    body.className = "q-options";
     return body;
 }
 
-function clearSelected(scope: HTMLElement): void {
-    scope.querySelectorAll(".selected").forEach((e) => e.classList.remove("selected"));
+/** 当前答案是不是“自由书写”的值（不在选项里 ✓）*/
+export function isFreeValue(q: UiReq, cur: UiRes | undefined): boolean {
+    if (!cur || cur.value === undefined) return false;
+    return !(q.options ?? []).includes(cur.value);
 }

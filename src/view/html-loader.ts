@@ -41,9 +41,29 @@ export function loadWebviewHtml(
     const filePath = path.join(extensionUri.fsPath, "media", fileName);
     const raw = fs.readFileSync(filePath, "utf8");
 
-    /** 把 media/ 下的资源转成 webview 能加载的 URI */
-    const mediaUri = (name: string): string =>
-        webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", name)).toString();
+    /**
+     * 把 media/ 下的资源转成 webview 能加载的 URI
+     *
+     * ★★ 为什么后面要拼一个 `?v=<mtime>`？（B27 踩的坑 ✗）
+     *   VS Code 的 webview 是【真的浏览器】✗ 它会对 css/js 做 HTTP 缓存 ✓
+     *   而 asWebviewUri 出来的 URL 【每次都一样】✗
+     *   → 改了 media/css/*.css 后重开面板【样式纹丝不动】✗（用户报的 ✓）
+     *     现象：“JS 是新的（文案变了 ✓）但 CSS 是旧的（布局没变 ✗）”
+     *   → 拼上文件修改时间 ✗ 文件一变 URL 就变 → 缓存自动失效 ✓
+     *
+     * ★ 为什么不用 package.json 的 version？
+     *   开发时改 CSS 不会动 version ✗ 而 mtime 【每次存盘都变】✓
+     */
+    const mediaUri = (name: string): string => {
+        const uri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", name)).toString();
+        let stamp = "0";
+        try {
+            stamp = String(fs.statSync(path.join(extensionUri.fsPath, "media", name)).mtimeMs);
+        } catch {
+            // 文件不存在（比如某页没有同名 css ✗）→ 不加时间戳即可 ✓
+        }
+        return `${uri}?v=${stamp}`;
+    };
 
     const base = fileName.replace(/\.[^.]*$/, ""); // chat.html → chat
 

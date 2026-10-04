@@ -69,4 +69,57 @@ export default function (pi: {
             );
         },
     });
+
+    /**
+     * ★★ B27 测试 1：串行 + 间隔（测“面板不关 ✗ 一页一页接着来 ✓”）
+     *
+     * 【它测什么？】
+     *   用户要的：“先来一个是否允许的，等 3 秒，再来一个，循环 4 回”✓
+     *   → 每个问题都【答完就发】✗（串行语义 ✓）
+     *   → 但面板【不应该闪】✗ 600ms 窗口会吸收下一个请求 ✓
+     *   → 页签应该从 [1] 长到 [1][2][3][4] ✗ 前几个变历史（只读）✓
+     */
+    pi.registerCommand("uitest-slow", {
+        description: "★ 串行 + 每问间隔 3 秒 × 4 回（测累积多页）",
+        handler: async (_args, ctx) => {
+            const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+            for (let i = 1; i <= 4; i++) {
+                const ok = await ctx.ui.confirm(
+                    `第 ${i}/4 回：允许继续吗？`,
+                    `这是第 ${i} 个问题（串行 ✗ 答完才发下一个 ✓）`,
+                );
+                ctx.ui.notify(`第 ${i} 回 → ${ok}`, "info");
+                if (i < 4) await sleep(3000); // ★ 空 3 秒再问 ✓
+            }
+            ctx.ui.notify("★ 串行（带间隔）测试走完了 ✓", "success");
+        },
+    });
+
+    /**
+     * ★★ B27 测试 2：纯并发（5 个包一口气发出 ✓）
+     *
+     * 【与 /uitest-batch 的区别】
+     *   那个是 3 个 ✗ 这个是 5 个 + 各种 method 混在一起 ✓
+     *   更能看清【答卷模式的页签条】✗ 也更能测【确认页校验】✓
+     *
+     * 【★ 关键：它们都是【独立的数据包】✗】
+     *   Promise.all 会让 5 个 output() 背靠背写 stdout ✓
+     *   → 我们的 pending 一次性变 5 ✓ → 队列 >= 2 → 答卷模式 ✓
+     */
+    pi.registerCommand("uitest-parallel", {
+        description: "★ 并发 5 个交互（测答卷模式 + 确认页）",
+        handler: async (_args, ctx) => {
+            const [fruit, ok1, text, ok2, fruit2] = await Promise.all([
+                ctx.ui.select("① 并发：选一个水果", ["苹果", "香蕉", "橘子"]),
+                ctx.ui.confirm("② 并发：允许吗？", "第一个是否题"),
+                ctx.ui.input("③ 并发：输入点什么", "随便写"),
+                ctx.ui.confirm("④ 并发：再来一次？", "第二个是否题"),
+                ctx.ui.select("⑤ 并发：再选一个", ["苹果", "香蕉", "橘子"]),
+            ]);
+            ctx.ui.notify(
+                `5 个并发答案 → ${fruit}/${ok1}/${text}/${ok2}/${fruit2}`,
+                "success",
+            );
+        },
+    });
 }

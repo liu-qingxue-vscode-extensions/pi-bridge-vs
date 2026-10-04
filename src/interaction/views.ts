@@ -1,29 +1,28 @@
 /**
- * views.ts —— 面板骨架（B26）
+ * views.ts —— 面板骨架（B26 → B27 重做）
  *
- * 【统一成一个结构 ✗】
- *   不管是串行（队列 1 个）还是并行（队列 >= 2 ✓），都渲染成：
- *     ┌──────────────────────────────┐
- *     │ [历史1][历史2]…[当前][确认?]  │  ← 页签条 ✓
- *     │ ──────────────────────────── │
- *     │        当前页的内容           │
- *     │ ──────────────────────────── │
- *     │ [← 上一题] [取消] [下一题 →]  │  ← 导航 ✓
- *     └──────────────────────────────┘
+ * 【★★ 三段式 ✗】
+ *   ┌──────────────────────────────┐
+ *   │ ① .tabs      页签栏（等分 ✗） │  ← 1 个满宽 / 2 个各半 / N 个各 1/N ✓
+ *   ├──────────────────────────────┤
+ *   │ ② .content   内容（滚 + 居中） │  ← 题目 / 选项 / 历史 / 确认 ✓
+ *   ├──────────────────────────────┤
+ *   │ ③ .composer  底部输入区       │  ← ★ 抄对话输入框的样式 ✓
+ *   │    [ 输入框（常驻 ✗）  ] [↑]  │
+ *   │    [← 上一页][取消本页][下一页→]│  ← ★ 大按钮 ✓
+ *   └──────────────────────────────┘
  *
- * 【★ 两种模式的区别只在两处】
- *   ① 页签里有没有【确认页】✗（只有队列 >= 2 时有 ✓）
- *   ② 答案什么时候发 ✗：
- *        串行 → 答完【立刻发】✓（否则扩展不发下一题 ✗ 见 state.ts 注释）
- *        并行 → 存草稿 ✓ 点[提交全部]才发 ✓
- *
- * 【★ 串行时页面会“长出来”】
- *   答完第 1 题 → 它变成历史页 ✓ page 停在“下一个待答位”✗
- *   扩展毫秒后发来第 2 题 → 队列 +1 ✗ → page 正好指到它 ✓（自动翻页 ✓）
+ * 【★ 输入框什么时候在？】（用户定的 ✓）
+ *   select  → ★ 常驻（自由书写 ✗ placeholder 用扩展的 “Type something.” ✓）
+ *   input   → ★ 常驻（placeholder 用 q.placeholder ✓）
+ *   editor  → ✗ 不在底部（内容区有大文本框 ✓）
+ *   confirm → ✗ 没有输入框（只有两个按钮 ✓）
+ *   历史页 / 确认页 → ✗ 没有 ✓
  */
+import { isFreeValue, splitOptions } from "./controls.js";
 import { confirmBody, historyBody, questionBody } from "./pages.js";
 import { advanceToNextUnanswered, state, totalPages, unansweredCount } from "./state.js";
-import type { UiRes } from "./types.js";
+import type { UiReq, UiRes } from "./types.js";
 
 export interface Handlers {
     /** 立刻发一个答复（单题/串行模式 ✓）*/
@@ -34,185 +33,263 @@ export interface Handlers {
     submitAll: () => void;
 }
 
-/** ★ 答卷模式：队列 >= 2（必定是并发 ✓ 见 B26 判定 ✓）*/
+/** ★ 答卷模式：队列 >= 2（必定是并发 ✓）*/
 const isBatch = (): boolean => state.queue.length >= 2;
 /** ★ 确认页的页码（只在答卷模式下存在 ✓）*/
 const confirmPage = (): number => state.history.length + state.queue.length;
 
 export function render(listEl: HTMLElement, h: Handlers): void {
     listEl.textContent = "";
-
     if (state.submitted) {
         listEl.appendChild(info("✓ 已提交，等待 pi 关闭面板…"));
         return;
     }
-    // 真空态 → 什么都不画（#empty 会显示 ✓）
     if (totalPages() === 0) return;
 
-    const box = document.createElement("div");
-    box.className = "batch";
-    box.append(tabBar(h), current(h), nav(h));
-    listEl.appendChild(box);
+    listEl.append(tabBar(h), content(h), composer(h));
 }
 
-// ────────── 页签条 ──────────
+// ────────── ① 页签栏（★ 等分 ✗）──────────
 function tabBar(h: Handlers): HTMLElement {
     const bar = document.createElement("div");
     bar.className = "tabs";
 
-    // 历史页（已答已发送 ✓ 只读）
+    const addTab = (label: string, page: number, cls: string, tip: string): void => {
+        const b = document.createElement("button");
+        b.className = "tab " + cls;
+        if (state.page === page) b.classList.add("active");
+        b.textContent = label;
+        b.title = tip;
+        b.addEventListener("click", () => jump(h, page));
+        bar.appendChild(b);
+    };
+
     state.history.forEach((entry, i) => {
-        const b = document.createElement("button");
-        b.className = "tab done";
-        if (entry.a.cancelled) {
-            b.classList.remove("done");
-            b.classList.add("skipped");
-        }
-        if (state.page === i) b.classList.add("active");
-        b.textContent = String(i + 1);
-        b.title = `已答：${entry.q.title.split("\n")[0].slice(0, 60)}`;
-        b.addEventListener("click", () => jump(h, i));
-        bar.appendChild(b);
+        const cls = entry.a.cancelled ? "skipped" : "done";
+        addTab(`✓ ${i + 1}`, i, cls, `已答：${entry.q.title.split("\n")[0].slice(0, 60)}`);
     });
 
-    // 待答页
     state.queue.forEach((q, i) => {
-        const b = document.createElement("button");
-        b.className = "tab";
         const idx = state.history.length + i;
-        if (state.page === idx) b.classList.add("active");
-        if (state.answers.has(q.id)) b.classList.add("done"); // 答卷模式下已答的
-        b.textContent = String(idx + 1);
-        b.title = q.title.split("\n")[0].slice(0, 60);
-        b.addEventListener("click", () => jump(h, idx));
-        bar.appendChild(b);
+        addTab(String(idx + 1), idx, state.answers.has(q.id) ? "done" : "", q.title.split("\n")[0].slice(0, 60));
     });
 
-    // ★ 确认页：只在答卷模式 ✓
-    if (isBatch()) {
-        const s = document.createElement("button");
-        s.className = "tab submit";
-        if (state.page === confirmPage()) s.classList.add("active");
-        s.textContent = "✓ 提交";
-        s.addEventListener("click", () => jump(h, confirmPage()));
-        bar.appendChild(s);
-    }
-
-    const count = document.createElement("span");
-    count.className = "tab-count";
-    count.textContent = isBatch()
-        ? `已答 ${state.queue.length - unansweredCount()}/${state.queue.length}`
-        : state.queue.length > 0
-          ? "待回答"
-          : "等待下一个…";
-    bar.appendChild(count);
+    if (isBatch()) addTab("提交", confirmPage(), "submit", "检查并一次性提交全部答案");
     return bar;
 }
 
-// ────────── 当前页 ──────────
-function current(h: Handlers): HTMLElement {
-    // ① 历史页（只读 ✓）
-    if (state.page < state.history.length) {
-        return historyBody(state.history[state.page]);
-    }
-    // ② 确认页
+// ────────── ② 内容区 ──────────
+function content(h: Handlers): HTMLElement {
+    const box = document.createElement("div");
+    box.className = "content";
+    const page = document.createElement("div");
+    page.className = "page";
+    page.appendChild(currentPage(h));
+    box.appendChild(page);
+    return box;
+}
+
+function currentPage(h: Handlers): HTMLElement {
+    if (state.page < state.history.length) return historyBody(state.history[state.page]);
+
     if (isBatch() && state.page >= confirmPage()) {
-        return confirmBody(state.queue, state.answers, (i) =>
-            jump(h, state.history.length + i),
+        return confirmBody(
+            state.queue,
+            state.answers,
+            (i) => jump(h, state.history.length + i),
+            () => h.submitAll(),
+            state.queue.every((q) => state.answers.has(q.id)),
+            unansweredCount(),
         );
     }
-    // ③ 待答页
-    const qi = state.page - state.history.length;
-    const q = state.queue[qi];
+
+    const q = state.queue[state.page - state.history.length];
     if (!q) return info("等待下一个问题…");
 
     return questionBody(
         q,
         state.answers.get(q.id),
-        // onDraft：内容变了 → ★ 只写草稿 ✗ 绝不提交 ✓
         (r) => {
             state.answers.set(q.id, r);
-            // ★ 正在文本输入 → 【不重绘】✗
-            //   否则每敲一个字都重建 DOM → 光标跳回末尾 / 页面抖 ✓
-            //   （选项类才需要重绘 ✗ 因为靠 .selected 高亮 ✓）
+            // ★ 正在文本输入 → 【不重绘】✗（否则光标跳回末尾 ✓）
             if (isTyping()) return;
             h.redraw();
         },
-        // onCommit：明确的“提交这个答案”动作 ✗
-        (r) => {
-            state.answers.set(q.id, r);
-            if (isBatch()) {
-                // 答卷：写草稿 + ★ 自动跳到下一题 ✗（用户要求的 ✓）
-                advanceToNextUnanswered();
-                h.redraw();
-            } else {
-                // ★ 串行：立刻发 ✗（否则扩展不发下一题 ✓）
-                h.sendNow(q.id, r);
-            }
-        },
+        (r) => commit(h, q, r),
     );
 }
 
-// ────────── 导航 ──────────
-function nav(h: Handlers): HTMLElement {
+/** ★ 提交一题的答案（串行=立刻发 / 并行=存草稿+跳下一题 ✓）*/
+function commit(h: Handlers, q: UiReq, r: UiRes): void {
+    state.answers.set(q.id, r);
+    state.kbd = 0;
+    if (isBatch()) {
+        advanceToNextUnanswered();
+        h.redraw();
+    } else {
+        h.sendNow(q.id, r); // ★ 串行：立刻发 ✗（否则扩展不发下一题 ✓）
+    }
+}
+
+// ────────── ③ 底部输入区（★ 抄对话输入框 ✓）──────────
+function composer(h: Handlers): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "composer";
+    const inner = document.createElement("div");
+    inner.className = "composer-inner";
+
+    const q = pendingQuestion();
+    const hasInput = !!q && (q.method === "select" || q.method === "input");
+
+    // ── 输入框那一行：左边输入框 ✗ 右边圆形发送 ✓ ──
     const bar = document.createElement("div");
-    bar.className = "nav";
+    bar.className = "composer-bar";
 
-    const prev = mkBtn("← 上一题", () => jump(h, state.page - 1));
+    const send = document.createElement("button");
+    send.className = "send";
+    send.title = "提交（Enter）";
+    // ★ 向上的箭头 ✗（之前写反了 ✓）
+    send.innerHTML =
+        '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 13.5a.75.75 0 0 1-.75-.75V4.56L4.53 7.28a.75.75 0 0 1-1.06-1.06l4-4a.75.75 0 0 1 1.06 0l4 4a.75.75 0 0 1-1.06 1.06L8.75 4.56v8.19a.75.75 0 0 1-.75.75Z"/></svg>';
+    send.disabled = true; // 没输入框时不可点 ✓（下面按需打开 ✓）
+
+    /** 点“发送”或者按 Enter 时调 ✓ */
+    let submit: (() => void) | undefined;
+
+    if (hasInput && q) {
+        const ta = document.createElement("textarea");
+        ta.rows = 1;
+        const cur = state.answers.get(q.id);
+
+        if (q.method === "input") {
+            ta.placeholder = q.placeholder ?? "输入后按 Enter 提交";
+            ta.value = cur?.value ?? q.prefill ?? "";
+        } else {
+            // ★ 自由书写：扩展的 “Type something.” 原文当 placeholder ✓（B27 修 bug ✓）
+            const { freeText } = splitOptions(q);
+            ta.placeholder = freeText ?? "✍ 也可以自己写…（Enter 提交）";
+            if (isFreeValue(q, cur)) ta.value = cur?.value ?? "";
+        }
+
+        // ★ 打字只写草稿 ✗ 不重绘 ✓（否则光标跳 ✓）
+        ta.addEventListener("input", () => {
+            state.answers.set(q.id, { value: ta.value });
+            state.kbd = -1; // ★ 一打字就等于选了“自由书写”✗
+            autoGrow(ta);
+            send.disabled = ta.value.trim() === "";
+        });
+        // ★★ 光标进入输入框 → 取消选项高亮 ✗（用户定的 ✓）
+        ta.addEventListener("focus", () => {
+            if (state.kbd === -1) return;
+            state.kbd = -1;
+            h.redraw();
+        });
+        ta.addEventListener("keydown", (e) => {
+            // ★ Shift+Enter = 换行 ✗（Enter 单独 = 提交 ✓）
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit?.();
+            }
+            if (e.key === "Escape") ta.blur();
+        });
+
+        // ★★ 拖拽进来的文件不能被塞成路径 ✗（用户实测：拖张图→输入框里 10 行 URI ✓）
+        //   现在直接阻止默认行为（将来要支持附件再处理 ✓）
+        ta.addEventListener("dragover", (ev) => ev.preventDefault());
+        ta.addEventListener("drop", (ev) => {
+            ev.preventDefault();
+            const text = ev.dataTransfer?.getData("text/plain") ?? "";
+            if (text) ta.value += text; // 只接受纯文本 ✓ 不接受 URI-list ✓
+        });
+        inner.appendChild(ta);
+        submit = () => commit(h, q, { value: ta.value });
+        send.disabled = ta.value.trim() === "";
+        // ★★ 渲染时【立即】算好高度 ✗（不要等 setTimeout ✓）
+        //   用户报：“选选项时输入框在那里跳”✓
+        //   根因：每帧重建 → 高度先默认 → 再 autoGrow → 视觉上一弹一弹 ✓
+        //   → 同步设一次 → 第一帧就是最终高度 ✓
+        autoGrow(ta);
+
+        // ★★ 自动聚焦（B27 用户要求：“弹过去时焦点也过去”✓）
+        //   · input 页：没有选项 ✓ → 必须聚焦输入框（否则打不了字 ✓）
+        //   · select 页：默认选中第一个选项 ✓ → 【不抢焦点】✗
+        //     这样按 Enter 直接提交选项 1 ✓（用户要的“一下 Enter 就过”✓）
+        //     想打字的话按一下 ↑ → kbd=-1 → 会聚焦输入框 ✓
+        setTimeout(() => {
+            if (q.method === "input" || state.kbd < 0) ta.focus();
+            autoGrow(ta);
+        }, 0);
+    }
+
+    send.addEventListener("click", () => submit?.());
+    inner.appendChild(bar);
+
+    // ── 导航行：★ 永远三个大按钮 ✗（不可用时禁用 ✗ 布局才稳 ✓）──
+    const nav = document.createElement("div");
+    nav.className = "nav-row";
+
+    const prev = mkNav("← 上一页", () => jump(h, state.page - 1));
     prev.disabled = state.page <= 0;
-    bar.appendChild(prev);
+    nav.appendChild(prev);
 
-    // 取消本题：待答页才有 ✓
-    const onQuestion = !(state.page < state.history.length) && !(isBatch() && state.page >= confirmPage());
-    if (onQuestion) {
-        const q = state.queue[state.page - state.history.length];
-        bar.appendChild(
-            mkBtn("取消本题", () => {
-                if (!q) return;
-                if (isBatch()) {
-                    state.answers.set(q.id, { cancelled: true });
-                    advanceToNextUnanswered();
-                    h.redraw();
-                } else {
-                    h.sendNow(q.id, { cancelled: true });
-                }
-            }, "cancel"),
-        );
-    }
+    const cancel = mkNav("取消本页", () => {
+        if (q) commit(h, q, { cancelled: true });
+    }, "danger");
+    cancel.disabled = !q; // 历史页/确认页 → 没东西可取消 ✓
+    nav.appendChild(cancel);
 
-    // 下一页 / 去确认 ✓（只在答卷模式 ✗ 串行时没有确认页 ✓）
-    if (isBatch() && state.page < confirmPage()) {
-        const last = state.page === confirmPage() - 1;
-        bar.appendChild(
-            mkBtn(last ? "去确认 →" : "下一题 →", () => jump(h, state.page + 1), "navbtn"),
-        );
-    }
-    return bar;
+    const lastPage = isBatch() ? confirmPage() : totalPages() - 1;
+    const isLastQ = isBatch() && state.page === confirmPage() - 1;
+    const next = mkNav(isLastQ ? "去确认 →" : "下一页 →", () => jump(h, state.page + 1));
+    next.disabled = state.page >= lastPage;
+    nav.appendChild(next);
+
+    // ★ 发送按钮放在这一行最右 ✗（不再挤上方输入框 ✓）
+    nav.appendChild(send);
+
+    inner.appendChild(nav);
+
+    wrap.appendChild(inner);
+    return wrap;
+}
+
+/** 当前是不是待答页（历史/确认页 → undefined ✓）*/
+function pendingQuestion(): UiReq | undefined {
+    if (state.page < state.history.length) return undefined;
+    if (isBatch() && state.page >= confirmPage()) return undefined;
+    return state.queue[state.page - state.history.length];
 }
 
 // ────────── 零件 ──────────
 function jump(h: Handlers, page: number): void {
     state.page = Math.max(0, Math.min(page, confirmPage()));
+    state.kbd = 0; // ★ 换页后默认选中第一个选项 ✓（Enter 直接通过 ✓）
     h.redraw();
 }
 
-/** ★ 用户此刻是不是在文本输入框里打字 ✗（用来决定能不能重绘 ✓）*/
+/** ★ 用户此刻是不是在文本输入框里打字 ✗（决定能不能重绘 ✓）*/
 function isTyping(): boolean {
     const ae = document.activeElement;
     return !!ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA");
 }
 
-function mkBtn(text: string, onClick: () => void, extra = ""): HTMLButtonElement {
+function mkNav(text: string, onClick: () => void, extra = ""): HTMLButtonElement {
     const b = document.createElement("button");
-    b.className = "uir-opt " + extra;
+    b.className = "nav-btn " + extra;
     b.textContent = text;
     b.addEventListener("click", onClick);
     return b;
 }
 
+/** ★ 输入框高度自适应 ✗（Shift+Enter 换行后要能“长高”✓ 用户报的 ✓）*/
+function autoGrow(ta: HTMLTextAreaElement): void {
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 180) + "px";
+}
+
 function info(text: string): HTMLElement {
     const d = document.createElement("div");
-    d.className = "uir-info";
+    d.className = "info";
     d.textContent = text;
     return d;
 }

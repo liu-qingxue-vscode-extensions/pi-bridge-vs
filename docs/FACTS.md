@@ -382,6 +382,33 @@ bash / python 的 str.replace ✗
    · ★ 最终靠【源码】定论 ✗（rpc-fallback.ts 的 for+await ✓）
 ```
 
+### 16. ★★ HTML/CSS/JS 三件套必须【同级同前缀】
+
+```
+现象（B27）：改完 media/interaction.css ✗ 重开面板样式纹丝不动 ✓
+根因：写到 media/css/interaction.css（子目录 ✗ 那是给 chat.css @import 的 ✓）
+      而 html-loader 找 media/interaction.css ✗ → 404 ✓
+★ 编译不报错 ✗ git status 看不出 ✗ 只有 ls 那个文件才会发现 ✓
+⇒ 三个文件必须：media/<name>.html + media/<name>.css + media/<name>.js ✓
+```
+
+### 17. ★★ webview 会缓存 CSS/JS（要加 ?v=mtime）
+
+```
+现象：改了 media/*.css ✗ 重开面板样式不变 ✓
+根因：VS Code webview 是真浏览器 ✗ asWebviewUri 的 URL 每次都一样 ✓
+修：html-loader 里拼 `?v=<文件 mtime>` ✗ 文件一变 URL 就变 ✓
+★ 不用 package version ✗ 改 CSS 不动它 ✓
+```
+
+### 18. ★★ webview 里的“虚拟等待页”与键盘越界
+
+```
+交互面板：page 允许 == totalPages()（一个虚构的“等下一题”位置 ✓）
+★ 但它【不能手动走进去】✗（←→ 的最大值要减 1 ✓）
+   否则下一题到达后 clamp 不回来 → 永远“等待下一个问题”✓
+```
+
 ## 已解决的重大外部问题（存档）
 
 ### 会话文件断链（2026-09-30 定位）
