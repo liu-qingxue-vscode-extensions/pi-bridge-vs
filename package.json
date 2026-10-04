@@ -272,6 +272,11 @@
                             "type": "string"
                         },
                         "markdownDescription": "折叠规则（字符串数组）。**目的：精确忽略某一部分数据包**，其余照常完整显示 ✓\n\n格式：`type` 或 `type:字段路径` 或 `type:字段路径=值`\n\n· `\"turn_start\"` → 忽略整个 type\n· `\"message_update:assistantMessageEvent.type=text_delta\"` → 只忽略这一类 ✓\n· `\"tool_execution_start:toolName\"` → 只要取得到值就忽略\n\n命中后【不会消失】，而是折叠成一行 `标签 × 条数`（保住时序位置 ✓）。"
+                    },
+                    "pi-bridge.debug.bufferSize": {
+                        "type": "string",
+                        "default": "500",
+                        "markdownDescription": "调试板保留的**条数**。\n\n- 正整数：保留最近 N 条 ✓\n- `max`：★ 不限制（内存换成完整数据 ✓ 你的 32G 内存随便存 ✓）\n- `0`：★ 关闭调试板（等价于总开关关闭 ✓）"
                     }
                 }
             },
@@ -506,7 +511,7 @@
     },
     "activationEvents": [],
     "scripts": {
-        "compile": "tsc -p ./ && tsc -p tsconfig.webview.json --noEmit && node scripts/build-webview.mjs",
+        "compile": "node scripts/check-html.mjs && tsc -p ./ && tsc -p tsconfig.webview.json --noEmit && node scripts/build-webview.mjs",
         "watch": "tsc --watch -p ./",
         "vscode:prepublish": "npm run compile",
         "watch:webview": "node scripts/build-webview.mjs --watch",

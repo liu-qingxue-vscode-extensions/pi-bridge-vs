@@ -339,6 +339,32 @@ bash / python 的 str.replace ✗
 ★ bash 只用于：查询 / 编译 / 一行的数据检查 ✓
 ```
 
+### 14. ★ `#input-area` 是 `pointer-events: none` —— 新增子元素必须自己恢复
+
+```
+#input-area { pointer-events: none; }   ← 让渐变背景不挡鼠标 ✓
+#input-box  { pointer-events: auto; }   ← 只有它和 #foot-bar 恢复了 ✓
+
+★ 后果：任何【新加进 input-area 的子元素】如果不自己写 auto ✓
+        → 会【继承 none】✗ → 整块区域【完全点不动】✓
+          （B25 踩到：交互卡片成了"死卡片"✓ 用户报的 ✓）
+
+★ 已恢复的：#input-box · #foot-bar · #queue-bar · #ui-request ✓
+★ 以后往 input-area 里加东西，先想这一条 ✓
+```
+
+### 15. ★★ HTML 注释必须用标准结尾 ✗（这个坑复发了一次）
+
+```
+第一次（B8）：`<!-- … */` 未闭合 → 吞掉了 <div id="session-body"> ✓
+第二次（B25）：同样写法 → 吞掉了 foot-model / foot-thinking 两个 button ✗
+   → 表现成“找不到 DOM 元素”✓ 而且【完全不报错】✗ 极难定位 ✓
+
+★ 记在文档里【不够】✗（我记过还犯 ✓）
+★★ 必须【工具拦】✗ → scripts/check-html.mjs（接到 npm run compile ✓ 放最前 ✓）
+   检查：注释配对 · 注释里误用 CSS 结尾 · 标签配对 · id 重复 · 未知占位符 ✓
+```
+
 ## 已解决的重大外部问题（存档）
 
 ### 会话文件断链（2026-09-30 定位）

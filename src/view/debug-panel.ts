@@ -15,15 +15,38 @@ import path from "node:path";
 import os from "node:os";
 import { loadWebviewHtml } from "./html-loader.js";
 
-/** 环形缓冲：容量固定，满了丢最旧的 */
+/**
+ * 环形缓冲：容量固定，满了丢最旧的
+ *
+ * ★ 容量 = 0 时【不接受任何数据】✗（B25 用户要求：
+ *   “缓冲为零有点莫名其妙了，收到又扔掉；零的话板子也已经关了，
+ *    板子关掉比较干净一点”✓）
+ *   → 0 的语义对外是“关掉调试板”✗（见 isEnabled ✓）
+ *     这里只是【保险】：真的传 0 也别存东西 ✓
+ * ★ 容量 = Infinity → 无上限（用户配 "max" ✓）
+ */
 class RingBuffer<T> {
     private items: T[] = [];
 
-    constructor(private readonly capacity: number) {}
+    constructor(private capacity: number) {}
+
+    /** ★ 调整容量（配置实时生效用 ✓ 缩小时立即裁掉多余的 ✓）*/
+    setCapacity(n: number): void {
+        this.capacity = n;
+        if (Number.isFinite(n) && this.items.length > n) {
+            this.items.splice(0, this.items.length - n);
+        }
+    }
+
+    /** 清空（切换容量时用 ✗ 避免留下旧容量的数据 ✓）*/
+    clear(): void {
+        this.items = [];
+    }
 
     push(item: T): void {
+        if (this.capacity <= 0) return; // ★ 容量 0 → 直接不收 ✗
         this.items.push(item);
-        if (this.items.length > this.capacity) {
+        if (Number.isFinite(this.capacity) && this.items.length > this.capacity) {
             this.items.shift(); // 丢掉最旧的
         }
     }
@@ -38,10 +61,6 @@ class RingBuffer<T> {
      *  缓冲里永远是完整数据 ✓）*/
     last(): T | undefined {
         return this.items[this.items.length - 1];
-    }
-
-    clear(): void {
-        this.items = [];
     }
 
     get size(): number {
@@ -225,10 +244,22 @@ export class DebugPanel {
      * ★ 面板【上次所在的列】—— 让“靠近打开”真的靠近
      *   固定用 ViewColumn.Beside 会在【每次关掉再开】时又新开一个组 ✗
      *   记住列之后：用户拖到哪、下次就去哪 ✓
+     *
+     * ★★ B25 调整（用户要求 ✓）：
+     *   “我发现在你打开调试板，它都新创建一个组。
+     *    最好是用它第一个组”✓
+     *   → 改成默认用 ViewColumn.One（第一个组 ✓）
+     *   ★ 仍然记住用户拖动（如果用户把它拖到第二组 ✓ 下次还去那里 ✓）
+     *     但【不要】默认新开 ✗（Beside 会新开 ✗ 这是用户不喜欢的地方 ✓）
      */
-    private lastColumn: vscode.ViewColumn = vscode.ViewColumn.Beside;
+    private lastColumn: vscode.ViewColumn = vscode.ViewColumn.One;
 
-    /** 后台缓冲：容量 500 条，够调试用（每条带宿主记录的时间戳） */
+    /**
+     * 后台缓冲：★ 容量可配（B25 ✓）
+     *   · 正整数 → 保留最近 N 条 ✓
+     *   · "max"  → ★ 不限制 ✗（内存换完整数据 ✓ 32G 内存随便存 ✓）
+     *   · "0"    → ★ 关闭调试板 ✗（等价于 debug.enabled=false ✓）
+     */
     private readonly buffer = new RingBuffer<LogEntry>(500);
 
     /**
@@ -244,11 +275,20 @@ export class DebugPanel {
         //   （和 styleVars 同一套路；之前就是缺了这一步 ✗）
         this.configSub = vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("pi-bridge.debug")) {
-                // ★ 总开关被关掉 → 清空缓冲（“空空的”✓ 不再占内存）
-                if (!this.isEnabled()) this.buffer.clear();
+                // ★ 容量可配（B25）：配置一变就同步 ✓
+                //   ★ 缩小时【立即裁掉】多余的部分 ✗（setCapacity 里做了 ✓）
+                //   ★ 0 / 关掉总开关 → 清空缓冲（“空空的”✓ 不再占内存 ✓）
+                const cap = this.bufferCapacity();
+                if (!this.isEnabled()) {
+                    this.buffer.clear();
+                } else {
+                    this.buffer.setCapacity(cap);
+                }
                 this.replayHistory();
             }
         });
+        // ★ 启动时按配置初始化一次（默认 500 ✓ 可能被配成 max / 其他 ✓）
+        this.buffer.setCapacity(this.bufferCapacity());
     }
 
     /** 配置监听（需外部 dispose；main.ts 会塞进 subscriptions ✓） */
@@ -308,11 +348,38 @@ export class DebugPanel {
         this.foldTs = ts;
     }
 
-    /** 调试板总开关（默认开）—— 关掉 = 不接收任何数据 ✓ */
+    /**
+     * ★ 读取缓冲容量配置（B25）
+     *
+     *   正整数 → 那个值 ✓
+     *   "max"  → Infinity ✓（不限制）
+     *   "0"    → 0 ✓（语义 = 关闭调试板 ✓）
+     *   非法值 → 回退 500 ✓
+     */
+    private bufferCapacity(): number {
+        const v = vscode.workspace
+            .getConfiguration("pi-bridge.debug")
+            .get<string>("bufferSize", "500");
+        const s = String(v ?? "").trim().toLowerCase();
+        if (s === "max" || s === "inf" || s === "infinity") return Number.POSITIVE_INFINITY;
+        if (s === "0" || s === "off") return 0;
+        const n = Number.parseInt(s, 10);
+        return Number.isFinite(n) && n > 0 ? n : 500;
+    }
+
+    /**
+     * 调试板总开关（默认开）—— 关掉 = 不接收任何数据 ✓
+     *
+     * ★★ B25：缓冲配成 "0" 也是关 ✗（用户：“零的话板子也已经关了，
+     *   板子关掉比较干净一点”✓）
+     *   → 这样只有一个“关闭”语义 ✗ 不会出现“收到又扔掉”的怪状态 ✓
+     */
     private isEnabled(): boolean {
-        return vscode.workspace
+        const enabled = vscode.workspace
             .getConfiguration("pi-bridge.debug")
             .get<boolean>("enabled", true);
+        if (!enabled) return false;
+        return this.bufferCapacity() !== 0; // ★ 0 = 关 ✓
     }
 
     /**

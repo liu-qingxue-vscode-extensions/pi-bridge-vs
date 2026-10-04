@@ -94,26 +94,6 @@
 }
 
 /* ★ 重启 pi 按钮（次级按钮：平时低调，hover 才明显 ✓）*/
-#btn-reload {
-  flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--vscode-descriptionForeground);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  transition: background .14s ease, color .14s ease;
-}
-#btn-reload svg { width: 15px; height: 15px; }
-#btn-reload:hover {
-  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
-  color: var(--vscode-foreground);
-}
-#btn-reload:active svg { animation: spin .6s linear; }
 #send {
   flex-shrink: 0;
   width: 28px;
@@ -157,6 +137,7 @@
     flex-direction: column;
     gap: 3px;
     margin-bottom: 6px;   /* 与输入框留一点缝 ✓（padding 由 input-area 统一给 ✓）*/
+    pointer-events: auto; /* ★ 同 #ui-request：必须恢复 ✗（否则它也在 none 里 ✓）*/
 }
 #queue-bar[data-empty="true"], #queue-bar:empty { display: none; }
 
@@ -189,34 +170,7 @@
 /* ===== ★ 模型 / 思考深度（B23）=====
    输入区下方那一排的最左端 ✓ 两个都是按钮（左键弹列表 ✓）
    ★ 列表【向上】弹（因为它们在底部 ✗ 往下会出屏 ✓）*/
-/* ★ 把重载/发送【推到右端】（B23 修 ✗）
-   原来靠 #foot-model 的 flex:1 撑开 ✗ 但它现在是按钮了 → 不能再伸缩 ✓
-   → 让 #btn-reload 吃掉所有剩余空间 ✓（最简，不用加留白元素 ✓）*/
-#input-bar #btn-reload { margin-left: auto; }
-
-#foot-model, #foot-thinking {
-  flex: 0 1 auto;
-  max-width: 34%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 2px 6px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--vscode-descriptionForeground);
-  font-size: 11px;
-  font-family: inherit;
-  cursor: pointer;
-}
-#foot-model:hover, #foot-thinking:hover {
-  background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,.24));
-  color: var(--vscode-foreground);
-}
-#foot-model[data-empty="true"], #foot-thinking[data-empty="true"] { display: none; }
-
 /* ★ 向上弹出的候选列表（复用 .ctx-menu 的风格，但定位在按钮上方 ✓）*/
-#foot-model { position: relative; }
 .picker {
   position: fixed;
   z-index: 3000;
@@ -252,3 +206,142 @@
 .picker-item[data-current="true"] { color: var(--vscode-charts-blue, #4aa3df); }
 .picker-item .pk-sub { font-size: 10px; opacity: .62; }
 .picker-empty { padding: 6px 9px; font-size: 11px; opacity: .62; }
+
+/* ===== ★ 扩展交互（B25 回复桥）=====
+   位置：输入区【内部】✗（同 #queue-bar —— 放外面会被 input-area 盖住 ✓）
+   ★ 为什么要【醒目的边框】？
+     pi 在【等你回答】时是卡住的 ✗ 不能让它看着像普通提示 ✓ */
+#ui-request {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+  /* ★★ 必须恢复 pointer-events ✗（B25 踩的“死卡片”✓）
+   *   #input-area 是 pointer-events: none（让渐变背景不挡鼠标 ✓）
+   *   只有 #input-box / #foot-bar 自己恢复了 auto ✓
+   *   → 不写这行就会【继承 none】✓ → 整块交互卡片【点不动】✓
+   *     （用户：“有确认和取消按钮完全点不动”✓）*/
+  pointer-events: auto;
+  /* ★★ 高度限制（B25 用户报的：“上面内容被盖住、下面看不到”✓）
+   *   卡片可能很高（富文本 title + 很多选项 + 分页 ✓）
+   *   → 自己内部滚 ✗ 不要爬到输入框上面去盖住消息区 ✓
+   *   40vh 大约不到一半屏 ✓ 够看 ✓ */
+  max-height: 30vh;
+  overflow-y: auto;
+}
+#ui-request[data-empty="true"], #ui-request:empty { display: none; }
+
+.uir-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-focusBorder, var(--vscode-panel-border));
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, .08));
+}
+.uir-head {
+  display: flex;
+  align-items: flex-start;  /* ★ 多行 title 时标签顶对齐 ✓ */
+  gap: 7px;
+  font-size: 12px;
+}
+/* ★ “pi 需要回答”小标签（一眼看出这是【卡住的】✓）*/
+.uir-tag {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  background: var(--vscode-charts-yellow, #d7a12c);
+  color: #1e1e1e;
+  margin-top: 1px;
+}
+.uir-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  /* ★★ 必须允许【换行 + 保留原格式】✗（B25 踩到 ✓）
+   *   实测：ask-user-question 扩展把【富文本塞进了 title】✗
+   *     （多段、用 ─── 分隔、甚至分行说明 ✓）
+   *   而协议里 select 【只有 options: string[]】✗
+   *   → 它这么干是“协议外玩法”✓ 但既然会碰上就得能看 ✓
+   *   之前我写的是【单行省略】✗ → 看着挤成一团 ✓
+   *   → 现在：换行 + 保留空白 ✓（与 uir-message 一致 ✓）*/
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.uir-message {
+  font-size: 11px;
+  opacity: .8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.uir-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+}
+/* ★ 选项多时纵向排列更省横空间 ✗（B25：4 个长选项并排会把卡片撑爆 ✓）
+   → 只对【 select 的选项】生效 ✗（用 .uir-choice 标记 ✓）
+     其他控件（确定/取消/输入框）不受影响 ✓ */
+.uir-body > .uir-choice {
+  flex: 1 1 100%;
+}
+/* 选项按钮（select 的每个选项也是这个 ✓）*/
+.uir-opt {
+  padding: 3px 11px;
+  border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  /* ★ 选项文字可能很长（如 ask-user-question 的“选项+描述”✓）
+   *   → 允许换行 + 限制最大宽度 ✓（否则会把卡片撑得很宽/很高 ✓）*/
+  max-width: 100%;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.35;
+}
+.uir-opt:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24)); }
+.uir-opt.primary {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+  border-color: transparent;
+}
+.uir-opt.primary:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
+.uir-opt.cancel { opacity: .7; margin-left: auto; }
+.uir-opt.cancel:hover { opacity: 1; border-color: var(--vscode-charts-red, #e05252); color: var(--vscode-charts-red, #e05252); }
+/* 输入类控件 ✓ */
+.uir-body input[type="text"] {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 3px 7px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  background: var(--vscode-input-background, transparent);
+  color: var(--vscode-input-foreground, var(--vscode-foreground));
+  font-size: 12px;
+  font-family: inherit;
+}
+.uir-body textarea {
+  width: 100%;
+  padding: 4px 7px;
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  background: var(--vscode-input-background, transparent);
+  color: var(--vscode-input-foreground, var(--vscode-foreground));
+  font-size: 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  resize: vertical;
+}
+.uir-bar { display: flex; gap: 6px; }
+
+/* ★★ B25：按钮搬走后，输入区只剩发送 ✗
+   原来右侧的组（模型/思考/重载）靠 #btn-reload { margin-left: auto } 顶到右边 ✓
+   那条规则随搬迁删掉了 → ★ 发送会贴左 ✓
+   → 给发送自己加弹性 ✓ */
+#input-bar #send { margin-left: auto; }

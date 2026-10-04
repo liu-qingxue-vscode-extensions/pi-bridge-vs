@@ -490,3 +490,37 @@
   border-bottom-left-radius: 3px;
   pointer-events: none;
 }
+
+/* ===== ★ B25：搬上来的状态类按钮 =====
+   [模型] [思考] 放到会话名旁边 ✓ · [⟳ 重载] 放到压缩旁边 ✓
+   ★ 为什么搬？→ 它们本质是“当前状态/控制”，不是“输入辅助”✓
+     留在输入区会【挤位置】✗ 而且和“发送”不同类 ✓ */
+
+/* ★ 文字型按钮（模型 / 思考深度）——
+   它们是文字而不是图标 ✗ 所以不能套 .tb-btn 的方框（aspect-ratio:1 ✓） */
+#app-toolbar .tb-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 22%;
+  padding: 2px 7px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+}
+#app-toolbar .tb-text:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+  color: var(--vscode-foreground);
+}
+/* ★ 空值时不占位（没模型/没思考等级时隐藏 ✓）*/
+#app-toolbar .tb-text[data-empty="true"] { display: none; }
+
+/* ★ 重载按钮（搬上来后仍保持圆形图标 ✓）*/
+#app-toolbar #btn-reload:active svg { animation: spin .6s linear; }

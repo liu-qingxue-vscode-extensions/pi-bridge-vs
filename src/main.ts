@@ -149,7 +149,53 @@ export function activate(context: vscode.ExtensionContext): void {
             if (e.entry?.type === "model_change") void pushPiState();
         }
 
+        // ★★ 函数【出口】不参与侧效应 ✗ —— 调试板必须【无遗漏】
+        //   无论这个包后面怎么处理，它都得先进调试板 ✓
+        //   （B25 踩到：我把分流写在 log 之前 ✗ → 需要回复的 4 个请求
+        //     【调试板完全看不到】✓ 导出数据里也没有 ✓）
         debugPanel.log(event);
+
+        // ★★ 扩展交互【回复桥】（B25）
+        //
+        // 【分流规则】✗
+        //   需要回复的 4 个 method（select / confirm / input / editor）
+        //     → ★ 不进 ChatPatch ✗ 而是【直接推给前端】✦（临时交互 ✓）
+        //   其余的（notify / setStatus / setWidget / setTitle …）
+        //     → ★ 继续走 toChatPatch ✗（已实现 ✓）
+        //
+        // 【为什么这 4 个不走 ChatPatch？】
+        //   它们不是【消息】/【气泡】✗ 而是【一次问答】✓
+        //   问完就没 ✓ 不该进历史 ✓（像 queueUpdate 一样 ✓）
+        // ★ 运行时确实会来 ✗ 但 onEvent 的【静态类型】只声明了 session 事件 ✓
+        //   （extension_ui_request 是另一个联合成员 ✓ 类型上没合并 ✓）
+        //   → 用 type 字段做收窄 ✓ 不用 as any 敷衍整个对象 ✓
+        if ((event as { type?: string }).type === "extension_ui_request") {
+            const ev = event as {
+                id?: string;
+                method?: string;
+                title?: string;
+                message?: string;
+                options?: string[];
+                placeholder?: string;
+                prefill?: string;
+                timeout?: number;
+            };
+            const needReply = ["select", "confirm", "input", "editor"];
+            if (ev.method && needReply.includes(ev.method) && ev.id) {
+                logInfo(`扩展交互请求：${ev.method} ← ${ev.title ?? ""}`);
+                chatView.post("uiRequest", {
+                    id: ev.id,
+                    method: ev.method,
+                    title: ev.title ?? "",
+                    message: ev.message,
+                    options: ev.options,
+                    placeholder: ev.placeholder,
+                    prefill: ev.prefill,
+                    timeout: ev.timeout,
+                });
+                return; // ★ 不再往下走（它没有被 toChatPatch 处理 ✓）
+            }
+        }
         const patch = toChatPatch(event);
         if (!patch) return;
         // 任务级状态不进 ChatState（它不是气泡），直接推给视图
@@ -426,6 +472,28 @@ export function activate(context: vscode.ExtensionContext): void {
                 } catch (err) {
                     logError(`拉思考等级失败: ${toErrorMessage(err)}`);
                 }
+                return;
+            }
+
+            // ★★ 扩展交互回复（B25）：把用户的选择回给 pi ✓
+            //
+            // 【为什么要单独一条路径？】
+            //   pi 对 extension_ui_response 【不发回执】✗
+            //   → 走 send() 会挂到 30s 超时 ✓ 还会报一个无意义的错 ✓
+            //   → 用 replyExtensionUi（直接写 stdin ✓）
+            if (msg.kind === "uiResponse") {
+                const res: { id: string; value?: string; confirmed?: boolean; cancelled?: boolean } = {
+                    id: msg.id,
+                };
+                if (msg.cancelled) {
+                    res.cancelled = true;
+                } else if (typeof msg.confirmed === "boolean") {
+                    res.confirmed = msg.confirmed;
+                } else {
+                    res.value = msg.value ?? "";
+                }
+                logInfo(`回诉扩展交互：${msg.id.slice(0, 8)} → ${JSON.stringify(res)}`);
+                pi.replyExtensionUi({ type: "extension_ui_response", ...res } as never);
                 return;
             }
 

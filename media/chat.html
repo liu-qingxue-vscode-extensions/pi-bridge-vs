@@ -57,9 +57,24 @@
       <button id="btn-new-session" class="tb-btn" title="新建会话">＋</button>
       <!-- ★ 中间：当前会话名（既是展示也是按钮 → 点击改名 ✓）-->
       <button id="session-title" title="点击修改会话名"></button>
+      <!-- ★★ B25 搬上来的状态类按钮 ✗（用户要求 ✓）
+           用户：“把这个模型和思考深度的按钮搬到上面来，搬到会话名旁边”✓
+           ★ 为什么搬？→ 它们本质是“当前状态”而不是“输入辅助”✓
+             放输入区【挤位置】✗ 而且与发送按钮不同类 ✓ -->
+      <button id="foot-model" class="tb-text" title="点击切换模型"></button>
+      <button id="foot-thinking" class="tb-text" title="点击切换思考深度"></button>
       <!-- 弹性留白：把右组顶到最右 ✓ -->
       <div class="tb-spacer"></div>
-      <!-- ★ 右组（B24）：压缩 + ★ 技能 + 设置（用户定的顺序 ✓）-->
+      <!-- ★ 右组（B24/B25）：重载 + 压缩 + 技能 + 设置 ✓
+           ★ B25 把 ⟳（重载）也搬上来了 ✗（用户：“放到压缩按钮的旁边儿”✓）-->
+      <button id="btn-reload" class="tb-btn" title="重启 pi（应用最新启动参数）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+          <path d="M21 3v6h-6" />
+        </svg>
+      </button>
+      <!-- ★ 压缩（B22）-->
       <button id="btn-compact" class="tb-btn" title="压缩上下文（把前面的历史总结掉，省 token）">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round">
@@ -140,21 +155,15 @@
          为什么不能放外面？input-area 是 position:absolute 沉在底部 ✗
          放外面会被它盖住（实测：条建好了但看不见 ✗）-->
     <div id="queue-bar"></div>
+    <!-- ★ 扩展交互（B25 回复桥）：pi 需要你回答的问答 ✓
+         同样放 input-area 内部 ✗（否则被盖 ✓）-->
+    <div id="ui-request"></div>
     <div id="input-box">
       <textarea id="input" rows="1" placeholder="给 pi 发送消息（Enter 发送，Shift+Enter 换行）"></textarea>
       <div id="input-bar">
-        <!-- ★ 模型 + 思考深度（B23）：与发送按钮同一排、最左端 ✓
-             两个都是按钮 → 左键点击弹出【向上】的列表（支持滚轮 ✓）-->
-        <button id="foot-model" title="点击切换模型"></button>
-        <button id="foot-thinking" title="点击切换思考深度"></button>
-        <!-- ★ 重启 pi：应用最新启动参数（改了 launchArgs 后点它 ✓）-->
-        <button id="btn-reload" title="重启 pi（应用最新启动参数）">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12a9 9 0 1 1-2.6-6.4" />
-            <path d="M21 3v6h-6" />
-          </svg>
-        </button>
+        <!-- ★★ B25：模型 / 思考 / 重载【已搬到按钮栏】✗（用户要求 ✓）
+             这里只留【发送】✗ → 输入区宽敞 ✓
+             而“发送”才是输入区的原生功能 ✓（其余都是状态/控制 ✓）-->
         <button id="send" title="发送 (Enter)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8"
                stroke-linecap="round" stroke-linejoin="round">

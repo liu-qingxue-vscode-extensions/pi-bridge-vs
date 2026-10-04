@@ -65,6 +65,22 @@ export type FrontendMessage =
     //   （rpc-types.d.ts 里 grep "settings" 零命中 ✓）
     //   → 只能我们自己读写文件 ✓ 但要小心并发（见 pi/settings.ts 顶部注释 ✓）
     | { kind: "openSettings" } // 打开面板（或重新读）
+    // ★ 扩展交互回复桥（B25）：前端把用户的选择回给 pi ✓
+    //
+    // 【为什么不走 formatMap？】
+    //   它不是 pi 的【命令】✗ 而是【对 pi 提问的回答】✓
+    //   → 走 pi.replyExtensionUi → client.reply → 直接写 stdin ✓
+    //     （pi 对 extension_ui_response 【不发回执】✗ 不能走 send ✓）
+    | {
+          kind: "uiResponse";
+          id: string;
+          /** select / input / editor 的返回值 ✓ */
+          value?: string;
+          /** confirm 的返回值 ✓ */
+          confirmed?: boolean;
+          /** 用户取消（Esc / 点取消 ✓）*/
+          cancelled?: boolean;
+      }
     // ★ 供应商凭据（B24）：写的是 auth.json ✗ 不是 settings.json ✓
     | { kind: "addApiKey"; provider: string; key: string }
     | { kind: "removeAuth"; provider: string }

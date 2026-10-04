@@ -26,11 +26,18 @@ import { vscode } from "./vscode-api.js";
 export function needEl(id: string): HTMLElement {
     const el = document.getElementById(id);
     if (el) return el;
-    // ★ 找不到 → 【报告给宿主】（输出面板能看到 ✓）而不是只写 console（要开 devtools ✗）
+    // ★ 找不到 → 【把【现场【打出来】✗（B25 调试：光说“找不到”不够 ✓
+    //   我们要知道：HTML 到底长什么样？有哪些 id？脚本跑得早不早？
+    const ids = Array.from(document.querySelectorAll("[id]")).map((x) => (x as HTMLElement).id);
+    const head = document.body ? document.body.innerHTML.replace(/\s+/g, " ").slice(0, 400) : "(无 body)";
     vscode.postMessage({
         kind: "webviewLog",
         level: "error",
-        text: `★ 找不到 DOM 元素 #${id} —— HTML 与 TS 不一致？`,
+        text:
+            `★ 找不到 DOM 元素 #${id}\n` +
+            `  readyState=${document.readyState} | 脚本 src=${(document.currentScript as HTMLScriptElement | null)?.src ?? "?"}\n` +
+            `  当前 DOM 里的 id（共 ${ids.length} 个）: ${ids.join(", ")}\n` +
+            `  body 前 400 字符: ${head}`,
     });
     return document.createElement("div"); // 占位：后续 addEventListener 不会崩 ✓
 }
@@ -44,6 +51,8 @@ export const btnReload = needEl("btn-reload");
 export const btnCompact = needEl("btn-compact");
 /** ★ 「待插话」条容器（挂在输入框上方 ✓ 不进消息流 ✓）*/
 export const queueBarEl = needEl("queue-bar");
+/** ★ 扩展交互请求容器（B25 回复桥）—— 同 queue-bar 放在输入区内部 ✓ */
+export const uiRequestEl = needEl("ui-request");
 /** ★ 模型按钮（B23）+ 思考深度按钮 —— 左键弹列表 ✓ */
 export const footThinking = needEl("foot-thinking");
 

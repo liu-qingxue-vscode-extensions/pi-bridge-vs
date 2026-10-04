@@ -15,7 +15,7 @@
  */
 import { inputEl, messagesEl } from "./dom.js";
 import { ui } from "./state.js";
-import { vscode } from "./vscode-api.js";
+import { log, vscode } from "./vscode-api.js";
 import { createBubble, refreshForkButtons, removePending, showPending } from "./bubbles.js";
 import { setQueueing, showInserting } from "./inserting.js";
 import { appendSegment } from "./segments.js";
@@ -26,6 +26,7 @@ import { showCompactionEnd, showCompactionStart } from "./compact.js";
 import { setModelInfo, showModelPicker, showThinkingPicker } from "./model-picker.js";
 import { renderSettings } from "./settings-panel.js";
 import { renderSkillDetail, renderSkills } from "./skills-panel.js";
+import { showUiRequest } from "./ui-request.js";
 import { updateStatusBar } from "./topbar.js";
 import { appendNotice, clearNotices, removeNotice, renderNotices, resetNotices, setExpanded } from "./noticeboard.js";
 import { applyStyleVars, autoGrow, setAgentState, showCwd, syncPadding } from "./input.js";
@@ -362,9 +363,20 @@ export function setupHostBridge(): void {
                 if (refreshForkButtons()) syncPadding();
                 return;
             // ★ 模型 / 思考等级状态（B23）—— 探针 + 事件增量推来的 ✓
-            case "modelInfo":
-                setModelInfo((data.payload ?? {}) as never);
+            case "modelInfo": {
+                // ★ 加一条日志（B25 调试：模型/思考按钮不显示时排查用 ✓）
+                //   → 日志会走到 VS Code 的输出面板 ✓
+                const mi = (data.payload ?? {}) as {
+                    model?: string;
+                    provider?: string;
+                    thinkingLevel?: string;
+                };
+                log.info(
+                    `[modelInfo] model=${mi.model ?? ""} provider=${mi.provider ?? ""} thinking=${mi.thinkingLevel ?? ""}`,
+                );
+                setModelInfo(mi as never);
                 return;
+            }
             // ★ 设置面板（B24）
             case "settings":
                 renderSettings((data.payload ?? {}) as never);
@@ -375,6 +387,10 @@ export function setupHostBridge(): void {
                 return;
             case "skillDetail":
                 renderSkillDetail((data.payload ?? {}) as never);
+                return;
+            // ★ 扩展交互请求（B25 回复桥）
+            case "uiRequest":
+                showUiRequest((data.payload ?? {}) as never);
                 return;
             // ★ 宿主让前端做的两个动作（B25）
             case "insertToInput": {
