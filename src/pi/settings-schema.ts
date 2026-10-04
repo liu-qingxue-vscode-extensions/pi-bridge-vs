@@ -59,16 +59,17 @@ export const SETTINGS_GROUPS: GroupDef[] = [
             {
                 key: "defaultModel",
                 // ★ 下拉（B24 用户要求：改成“有限字段”输入 ✓）
-                //   选项由【宿主从 models.json 读】✗（不是写死的 ✓）
+                //   选项由【宿主从 models.json + models-store.json 读】✗
+                //
+                // ★★ 值用 `provider/id` 格式 ✗（B24 合并决定 ✓）
+                //   为什么？（用户发现的问题 ✓）
+                //     pi 的 settings 里【两个字段】defaultProvider + defaultModel
+                //     但它们是【一对】✗ 单独改一个 → 组合查不到 → 失效 ✓
+                //     （model-resolver.js:502：两个都有才生效 ✓）
+                //   → UI 上【只暴露这一个】✓ 选完我们【同时写两个字段】✓
+                //     默认供应商那个字段【已删】✗
                 label: "默认模型",
-                desc: "pi 启动时用的模型（只影响启动 ✗ 不影响当前会话 ✓）",
-                kind: "select",
-                needsRestart: true,
-            },
-            {
-                key: "defaultProvider",
-                label: "默认供应商",
-                desc: "与默认模型配套 ✓（选项从 models.json 读 ✓）",
+                desc: "pi 启动时用的模型（只影响启动 ✗ 不影响当前会话 ✓）选完会自动写 provider 字段 ✓",
                 kind: "select",
                 needsRestart: true,
             },

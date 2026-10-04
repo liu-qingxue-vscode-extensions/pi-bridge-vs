@@ -200,7 +200,7 @@
                 }
             },
             {
-                "title": "pi-bridge：设置面板",
+                "title": "pi-bridge：面板：设置",
                 "properties": {
                     "pi-bridge.style.settingsFontSize": {
                         "type": "number",
@@ -208,6 +208,18 @@
                         "minimum": 9,
                         "maximum": 22,
                         "markdownDescription": "设置面板的**字号**（px）。设置面板里所有文字都跟着它缩放 ✓"
+                    }
+                }
+            },
+            {
+                "title": "pi-bridge：面板：技能",
+                "properties": {
+                    "pi-bridge.style.skillsFontSize": {
+                        "type": "number",
+                        "default": 12,
+                        "minimum": 9,
+                        "maximum": 22,
+                        "markdownDescription": "**技能面板**的字号（px）。技能名 / 描述 / 正文都跟着它缩放 ✓"
                     }
                 }
             },

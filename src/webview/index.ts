@@ -21,6 +21,7 @@ import { setupSessions } from "./sessions.js";
 import { setupCompact } from "./compact.js";
 import { setupModelPicker } from "./model-picker.js";
 import { setupSettingsPanel } from "./settings-panel.js";
+import { setupSkillsPanel } from "./skills-panel.js";
 import { setupHostBridge } from "./apply.js";
 
 /**
@@ -51,6 +52,7 @@ safe("sessions", setupSessions);
 safe("compact", setupCompact);
 safe("modelPicker", setupModelPicker);
 safe("settings", setupSettingsPanel);
+safe("skills", setupSkillsPanel);
 
 // ② 宿主消息监听（★ 最关键：无论前面谁崩，它必须挂上 ✓）
 safe("hostBridge", setupHostBridge);

@@ -66,6 +66,12 @@ export type FrontendMessage =
     //   → 只能我们自己读写文件 ✓ 但要小心并发（见 pi/settings.ts 顶部注释 ✓）
     | { kind: "openSettings" } // 打开面板（或重新读）
     | { kind: "saveSettings"; values: Record<string, unknown> } // 只含【改动过】的字段 ✓
+    // ★ 技能面板（B25）—— 本地处理（扫目录 / 读 SKILL.md ✓）
+    | { kind: "openSkills" }
+    | { kind: "skillDetail"; name: string }
+    // ★ 技能内容的两个动作（B25）
+    | { kind: "skillToInput"; content: string } // 填入输入框（本地 ✓）
+    | { kind: "skillAsCommand"; name: string } // 发 skill:<name> 当命令 ✓
     // ★ 分叉（B19）：从【某个 AI 组末尾】切一刀 ✓
     //   userIndex = 该气泡前面有【几个】用户气泡（= get_fork_messages 的下标 ✓）
     //   ★ 注意：这不是“第几条用户消息”，而是【锚点下标】✓ 见 main.ts 的实现 ✓

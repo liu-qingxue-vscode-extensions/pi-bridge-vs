@@ -22,6 +22,7 @@ import {
     settingsPath,
 } from "./dom.js";
 import { vscode } from "./vscode-api.js";
+import { activatePanel, deactivatePanel, registerPanel } from "./panels.js";
 
 interface FieldView {
     key: string;
@@ -102,6 +103,18 @@ function buildRow(f: FieldView): HTMLElement {
             sel.appendChild(op);
         }
         sel.value = String(f.value ?? "");
+        // ★★ 容错：值【不在候选里】也要能显示 ✗（B24 踩到的坑 ✓）
+        //   场景：settings 里的值不在模型目录里（坏了 / 手改的 / 已卸载 ✓）
+        //   → 原生的 select 会【找不到匹配项】→ 显示成空 ✓
+        //     用户看到：“保存后它永远是空的”✓
+        //   → 补一个选项把当前值显出来 ✓ 并标明它不在列表里 ✓
+        if (!sel.value && f.value) {
+            const extra = document.createElement("option");
+            extra.value = String(f.value);
+            extra.textContent = `${String(f.value)}（当前值 · 不在候选列表里）`;
+            sel.appendChild(extra);
+            sel.value = String(f.value);
+        }
         sel.addEventListener("change", () => markDirty(f.key, sel.value, row));
         ctl.appendChild(sel);
     } else if (f.kind === "number") {
@@ -273,12 +286,19 @@ export function renderSettings(p: {
 
 export function setSettingsOpen(open: boolean): void {
     settingsPanel.classList.toggle("collapsed", !open);
-    if (!open) return;
+    if (!open) {
+        deactivatePanel("settings");
+        return;
+    }
+    // ★ 互斥（B25）：打开自己 → 收起其他面板 ✓
+    activatePanel("settings");
     // ★ 每次打开都重新读一遍磁盘 ✗（pi 也可能改过它 ✓）
     vscode.postMessage({ kind: "openSettings" });
 }
 
 export function setupSettingsPanel(): void {
+    // ★ 注册进面板协调器（B25）
+    registerPanel("settings", () => setSettingsOpen(false));
     // ★★ 关键：必须 stopPropagation ✗（B24 踩到的坑 ✓）
     //   否则同一次 click 会继续冒泡到下面的 document 监听 ✓
     //   而 ⚙ 本身不在 #settings-panel 里 → 被当成“点外面”→ 【刚打开就被关】✗
@@ -301,21 +321,23 @@ export function setupSettingsPanel(): void {
         vscode.postMessage({ kind: "saveSettings", values });
     });
 
-    // ★ 点面板外 / 点面板内【非控件】的空白 → 收起（B24 用户要求 ✓）
+    // ★ 点面板外 / 点面板内【空白】→ 收起（B24 用户要求 ✓）
     //
-    // 【为什么用这套“排除法”而不是 stopPropagation？】
+    // 【为什么用“排除法”而不是 stopPropagation？】
     //   和会话面板 / 通知面板同一套模式 ✓（B15 的经验 ✓）
     //
-    // ★ 只排除【真正需要点的东西】✗：
-    //   button / input / select / .s-item（一行设置）
-    //   → 而头部的空白也算“外面”✓ 点了就收 ✓（用户要的 ✓）
-    // ★★ 还有 ⚙ 自己也要排除 ✗（虽然它已 stopPropagation ✓ 双重保险 ✓）
+    // ★★ 只排除【真正需要点的控件】✗（B24 修正 ✓）
+    //   之前把 .s-item / .sg-title 也排除了 ✗ → 而它们占满面板 ✓
+    //   → 结果【点面板内任何空白都不收】✓
+    //     用户：“设置面板缺少一个点击外部收起的功能”✓ 就是它 ✓
+    //   → 现在只排除 button / input / select / textarea（真正在操作的东西 ✓）
+    //     其余（标签、描述、分组标题的空白区）都已经会收 ✓
     document.addEventListener("click", (e) => {
         if (!isEditing()) return;
         const t = e.target as HTMLElement | null;
         if (
             t?.closest(
-                "#settings-panel button, #settings-panel input, #settings-panel select, .s-item, .sg-title, #btn-settings",
+                "#settings-panel button, #settings-panel input, #settings-panel select, #settings-panel textarea, #btn-settings",
             )
         ) {
             return;

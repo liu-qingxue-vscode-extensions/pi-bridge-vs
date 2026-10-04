@@ -39,6 +39,11 @@
   var settingsSave = needEl("settings-save");
   var settingsReload = needEl("settings-reload");
   var settingsPath = needEl("settings-path");
+  var btnSkills = needEl("btn-skills");
+  var skillsPanel = needEl("skills-panel");
+  var skillsBody = needEl("skills-body");
+  var skillsReload = needEl("skills-reload");
+  var skillsPath = needEl("skills-path");
   var statusBarEl = needEl("status-bar");
   var sbCost = needEl("sb-cost");
   var sbOut = needEl("sb-out");
@@ -233,6 +238,24 @@
     });
   }
 
+  // src/webview/panels.ts
+  var closers = /* @__PURE__ */ new Map();
+  var active = null;
+  function registerPanel(id, close) {
+    closers.set(id, close);
+  }
+  function activatePanel(id) {
+    if (active && active !== id) {
+      const close = closers.get(active);
+      log.info(`[panels] ${active} \u2192 ${id}\uFF08\u81EA\u52A8\u6536\u8D77\u524D\u4E00\u5757 \u2713\uFF09`);
+      close?.();
+    }
+    active = id;
+  }
+  function deactivatePanel(id) {
+    if (active === id) active = null;
+  }
+
   // src/webview/noticeboard.ts
   var NOTICE_ICON = {
     info: "\u24D8",
@@ -325,11 +348,15 @@
     noticeToolbar.classList.toggle("collapsed", !ui.panelExpanded);
     noticePanel.classList.toggle("collapsed", !ui.panelExpanded);
     if (ui.panelExpanded) {
+      activatePanel("notices");
       ui.noticeUnread = 0;
       syncBadge();
+    } else {
+      deactivatePanel("notices");
     }
   }
   function setupNoticeBoard() {
+    registerPanel("notices", () => setExpanded(false));
     statusBarEl.addEventListener("click", () => setExpanded());
     noticeCollapse.addEventListener("click", () => setExpanded(false));
     noticePanel.addEventListener("click", (e) => {
@@ -433,7 +460,12 @@
   function setSessionsExpanded(next) {
     expanded = typeof next === "boolean" ? next : !expanded;
     sessionPanel.classList.toggle("collapsed", !expanded);
-    if (expanded) vscode.postMessage({ kind: "listSessions" });
+    if (expanded) {
+      activatePanel("sessions");
+      vscode.postMessage({ kind: "listSessions" });
+    } else {
+      deactivatePanel("sessions");
+    }
   }
   function setCurrentCwd(p) {
     currentCwd = p;
@@ -591,6 +623,7 @@ ${s.path}`;
     }
   }
   function setupSessions() {
+    registerPanel("sessions", () => setSessionsExpanded(false));
     btnSessions.addEventListener("click", () => setSessionsExpanded());
     btnNewSession.addEventListener("click", () => {
       vscode.postMessage({ kind: "newSession" });
@@ -981,6 +1014,13 @@ ${s.path}`;
         sel.appendChild(op);
       }
       sel.value = String(f.value ?? "");
+      if (!sel.value && f.value) {
+        const extra = document.createElement("option");
+        extra.value = String(f.value);
+        extra.textContent = `${String(f.value)}\uFF08\u5F53\u524D\u503C \xB7 \u4E0D\u5728\u5019\u9009\u5217\u8868\u91CC\uFF09`;
+        sel.appendChild(extra);
+        sel.value = String(f.value);
+      }
       sel.addEventListener("change", () => markDirty(f.key, sel.value, row));
       ctl.appendChild(sel);
     } else if (f.kind === "number") {
@@ -1130,10 +1170,15 @@ ${s.path}`;
   }
   function setSettingsOpen(open) {
     settingsPanel.classList.toggle("collapsed", !open);
-    if (!open) return;
+    if (!open) {
+      deactivatePanel("settings");
+      return;
+    }
+    activatePanel("settings");
     vscode.postMessage({ kind: "openSettings" });
   }
   function setupSettingsPanel() {
+    registerPanel("settings", () => setSettingsOpen(false));
     btnSettings.addEventListener("click", (e) => {
       e.stopPropagation();
       setSettingsOpen(!isEditing());
@@ -1154,7 +1199,7 @@ ${s.path}`;
       if (!isEditing()) return;
       const t = e.target;
       if (t?.closest(
-        "#settings-panel button, #settings-panel input, #settings-panel select, .s-item, .sg-title, #btn-settings"
+        "#settings-panel button, #settings-panel input, #settings-panel select, #settings-panel textarea, #btn-settings"
       )) {
         return;
       }
@@ -1165,6 +1210,122 @@ ${s.path}`;
       setSettingsOpen(false);
     });
     void bodyBuilt;
+  }
+
+  // src/webview/skills-panel.ts
+  var rendered = false;
+  var detailEl = null;
+  function isOpen() {
+    return !skillsPanel.classList.contains("collapsed");
+  }
+  function setSkillsOpen(open) {
+    skillsPanel.classList.toggle("collapsed", !open);
+    if (!open) {
+      deactivatePanel("skills");
+      return;
+    }
+    activatePanel("skills");
+    vscode.postMessage({ kind: "openSkills" });
+  }
+  function renderSkills(p) {
+    skillsPath.textContent = p.dir ?? "";
+    skillsPath.title = p.dir ?? "";
+    skillsBody.textContent = "";
+    const list = p.skills ?? [];
+    if (!list.length) {
+      const empty = document.createElement("div");
+      empty.className = "s-loading";
+      empty.textContent = "\u6CA1\u6709\u627E\u5230\u6280\u80FD\uFF08\u6280\u80FD\u653E <agentDir>/skills/<\u540D\u5B57>/SKILL.md \u2713\uFF09";
+      skillsBody.appendChild(empty);
+      rendered = true;
+      return;
+    }
+    for (const s of list) {
+      const row = document.createElement("div");
+      row.className = "sk-item";
+      if (s.path) row.title = s.path;
+      const name = document.createElement("div");
+      name.className = "sk-name";
+      name.textContent = s.name;
+      const desc = document.createElement("div");
+      desc.className = "sk-desc";
+      desc.textContent = s.description ?? "\uFF08\u6CA1\u6709\u63CF\u8FF0\uFF09";
+      row.appendChild(name);
+      row.appendChild(desc);
+      if (s.source) {
+        const src = document.createElement("div");
+        src.className = "sk-src";
+        src.textContent = s.source;
+        row.appendChild(src);
+      }
+      row.addEventListener("click", () => {
+        if (detailEl?.dataset.for === s.name) {
+          detailEl.remove();
+          detailEl = null;
+          return;
+        }
+        vscode.postMessage({ kind: "skillDetail", name: s.name });
+      });
+      skillsBody.appendChild(row);
+    }
+    rendered = true;
+    void rendered;
+  }
+  function renderSkillDetail(p) {
+    detailEl?.remove();
+    let host = null;
+    for (const el of Array.from(skillsBody.querySelectorAll(".sk-item"))) {
+      if (el.querySelector(".sk-name")?.textContent === p.name) {
+        host = el;
+        break;
+      }
+    }
+    if (!host) return;
+    const box = document.createElement("div");
+    box.className = "sk-detail";
+    box.dataset.for = p.name;
+    const pre = document.createElement("pre");
+    pre.className = "sk-content";
+    pre.textContent = p.content ?? "(\u7A7A)";
+    const bar = document.createElement("div");
+    bar.className = "sk-actions";
+    const toInput = document.createElement("button");
+    toInput.textContent = "\u586B\u5165\u8F93\u5165\u6846";
+    toInput.title = "\u628A\u6280\u80FD\u6B63\u6587\u8D34\u8FDB\u8F93\u5165\u6846\uFF08\u4F60\u53EF\u4EE5\u5148\u6539\u518D\u53D1 \u2713\uFF09";
+    toInput.addEventListener("click", (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ kind: "skillToInput", content: p.content ?? "" });
+    });
+    const asCmd = document.createElement("button");
+    asCmd.textContent = "\u4F5C\u4E3A\u547D\u4EE4\u53D1\u9001";
+    asCmd.title = `\u76F4\u63A5\u53D1\u9001 \`skill:${p.name}\`\uFF08pi \u539F\u751F\u652F\u6301 \u2713\uFF09`;
+    asCmd.addEventListener("click", (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ kind: "skillAsCommand", name: p.name });
+    });
+    bar.appendChild(toInput);
+    bar.appendChild(asCmd);
+    box.appendChild(bar);
+    box.appendChild(pre);
+    host.after(box);
+    detailEl = box;
+  }
+  function setupSkillsPanel() {
+    registerPanel("skills", () => setSkillsOpen(false));
+    btnSkills.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setSkillsOpen(!isOpen());
+    });
+    skillsReload.addEventListener("click", (e) => {
+      e.stopPropagation();
+      vscode.postMessage({ kind: "openSkills" });
+    });
+    document.addEventListener("click", (e) => {
+      if (!isOpen()) return;
+      const t = e.target;
+      if (t?.closest("#skills-panel button, .sk-item, .sk-detail, #btn-skills")) return;
+      setSkillsOpen(false);
+    });
   }
 
   // src/webview/inserting.ts
@@ -1728,6 +1889,27 @@ ${s.path}`;
         case "settings":
           renderSettings(data.payload ?? {});
           return;
+        // ★ 技能列表（B25）
+        case "skills":
+          renderSkills(data.payload ?? {});
+          return;
+        case "skillDetail":
+          renderSkillDetail(data.payload ?? {});
+          return;
+        // ★ 宿主让前端做的两个动作（B25）
+        case "insertToInput": {
+          const t = data.payload?.text ?? "";
+          inputEl.value = inputEl.value ? inputEl.value + "\n" + t : t;
+          autoGrow();
+          inputEl.focus();
+          return;
+        }
+        case "sendText": {
+          const t = data.payload?.text ?? "";
+          if (!t) return;
+          vscode.postMessage({ kind: "prompt", text: t });
+          return;
+        }
         case "modelList":
           showModelPicker(data.payload ?? []);
           return;
@@ -1779,6 +1961,7 @@ ${s.path}`;
   safe("compact", setupCompact);
   safe("modelPicker", setupModelPicker);
   safe("settings", setupSettingsPanel);
+  safe("skills", setupSkillsPanel);
   safe("hostBridge", setupHostBridge);
   post("ready");
 })();

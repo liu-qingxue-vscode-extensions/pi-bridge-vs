@@ -13,8 +13,9 @@
  * 【为什么单独一个文件？】
  *   这是"唯一的入口分发点"，集中后各渲染模块不需要知道消息协议 ✓
  */
-import { messagesEl } from "./dom.js";
+import { inputEl, messagesEl } from "./dom.js";
 import { ui } from "./state.js";
+import { vscode } from "./vscode-api.js";
 import { createBubble, refreshForkButtons, removePending, showPending } from "./bubbles.js";
 import { setQueueing, showInserting } from "./inserting.js";
 import { appendSegment } from "./segments.js";
@@ -24,6 +25,7 @@ import { appendStopNote, showRetryNotice } from "./notices.js";
 import { showCompactionEnd, showCompactionStart } from "./compact.js";
 import { setModelInfo, showModelPicker, showThinkingPicker } from "./model-picker.js";
 import { renderSettings } from "./settings-panel.js";
+import { renderSkillDetail, renderSkills } from "./skills-panel.js";
 import { updateStatusBar } from "./topbar.js";
 import { appendNotice, clearNotices, removeNotice, renderNotices, resetNotices, setExpanded } from "./noticeboard.js";
 import { applyStyleVars, autoGrow, setAgentState, showCwd, syncPadding } from "./input.js";
@@ -367,6 +369,27 @@ export function setupHostBridge(): void {
             case "settings":
                 renderSettings((data.payload ?? {}) as never);
                 return;
+            // ★ 技能列表（B25）
+            case "skills":
+                renderSkills((data.payload ?? {}) as never);
+                return;
+            case "skillDetail":
+                renderSkillDetail((data.payload ?? {}) as never);
+                return;
+            // ★ 宿主让前端做的两个动作（B25）
+            case "insertToInput": {
+                const t = (data.payload as { text?: string })?.text ?? "";
+                inputEl.value = inputEl.value ? inputEl.value + "\n" + t : t;
+                autoGrow();
+                inputEl.focus();
+                return;
+            }
+            case "sendText": {
+                const t = (data.payload as { text?: string })?.text ?? "";
+                if (!t) return;
+                vscode.postMessage({ kind: "prompt", text: t });
+                return;
+            }
             case "modelList":
                 showModelPicker((data.payload ?? []) as never);
                 return;

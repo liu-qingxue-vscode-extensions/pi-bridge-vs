@@ -48,9 +48,6 @@ import { SessionStore, deleteSessionFile, sessionDirForCwd, validateSessionFile 
 import { ChatState } from "./view/chat-state.js";
 import { toErrorMessage } from "./utils.js";
 
-/** ★ 启用模型列表的存储键（B23）*/
-const MODEL_STORE_KEY = "pi-bridge.modelStore.enabled";
-
 export function activate(context: vscode.ExtensionContext): void {
     // 0. 日志（LogOutputChannel：VS Code 自动落盘 + 分级 + 轮转）
     context.subscriptions.push(initLogger());
@@ -126,20 +123,6 @@ export function activate(context: vscode.ExtensionContext): void {
     /** ★ 是否已推过初始状态（惰启动后只推一次 ✓）*/
     let pushedInitialState = false;
 
-    /**
-     * ★ get_available_models 的缓存（B23 用户要求 ✓）
-     *
-     * 【为什么可以缓存？】（用户的原话 ✓）
-     *   “好像是个死数据，不用维护就可以缓存”
-     *   模型目录在【一个 pi 进程的生命周期内】不会变 ✗
-     *   （它只受 models.json / --models 影响，都是【启动时】读的 ✓）
-     *
-     * 【什么时候必须清？】
-     *   · pi.reload() 之后 → 那是【新进程】✗ 目录可能不同 ✓
-     *   · 用户在别处改了 models.json → 需要重启 pi（我们顺带就清了 ✓）
-     * ★ 所以维护成本就是【reload 时置 null】✓ 一行 ✓
-     */
-    let cachedModels: { id?: string; name?: string; provider?: string }[] | null = null;
     pi.onEvent((event) => {
         // ★ 状态维护（在调试板之前，确保不漏 ✓）
         //
@@ -444,6 +427,55 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
+            // ★ 技能面板（B25）：扫描技能 → 推给前端 ✓
+            if (msg.kind === "openSkills") {
+                try {
+                    chatView.post("skills", readSkills());
+                } catch (err) {
+                    logError(`扫技能失败: ${toErrorMessage(err)}`);
+                }
+                return;
+            }
+
+            // ★ 看某个技能的详情（B25）：读 SKILL.md 正文 → 推给前端 ✓
+            if (msg.kind === "skillDetail") {
+                const all = readSkills().skills;
+                const hit = all.find((x) => x.name === msg.name);
+                if (!hit?.path) {
+                    logWarn(`技能详情：找不到 ${msg.name}`);
+                    return;
+                }
+                try {
+                    const text = fs.readFileSync(hit.path, "utf8");
+                    chatView.post("skillDetail", {
+                        name: hit.name,
+                        source: hit.source,
+                        path: hit.path,
+                        content: text,
+                    });
+                } catch (err) {
+                    logError(`读技能内容失败: ${toErrorMessage(err)}`);
+                }
+                return;
+            }
+
+            // ★ 技能 → 填入输入框（B25）：推给前端让它自己塞 ✓
+            //   （为什么不直接改 textarea？→ 那是 webview 的 DOM ✗ 宿主碰不到 ✓）
+            if (msg.kind === "skillToInput") {
+                chatView.post("insertToInput", { text: msg.content });
+                return;
+            }
+
+            // ★ 技能 → 作为命令发送（B25）：发 `skill:<name>` ✓
+            //   ★ pi 原生支持 skill 命令 ✗（我们之前 get_commands 看到过 ✓）
+            //   → 走正常 prompt 通道即可 ✓（busy 时会自动转 steer ✓）
+            if (msg.kind === "skillAsCommand") {
+                const text = `skill:${msg.name}`;
+                logInfo(`技能作为命令发送：${text}`);
+                chatView.post("sendText", { text });
+                return;
+            }
+
             // ★ 设置面板（B24）：打开 / 重新读取（本地文件操作 ✓）
             if (msg.kind === "openSettings") {
                 postSettings();
@@ -455,6 +487,35 @@ export function activate(context: vscode.ExtensionContext): void {
                 try {
                     const patch: Record<string, unknown> = {};
                     for (const [k, v] of Object.entries(msg.values ?? {})) {
+                        // ★★ defaultModel 是【合成字段】✗（界面上的值是 "provider/id" ✓）
+                        //   要拆回 pi 认的【两个】字段 ✓（B24 合并决定 ✓）
+                        //
+                        // 【之前这段没生效的教训】✗
+                        //   我用 python 的 str.replace 改的 ✗ 没匹配上也不报错 ✓
+                        //   → 看起来“改完了”✗ 实际没改 ✓ 结果保存时把 "mock/mock"
+                        //     直接写进了 defaultModel ✓ 而 defaultProvider 没动 ✓
+                        //     → 文件里成了 provider=ollama + model=mock/mock（错配 ✗）
+                        //     → 前端拼出 "ollama/mock/mock" → 下拉里没这个选项 → 显示空 ✓
+                        //   ★ 教训：改代码用 edit 工具 ✗（不匹配会报错 ✓）
+                        //
+                        // 【拆法】不能用 split("/") ✗ —— 模型 id 自己可能带 / ✓
+                        //   （如 openrouter 的 moonshotai/kimi-k2.6 ✓）
+                        //   → 从【模型目录里反查】哪个条目完全匹配 ✓
+                        if (k === "defaultModel" && typeof v === "string" && v) {
+                            const hit = readModelCatalog().find(
+                                (m) => `${m.provider}/${m.id}` === v,
+                            );
+                            if (hit) {
+                                patch.defaultProvider = hit.provider;
+                                patch.defaultModel = hit.id;
+                            } else if (!v.includes("/")) {
+                                // 只给了 id（无 provider）→ 只写模型 ✓
+                                patch.defaultModel = v;
+                            } else {
+                                logWarn(`默认模型：目录里找不到 "${v}" ✗ 本次不写入 ✓`);
+                            }
+                            continue;
+                        }
                         // ★ 空字符串 → 删除该字段 ✗（pi 会回到默认 ✓）
                         //   （而不是写一个空值进去 ✗ 那样 pi 会当成“显式设为空”✓）
                         setByPath(patch, k, v === "" || v === undefined ? undefined : v);
@@ -565,7 +626,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
                 // ② 重启（新参数生效）
                 await pi.reload();
-                cachedModels = null; // ★ 新进程 → 模型目录可能不同 ✗ 必须清 ✓
                 chatState.reset();
                 logInfo("  重启完成");
 
@@ -1089,14 +1149,12 @@ export function activate(context: vscode.ExtensionContext): void {
             items: g.items.map((f) => {
                 // ★ 动态注入选项（B24 用户要求：这些字段改成“有限字段”下拉 ✓）
                 let options = f.options;
-                if (f.key === "defaultProvider") {
-                    options = providers.map((p) => ({ value: p, label: p }));
-                } else if (f.key === "defaultModel") {
-                    // ★ 只显示 provider/id ✗（B24 用户反馈：加名字太乱 ✓）
-                    //   名字放 title 里（悬停能看 ✓）—— 选项本身就是“选哪个模型”✓
-                    //   而 provider/id 【已经是唯一标识】✗ 不用再带一遍名字 ✓
-                    options = catalog.map((m) => ({
-                        value: m.id,
+                if (f.key === "defaultModel") {
+                    // ★ 选项与值【都用 `provider/id`】✗（B24 合并决定 ✓）
+                    //   为什么值也用全名？→ 保存时能拆成两个字段 ✓
+                    //   （另外：只有 id 的话，同名模型在不同供应商下会歧义 ✓）
+                    options = sortCatalog(catalog).map((m) => ({
+                        value: `${m.provider}/${m.id}`,
                         label: `${m.provider}/${m.id}`,
                     }));
                 } else if (f.kind === "extlist") {
@@ -1108,11 +1166,19 @@ export function activate(context: vscode.ExtensionContext): void {
                     }));
                 } else if (f.key === "enabledModels") {
                     // ★ 列表控件也用它：下拉“选一个添加”✗ 不用手敲 ✓
-                    //   （用户：“都可以改成类似的设计”✓）
-                    options = catalog.map((m) => ({
+                    //   ★ 同样的排序 ✓（用户看下拉时体验一致 ✓）
+                    options = sortCatalog(catalog).map((m) => ({
                         value: `${m.provider}/${m.id}`,
                         label: `${m.provider}/${m.id}`,
                     }));
+                }
+                // ★ defaultModel 要【合成】provider/id 显示 ✗（B24 合并 ✓）
+                //   因为文件里是分开存的（provider + model 两个字段 ✓）
+                let value = getByPath(all, f.key) ?? f.fallback ?? defaultForKind(f.kind);
+                if (f.key === "defaultModel") {
+                    const prov = typeof all.defaultProvider === "string" ? all.defaultProvider : "";
+                    const id = typeof all.defaultModel === "string" ? all.defaultModel : "";
+                    value = id ? (prov ? `${prov}/${id}` : id) : "";
                 }
                 return {
                     key: f.key,
@@ -1123,7 +1189,7 @@ export function activate(context: vscode.ExtensionContext): void {
                     min: f.min,
                     max: f.max,
                     needsRestart: f.needsRestart,
-                    value: getByPath(all, f.key) ?? f.fallback ?? defaultForKind(f.kind),
+                    value,
                     exists: getByPath(all, f.key) !== undefined,
                 };
             }),
@@ -1197,12 +1263,147 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     /**
-     * ★ 拉一次模型目录（给设置面板的下拉框用 ✓ B24）
+     * ★ 扫描技能（B25）
      *
-     * 【为什么不用 cachedModels？】
-     *   它要【惰启动 pi】✗（get_available_models 是 pi 的命令 ✓）
-     *   而打开设置面板不应该把 pi 拉起来 ✗
-     *   → 设置面板用【磁盘上的目录】✓ 反正它不是热数据 ✓
+     * 【技能【来自【两个地方】✗（实测确认 ✓）
+     *   ① 用户自己的：<agentDir>/skills/<name>/SKILL.md ✓
+     *   ② 扩展包提供的：包的 package.json 里 `pi.skills: ["./skills"]` ✓
+     *      （例：@mammothb/pi-mermaid → mermaid 技能 ✓）
+     *
+     * 【怎么读描述？】
+     *   SKILL.md 开头有 YAML frontmatter ✓：
+     *     ---
+     *     name: debugging
+     *     description: 诊断反常现象…
+     *     ---
+     *   ★ 只读前 30 行 ✗（避开大文件 ✓ 而且 frontmatter 必定在开头 ✓）
+     */
+    function readSkills(): {
+        dir: string;
+        skills: { name: string; description?: string; source?: string; path?: string }[];
+    } {
+        const out: { name: string; description?: string; source?: string; path?: string }[] = [];
+
+        /** 从一个 SKILL.md 提取 name/description ✓ */
+        const parse = (file: string): { name?: string; description?: string } => {
+            try {
+                const head = fs.readFileSync(file, "utf8").split("\n").slice(0, 30).join("\n");
+                const m = /^---\s*\n([\s\S]*?)\n---/.exec(head);
+                if (!m) return {};
+                const body = m[1];
+                const name = /^name:\s*(.+)$/m.exec(body)?.[1]?.trim();
+                // ★ description 可能很长 / 含中文 ✓ 直接取到行尾 ✓
+                const description = /^description:\s*(.+)$/m.exec(body)?.[1]?.trim();
+                return { name, description };
+            } catch {
+                return {};
+            }
+        };
+
+        /** 扫一个 skills 目录（里面是 <name>/SKILL.md ✓）*/
+        const scanDir = (dir: string, source: string) => {
+            let entries: fs.Dirent[];
+            try {
+                entries = fs.readdirSync(dir, { withFileTypes: true });
+            } catch {
+                return;
+            }
+            for (const e of entries) {
+                if (!e.isDirectory()) continue;
+                const file = path.join(dir, e.name, "SKILL.md");
+                if (!existsSync(file)) continue;
+                const meta = parse(file);
+                out.push({
+                    name: meta.name ?? e.name,
+                    description: meta.description,
+                    source,
+                    path: file,
+                });
+            }
+        };
+
+        // ① 用户自己的技能 ✓
+        const userDir = path.join(getAgentDir(), "skills");
+        scanDir(userDir, "用户技能");
+
+        // ② 扩展包提供的技能 ✓
+        const nm = path.join(getAgentDir(), "npm", "node_modules");
+        const scanExt = (dir: string) => {
+            try {
+                const pj = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) as {
+                    name?: string;
+                    pi?: { skills?: string[] };
+                };
+                for (const rel of pj.pi?.skills ?? []) {
+                    scanDir(path.join(dir, rel), pj.name ?? "扩展");
+                }
+            } catch {
+                /* ignore */
+            }
+        };
+        try {
+            for (const e of fs.readdirSync(nm, { withFileTypes: true })) {
+                if (!e.isDirectory()) continue;
+                if (e.name.startsWith("@")) {
+                    const sd = path.join(nm, e.name);
+                    for (const s of fs.readdirSync(sd, { withFileTypes: true })) {
+                        if (s.isDirectory()) scanExt(path.join(sd, s.name));
+                    }
+                } else if (!e.name.startsWith(".")) {
+                    scanExt(path.join(nm, e.name));
+                }
+            }
+        } catch (err) {
+            logDebug(`扫扩展技能失败: ${toErrorMessage(err)}`);
+        }
+
+        out.sort((a, b) => a.name.localeCompare(b.name));
+        logInfo(`技能：${out.length} 个（` + out.map((s) => s.name).join(", ") + `）`);
+        return { dir: userDir, skills: out };
+    }
+
+    /**
+     * ★ 模型目录的【展示排序】✗（B24 用户要求 ✓）
+     *
+     * 用户原话：
+     *   “按供应商排序，然后供应商相同的放到一起，
+     *    然后供应商之间怎么排的？按数量排，少的放前面，多的放后面。”✓
+     *
+     * 例（按你现在装的）：
+     *   mock(1) → deepseek(2) → ollama(5) → github-copilot(34) ✓
+     *
+     * 为什么这样舒服？
+     *   · 少的在前面 → 常用的小供应商【不用滑到底】✗
+     *   · 同供应商连在一起 → 一眼能看出“这是谁家的模型”✓
+     *   · GitHub 那种 34 个的沉到最底 ✓ 不挡路 ✓
+     *
+     * ★ 相同数量时按供应商名排 ✗（保证顺序稳定 ✓ 不随扫目录顺序变 ✓）
+     */
+    function sortCatalog(
+        list: { provider: string; id: string; name?: string }[],
+    ): { provider: string; id: string; name?: string }[] {
+        const byProv = new Map<string, { provider: string; id: string; name?: string }[]>();
+        for (const m of list) {
+            const arr = byProv.get(m.provider) ?? [];
+            arr.push(m);
+            byProv.set(m.provider, arr);
+        }
+        return [...byProv.entries()]
+            .sort((a, b) => a[1].length - b[1].length || a[0].localeCompare(b[0]))
+            .flatMap(([, arr]) => arr.sort((x, y) => x.id.localeCompare(y.id)));
+    }
+
+    /**
+     * ★ 拉一次模型目录（磁盘上的 ✓）
+     *
+     * 【谁在用？】
+     *   · 设置面板的下拉（默认模型 / 启用列表 ✓）
+     *   · ★ 模型切换菜单（输入区那个 ✓）
+     *
+     * 【为什么不问 pi（get_available_models）？】
+     *   那是 pi 的命令 → 会【惰启动 pi】✗
+     *   而点一个下拉框不该把 pi 拉起来 ✓
+     *   → 读磁盘上的目录 ✓ 两个文件合并后结果一样 ✓
      *
      * ★★ 两个文件【是互补的】✗（B24 实测踩到 ✓）
      *   · models.json       = 用户手写的供应商（ollama / mock / deepseek … ✓）
@@ -1272,51 +1473,68 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     /**
-     * ★ 启用模型列表（B23）
+     * ★ 启用模型列表（B24）
      *
-     * 【为什么存 globalState 而不是 VS Code 配置？】（用户定的 ✓）
-     *   · 它该由【我们自己的设置面板】管 ✗（B24 ✓）
-     *   · 放两处会分叉 ✗（Ctrl+, 改一个、面板改一个 → 谁赢？）
+     * ★★ 数据源 = pi 的 `settings.json` 的 `enabledModels` ✗
+     *   （B24 实测：pi 本来就有这个字段 ✓ 我们自己造的 globalState 是多余的 ✓）
+     *   用户原话：“你点击模型应该是启用列表，而不是所有列表啊
+     *             要不然那个列表还有啥用啊？那个列表还是我们自己维护的”✓
      *
      * 【格式】`provider/id` ✓
      * 【空数组】= 不限制 ✓ 用全部可用模型 ✓
      */
     function getEnabledModels(): string[] {
-        const v = context.globalState.get<string[]>(MODEL_STORE_KEY, []);
-        return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+        const v = readSettings().enabledModels;
+        return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
     }
 
-    /** ★ 把模型候选推给前端（带 current 标记 ✓）*/
+    /**
+     * ★ 把【模型切换菜单】的候选推给前端（带 current 标记 ✓）
+     *
+     * ★★ 范围 = 【启用列表】✗（= settings.json 的 enabledModels ✓）
+     *   用户原话：“你点击模型应该是启用列表，而不是所有列表啊，
+     *              要不然那个列表还有啥用啊？”✓
+     *
+     * ★ 为什么不用 get_available_models？✗
+     *   那是 pi 的命令 → 会【惰启动 pi】✗
+     *   而点一个下拉框不该把 pi 拉起来 ✓
+     *   → 用磁盘上的目录（models.json + models-store.json ✓ 结果一样 ✓）
+     */
     async function postModelList(): Promise<void> {
         try {
-            if (!cachedModels) {
-                const r = (await pi.sendRaw({ type: "get_available_models" })) as {
-                    data?: { models?: { id?: string; name?: string; provider?: string }[] };
-                };
-                cachedModels = r?.data?.models ?? [];
-                logInfo(`模型目录已缓存：${cachedModels.length} 个（死数据 ✓ reload 时才清 ✓）`);
-            }
-            const all = cachedModels;
+            const all = readModelCatalog();
             const enabled = getEnabledModels();
-            const st = (await pi.sendRaw({ type: "get_state" })) as {
-                data?: { model?: { id?: string; provider?: string } };
-            };
-            const curId = st?.data?.model?.id;
-            const curProv = st?.data?.model?.provider;
+            // ★ 当前模型（用来高亮 ✓）—— 只有 pi 已启动才问得到 ✗
+            let curKey = "";
+            if (pi.isStarted()) {
+                const st = (await pi.sendRaw({ type: "get_state" })) as {
+                    data?: { model?: { id?: string; provider?: string } };
+                };
+                const m = st?.data?.model;
+                if (m?.id && m.provider) curKey = `${m.provider}/${m.id}`;
+            }
 
-            const list = all
-                .filter((m) => m.id && m.provider)
-                .filter((m) => !enabled.length || enabled.includes(`${m.provider}/${m.id}`))
-                .map((m) => ({
-                    provider: m.provider as string,
-                    id: m.id as string,
-                    name: m.name,
-                    current: m.id === curId && m.provider === curProv,
-                }));
+            let list = all;
+            if (enabled.length) {
+                list = all.filter((m) => enabled.includes(`${m.provider}/${m.id}`));
+                // ★ 当前模型若【不在启用列表里】也补上 ✗
+                //   （比如你刚把默认模型切到别处 ✓ 否则菜单里看不到自己在用哪个 ✓）
+                if (curKey && !list.some((m) => `${m.provider}/${m.id}` === curKey)) {
+                    const cur = all.find((m) => `${m.provider}/${m.id}` === curKey);
+                    if (cur) list = [cur, ...list];
+                }
+            }
+            const out = sortCatalog(list).map((m) => ({
+                provider: m.provider,
+                id: m.id,
+                name: m.name,
+                current: `${m.provider}/${m.id}` === curKey,
+            }));
             logInfo(
-                `模型候选：${list.length} 个（启用列表 ${enabled.length ? `${enabled.length} 项` : "空 → 全部"}）`,
+                `模型切换菜单：${out.length} 个` +
+                    `（启用列表 ${enabled.length ? `${enabled.length} 项` : "空 → 全部"}）`,
             );
-            chatView.post("modelList", list);
+            chatView.post("modelList", out);
         } catch (err) {
             logError(`拉模型列表失败: ${toErrorMessage(err)}`);
         }

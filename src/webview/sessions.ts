@@ -20,6 +20,7 @@
  */
 import { vscode, log } from "./vscode-api.js";
 import { showContextMenu } from "./context-menu.js";
+import { activatePanel, deactivatePanel, registerPanel } from "./panels.js";
 import {
     btnSessions,
     btnNewSession,
@@ -55,8 +56,14 @@ let currentCwd = "";
 export function setSessionsExpanded(next?: boolean): void {
     expanded = typeof next === "boolean" ? next : !expanded;
     sessionPanel.classList.toggle("collapsed", !expanded);
-    // ★ 展开时才去拉列表（按需 ✓ 不在插件激活时扫盘 ✗）
-    if (expanded) vscode.postMessage({ kind: "listSessions" });
+    if (expanded) {
+        // ★ 互斥（B25）：打开自己 → 自动收起其他面板 ✓
+        activatePanel("sessions");
+        // ★ 展开时才去拉列表（按需 ✓ 不在插件激活时扫盘 ✗）
+        vscode.postMessage({ kind: "listSessions" });
+    } else {
+        deactivatePanel("sessions");
+    }
 }
 
 /** 记录当前工作目录（host 推送 cwd 时调 ✓） */
@@ -289,6 +296,8 @@ export function renderSessions(list: SessionInfo[]): void {
 
 /** 绑定交互（入口调用一次 ✓） */
 export function setupSessions(): void {
+    // ★ 注册进面板协调器（B25）：别人打开时会调这个把自己收起来 ✓
+    registerPanel("sessions", () => setSessionsExpanded(false));
     // ① [☰ 会话] → 展开/收起 ✓（展开时会自动去拉列表 ✓）
     btnSessions.addEventListener("click", () => setSessionsExpanded());
     // ② [＋ 新建] → 通知宿主新建会话

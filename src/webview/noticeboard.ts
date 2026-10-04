@@ -26,6 +26,7 @@ import {
     statusBarEl,
 } from "./dom.js";
 import { ui, type UiNotice } from "./state.js";
+import { activatePanel, deactivatePanel, registerPanel } from "./panels.js";
 
 const NOTICE_ICON: Record<string, string> = {
     info: "ⓘ",
@@ -149,13 +150,19 @@ export function setExpanded(next?: boolean): void {
     noticeToolbar.classList.toggle("collapsed", !ui.panelExpanded);
     noticePanel.classList.toggle("collapsed", !ui.panelExpanded);
     if (ui.panelExpanded) {
+        // ★ 互斥（B25）
+        activatePanel("notices");
         ui.noticeUnread = 0; // 展开就视为看过 ✓（★ 不落盘 → 无需记录已读）
         syncBadge();
+    } else {
+        deactivatePanel("notices");
     }
 }
 
 /** 绑定交互（入口调用一次 ✓） */
 export function setupNoticeBoard(): void {
+    // ★ 注册进面板协调器（B25）
+    registerPanel("notices", () => setExpanded(false));
     // ① 整栏点击 → 展开/收起 ✓
     statusBarEl.addEventListener("click", () => setExpanded());
 

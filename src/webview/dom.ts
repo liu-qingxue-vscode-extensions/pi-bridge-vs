@@ -55,6 +55,13 @@ export const settingsSave = needEl("settings-save") as HTMLButtonElement;
 export const settingsReload = needEl("settings-reload");
 export const settingsPath = needEl("settings-path");
 
+// ── 技能面板（B25）──
+export const btnSkills = needEl("btn-skills");
+export const skillsPanel = needEl("skills-panel");
+export const skillsBody = needEl("skills-body");
+export const skillsReload = needEl("skills-reload");
+export const skillsPath = needEl("skills-path");
+
 // ── 顶栏（topbar）：统计栏 + 电池 ──
 export const statusBarEl = needEl("status-bar");
 export const sbCost = needEl("sb-cost");

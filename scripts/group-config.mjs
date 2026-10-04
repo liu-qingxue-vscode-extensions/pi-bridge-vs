@@ -64,7 +64,9 @@ const GROUPS = [
     { title: "顶栏与按钮行", test: /topBarHeight|appToolbarHeight|sessionTitleWidth/ },
     { title: "输入区", test: /input/i },
     // ★ 设置面板（B24）：它自己的外观项（字号 ✓）
-    { title: "设置面板", test: /^pi-bridge\.style\.settings/ },
+    // ★ 面板类（B24/B25）：它们自己的外观项
+    { title: "面板：设置", test: /^pi-bridge\.style\.settings/ },
+    { title: "面板：技能", test: /^pi-bridge\.style\.skills/ },
     // ★ 会话显示范围（用户要求 ✓）
     { title: "会话", test: /^pi-bridge\.sessions\.|sessionPanel/ },
     { title: "调试板", test: /^pi-bridge\.debug\./ },
