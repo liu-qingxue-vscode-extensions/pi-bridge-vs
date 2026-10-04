@@ -409,6 +409,40 @@ bash / python 的 str.replace ✗
    否则下一题到达后 clamp 不回来 → 永远“等待下一个问题”✓
 ```
 
+### 19. ★★ focus / input 这类高频事件里【绝不能全量重绘】
+
+```
+现象（B28）：交互面板的 Enter 突然没用了 ✗ 按钮点击也没反应 ✓
+根因：ta.addEventListener("focus", () => { ...; h.redraw(); })
+   → 光标一进输入框就重建整个 DOM ✗
+   → textarea 被换掉 ✗ 按键时若正好碰上重建 → 事件丢失 ✓
+修：只改必要的高亮类 ✗ DOM 一动不动 ✓
+★ 同理适用：input / scroll / resize / mousemove 等高频事件 ✓
+```
+
+### 20. ★ pi 内置 TUI 命令在 RPC 下【不执行】
+
+```
+pi 文档原话（rpc-commands.md:834）：
+"Built-in TUI commands (/settings, /hotkeys, etc.) are not included.
+ They are handled only in interactive mode and would not execute
+ if sent via prompt."
+⇒ 斜杠补全【不要】把它们列进去 ✗（会误导 ✓）
+★ 它们大多有按钮替代：/model /compact /new /name /fork /clone
+  /export /copy /settings /reload … ✓
+```
+
+### 21. ★★ RPC 层没有 navigate_tree（会话树导航）
+
+```
+RPC 支持的 37 个命令里 ✗ tree 相关【只有 get_tree】（只读 ✓）
+但 navigateTree 通过【扩展的 command context】暴露 ✓：
+  docs/extensions.md:214 “...reloading, 【tree navigation】, and session replacement”
+  rpc-mode.js:240  navigateTree(targetId, { summarize, customInstructions, label })
+★ 想用的话：写一个小 pi 扩展包一层命令 ✓（走官方路径 ✗ 不是 hack ✓）
+★ 而且 pi 的会话是 append-only 树 ✗ 导航【不删数据】✓ 随时能回去 ✓
+```
+
 ## 已解决的重大外部问题（存档）
 
 ### 会话文件断链（2026-09-30 定位）

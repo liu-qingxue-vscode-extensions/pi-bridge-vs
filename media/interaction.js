@@ -311,7 +311,7 @@
     state.answers.set(q.id, r);
     state.kbd = 0;
     if (isBatch()) {
-      advanceToNextUnanswered();
+      if (!advanceToNextUnanswered()) state.page = confirmPage();
       h.redraw();
     } else {
       h.sendNow(q.id, r);
@@ -353,7 +353,7 @@
       ta.addEventListener("focus", () => {
         if (state.kbd === -1) return;
         state.kbd = -1;
-        h.redraw();
+        document.querySelectorAll("[data-kbd-index]").forEach((el) => el.classList.remove("kbd"));
       });
       ta.addEventListener("keydown", (e) => {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -551,6 +551,14 @@
       e.preventDefault();
       const r = q.method === "confirm" ? { confirmed: opt === "\u786E\u5B9A" } : { value: opt };
       handlers.sendNow(q.id, r);
+      return;
+    }
+    if (e.key === "Enter" && !inText && !q && state.queue.length >= 2) {
+      const onConfirm = state.page >= state.history.length + state.queue.length;
+      if (onConfirm) {
+        e.preventDefault();
+        if (state.queue.every((it) => state.answers.has(it.id))) handlers.submitAll();
+      }
       return;
     }
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {

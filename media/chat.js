@@ -151,6 +151,136 @@
     return parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.45;
   }
 
+  // src/webview/slash-menu.ts
+  var menuEl = document.getElementById("slash-menu");
+  var commands = [];
+  var matches = [];
+  var selected = 0;
+  var open = false;
+  function currentPrefix() {
+    const v = inputEl.value;
+    const pos = inputEl.selectionStart ?? 0;
+    if (!v.startsWith("/")) return null;
+    const before = v.slice(0, pos);
+    if (before.includes("\n")) return null;
+    const prefix = before.slice(1);
+    if (/\s/.test(prefix)) return null;
+    return prefix;
+  }
+  function filterByPrefix(prefix) {
+    const p = prefix.toLowerCase();
+    if (!p) return commands;
+    const starts = commands.filter((c) => c.name.toLowerCase().startsWith(p));
+    const contains = commands.filter(
+      (c) => !c.name.toLowerCase().startsWith(p) && c.name.toLowerCase().includes(p)
+    );
+    return [...starts, ...contains];
+  }
+  function render() {
+    if (!menuEl) return;
+    menuEl.textContent = "";
+    if (!open || matches.length === 0) {
+      menuEl.dataset.empty = "true";
+    } else {
+      menuEl.dataset.empty = "false";
+      matches.forEach((c, i) => {
+        const row = document.createElement("button");
+        row.className = "slash-item" + (i === selected ? " active" : "");
+        const name = document.createElement("span");
+        name.className = "slash-name";
+        name.textContent = "/" + c.name;
+        const src = document.createElement("span");
+        src.className = "slash-src";
+        src.textContent = c.source ?? "";
+        const desc = document.createElement("span");
+        desc.className = "slash-desc";
+        desc.textContent = c.description ?? "";
+        row.append(name, src, desc);
+        row.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          selected = i;
+          apply();
+        });
+        menuEl.appendChild(row);
+      });
+    }
+    requestAnimationFrame(() => {
+      menuEl.querySelector(".slash-item.active")?.scrollIntoView({ block: "nearest" });
+      syncPadding();
+    });
+  }
+  function apply() {
+    const cmd = matches[selected];
+    if (!cmd) return;
+    inputEl.value = "/" + cmd.name + " ";
+    inputEl.selectionStart = inputEl.selectionEnd = inputEl.value.length;
+    close();
+    inputEl.focus();
+  }
+  function close() {
+    open = false;
+    matches = [];
+    selected = 0;
+    render();
+  }
+  function refreshSlashMenu(keepSelection = false) {
+    if (!menuEl) return;
+    if (commands.length === 0) {
+      vscode.postMessage({ kind: "listCommands" });
+      return;
+    }
+    const prefix = currentPrefix();
+    if (prefix === null) {
+      close();
+      return;
+    }
+    matches = filterByPrefix(prefix);
+    if (!keepSelection) selected = 0;
+    if (selected >= matches.length) selected = 0;
+    open = matches.length > 0;
+    render();
+  }
+  function slashMenuKey(e) {
+    if (!open) return false;
+    const n = matches.length;
+    if (n === 0) return false;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      selected = (selected + 1) % n;
+      render();
+      return true;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      selected = (selected - 1 + n) % n;
+      render();
+      return true;
+    }
+    if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      apply();
+      return true;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+      return true;
+    }
+    return false;
+  }
+  function setCommands(list) {
+    commands = list;
+    refreshSlashMenu(true);
+  }
+  function setupSlashMenu() {
+    inputEl.addEventListener("input", () => refreshSlashMenu());
+    inputEl.addEventListener("keyup", (e) => {
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") refreshSlashMenu(true);
+    });
+    inputEl.addEventListener("blur", () => setTimeout(close, 120));
+    vscode.postMessage({ kind: "listCommands" });
+  }
+
   // src/webview/input.ts
   function send2() {
     const text = inputEl.value.trim();
@@ -223,6 +353,7 @@
       }
     });
     inputEl.addEventListener("keydown", (e) => {
+      if (slashMenuKey(e)) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         send2();
@@ -242,14 +373,14 @@
   // src/webview/panels.ts
   var closers = /* @__PURE__ */ new Map();
   var active = null;
-  function registerPanel(id, close) {
-    closers.set(id, close);
+  function registerPanel(id, close2) {
+    closers.set(id, close2);
   }
   function activatePanel(id) {
     if (active && active !== id) {
-      const close = closers.get(active);
+      const close2 = closers.get(active);
       log.info(`[panels] ${active} \u2192 ${id}\uFF08\u81EA\u52A8\u6536\u8D77\u524D\u4E00\u5757 \u2713\uFF09`);
-      close?.();
+      close2?.();
     }
     active = id;
   }
@@ -418,10 +549,10 @@
   }
 
   // src/webview/context-menu.ts
-  var menuEl = null;
+  var menuEl2 = null;
   function hideContextMenu() {
-    menuEl?.remove();
-    menuEl = null;
+    menuEl2?.remove();
+    menuEl2 = null;
   }
   function showContextMenu(ev, items) {
     ev.preventDefault();
@@ -446,7 +577,7 @@
     const maxY = window.innerHeight - r.height - 6;
     m.style.left = Math.max(4, Math.min(ev.clientX, maxX)) + "px";
     m.style.top = Math.max(4, Math.min(ev.clientY, maxY)) + "px";
-    menuEl = m;
+    menuEl2 = m;
   }
   document.addEventListener("click", hideContextMenu);
   document.addEventListener("contextmenu", hideContextMenu);
@@ -1259,9 +1390,9 @@ ${s.path}`;
     }
     bodyBuilt = true;
   }
-  function setSettingsOpen(open) {
-    settingsPanel.classList.toggle("collapsed", !open);
-    if (!open) {
+  function setSettingsOpen(open2) {
+    settingsPanel.classList.toggle("collapsed", !open2);
+    if (!open2) {
       deactivatePanel("settings");
       return;
     }
@@ -1319,9 +1450,9 @@ ${s.path}`;
   function isOpen() {
     return !skillsPanel.classList.contains("collapsed");
   }
-  function setSkillsOpen(open) {
-    skillsPanel.classList.toggle("collapsed", !open);
-    if (!open) {
+  function setSkillsOpen(open2) {
+    skillsPanel.classList.toggle("collapsed", !open2);
+    if (!open2) {
       deactivatePanel("skills");
       return;
     }
@@ -2044,6 +2175,10 @@ ${s.path}`;
         case "skillDetail":
           renderSkillDetail(data.payload ?? {});
           return;
+        // ★ B27：斜杠补全的命令列表 ✓
+        case "commands":
+          setCommands((data.payload ?? {}).commands);
+          return;
         // ★ 侧栏交互提示（B26）：完整问答已搬到编辑器面板 ✓
         case "interactionHint":
           showInteractionHint(data.payload ?? {});
@@ -2119,6 +2254,7 @@ ${s.path}`;
   safe("settings", setupSettingsPanel);
   safe("skills", setupSkillsPanel);
   safe("uiRequest", setupUiRequest);
+  safe("slashMenu", setupSlashMenu);
   safe("hostBridge", setupHostBridge);
   post("ready");
 })();

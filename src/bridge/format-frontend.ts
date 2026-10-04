@@ -84,6 +84,8 @@ export type FrontendMessage =
     // ★ B26：侧栏[前往] → 把编辑器交互面板弹到前面 ✓
     //   （也是一条【本地消息】✗ 不发 pi ✓）
     | { kind: "interactionFocus" }
+    // ★ B27：拉命令列表（斜杠补全用 ✗ 问 pi 的 get_commands ✓）
+    | { kind: "listCommands" }
     // ★ 供应商凭据（B24）：写的是 auth.json ✗ 不是 settings.json ✓
     | { kind: "addApiKey"; provider: string; key: string }
     | { kind: "removeAuth"; provider: string }

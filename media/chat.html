@@ -159,6 +159,9 @@
          同样放 input-area 内部 ✗（否则被盖 ✓）-->
     <div id="ui-request"></div>
     <div id="input-box">
+      <!-- ★ B27：斜杠命令补全（按下 / 就列出所有命令 ✓）
+           为什么放这里？→ 它属于输入框的附件 ✗ 靠在 textarea 上方 ✓ -->
+      <div id="slash-menu" data-empty="true"></div>
       <textarea id="input" rows="1" placeholder="给 pi 发送消息（Enter 发送，Shift+Enter 换行）"></textarea>
       <div id="input-bar">
         <!-- ★★ B25：模型 / 思考 / 重载【已搬到按钮栏】✗（用户要求 ✓）

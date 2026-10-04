@@ -551,6 +551,30 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
+            // ★ B27：拉取命令列表（斜杠补全用 ✓）
+            //
+            // 【数据源】pi 的 RPC `get_commands` ✗ 返回：
+            //   { name, description?, source: "extension"|"prompt"|"skill", sourceInfo }
+            //   ★ 不包括内置 TUI 命令（/settings /hotkeys 之类 ✗ 它们在 RPC 下不执行 ✓）
+            if (msg.kind === "listCommands") {
+                try {
+                    const r = (await pi.sendRaw({ type: "get_commands" })) as {
+                        success?: boolean;
+                        data?: { commands?: unknown[] };
+                        error?: string;
+                    };
+                    if (r.success && Array.isArray(r.data?.commands)) {
+                        logInfo(`命令列表：${r.data.commands.length} 个`);
+                        chatView.post("commands", { commands: r.data.commands });
+                    } else {
+                        logWarn(`拉命令列表失败：${r.error ?? "未知"}`);
+                    }
+                } catch (err) {
+                    logError(`拉命令列表异常：${toErrorMessage(err)}`);
+                }
+                return;
+            }
+
             // ★ B26：侧栏[前往] → 把编辑器面板弹到前面 ✓
             if (msg.kind === "interactionFocus") {
                 interactionPanel.show();

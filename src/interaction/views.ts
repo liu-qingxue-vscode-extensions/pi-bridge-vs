@@ -124,7 +124,10 @@ function commit(h: Handlers, q: UiReq, r: UiRes): void {
     state.answers.set(q.id, r);
     state.kbd = 0;
     if (isBatch()) {
-        advanceToNextUnanswered();
+        // 答卷：写草稿 + ★ 自动跳到下一题 ✗（用户要求的 ✓）
+        //   ★ 如果后面已经没有未答的题 ✗ → 自动去【确认页】✓
+        //     （用户报的：“必须去点那个去确认 ✓ 输入框里按 Enter 没用”✓）
+        if (!advanceToNextUnanswered()) state.page = confirmPage();
         h.redraw();
     } else {
         h.sendNow(q.id, r); // ★ 串行：立刻发 ✗（否则扩展不发下一题 ✓）
@@ -179,10 +182,19 @@ function composer(h: Handlers): HTMLElement {
             send.disabled = ta.value.trim() === "";
         });
         // ★★ 光标进入输入框 → 取消选项高亮 ✗（用户定的 ✓）
+        //
+        // 【★ 这里【绝不能】redraw ✗】（B27 踩的坑 ✓）
+        //   旧实现：focus → state.kbd=-1 → h.redraw() → 整个 DOM 重建 ✓
+        //   ⇒ textarea 被换成新的 ✗ 光标位置/内容都可能乱 ✓
+        //   ⇒ 而且用户按 Enter 时如果恰好碰上重建 ✗ 事件就丢了 ✓
+        //      （用户报的：“enter 没用了 ✗ 必须去点那个按钮”✓）
+        //   ⇒ 现在只【清高亮】✗ DOM 不动 ✓
         ta.addEventListener("focus", () => {
             if (state.kbd === -1) return;
             state.kbd = -1;
-            h.redraw();
+            document
+                .querySelectorAll<HTMLElement>("[data-kbd-index]")
+                .forEach((el) => el.classList.remove("kbd"));
         });
         ta.addEventListener("keydown", (e) => {
             // ★ Shift+Enter = 换行 ✗（Enter 单独 = 提交 ✓）

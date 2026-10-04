@@ -239,6 +239,18 @@ document.addEventListener("keydown", (e) => {
         return;
     }
 
+    // ══ ★ 确认页：Enter = 提交全部（用户要求 ✓）══
+    //   “提交页面的提交全部应该吃一下 enter”✓
+    //   ★ 但只有【全部答完】时才真的提交 ✗ 否则什么都不做 ✓
+    if (e.key === "Enter" && !inText && !q && state.queue.length >= 2) {
+        const onConfirm = state.page >= state.history.length + state.queue.length;
+        if (onConfirm) {
+            e.preventDefault();
+            if (state.queue.every((it) => state.answers.has(it.id))) handlers.submitAll();
+        }
+        return;
+    }
+
     // ══ ← →（输入框在边界时翻页 ✓）══
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         const left = e.key === "ArrowLeft";

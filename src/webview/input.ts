@@ -9,6 +9,7 @@ import { vscode } from "./vscode-api.js";
 import { inputEl, sendBtn, messagesEl, inputAreaEl, footCwd, btnReload } from "./dom.js";
 import { ui } from "./state.js";
 import { cssNum, lineHeightOf, shortenPath } from "./format.js";
+import { slashMenuKey } from "./slash-menu.js";
 
 function send(): void {
     const text = inputEl.value.trim();
@@ -123,6 +124,9 @@ export function setupInput(): void {
     });
 
     inputEl.addEventListener("keydown", (e) => {
+        // ★ B27：先给斜杠补全一次机会 ✗
+        //   （它开着时 ↑↓/Enter/Tab/Esc 都归它 ✓）
+        if (slashMenuKey(e)) return;
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             send();

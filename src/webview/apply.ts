@@ -27,6 +27,7 @@ import { setModelInfo, showModelPicker, showThinkingPicker } from "./model-picke
 import { renderSettings } from "./settings-panel.js";
 import { renderSkillDetail, renderSkills } from "./skills-panel.js";
 import { showInteractionHint } from "./ui-request.js";
+import { setCommands } from "./slash-menu.js";
 import { updateStatusBar } from "./topbar.js";
 import { appendNotice, clearNotices, removeNotice, renderNotices, resetNotices, setExpanded } from "./noticeboard.js";
 import { applyStyleVars, autoGrow, setAgentState, showCwd, syncPadding } from "./input.js";
@@ -387,6 +388,10 @@ export function setupHostBridge(): void {
                 return;
             case "skillDetail":
                 renderSkillDetail((data.payload ?? {}) as never);
+                return;
+            // ★ B27：斜杠补全的命令列表 ✓
+            case "commands":
+                setCommands(((data.payload ?? {}) as { commands?: unknown }).commands as never);
                 return;
             // ★ 侧栏交互提示（B26）：完整问答已搬到编辑器面板 ✓
             case "interactionHint":
