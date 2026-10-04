@@ -45,6 +45,13 @@ export interface SessionInfo {
     broken?: string;
     /** ★ 轮次（用户消息数 —— 只有刷新过才有 ✓ 否则显示 "?"）*/
     turns?: number;
+    /**
+     * ★ 父会话路径（B24 fork 树用 ✓）
+     *
+     *  来自会话文件首行的 parentSession ✓（clone / fork 会写 ✓）
+     *  → 渲染时把子会话【缩进】到父下面 ✓
+     */
+    parent?: string;
 }
 
 let expanded = false;
@@ -135,6 +142,50 @@ function prettyPath(p: string): string {
  *   ★ 点分组标题 = 【只展开/折叠】（纯前端 ✓ 绝不切 cwd ✗ 不重载 ✗）
  *   点会话条目   = 切换会话（同 cwd → 不重载 ✓；跨 cwd → 重载 ✓ 下一步做）
  */
+/**
+ * ★ 把一组会话排成【树】✗（B24：fork 渲染 ✓）
+ *
+ * 【为什么需要它？】（用户要求 ✓）
+ *   “绘画面板的渲染，要把 fork 给渲染出来，要简单排一下列，
+ *     把分支放到主的下面”✓
+ *
+ * 【数据从哪来？】每个会话的 `parent` 字段 ✓
+ *   （来自会话文件首行的 parentSession ✓ clone/fork 时会写 ✓）
+ *
+ * 【返回什么？】扁平化后的 DFS 顺序 ✓
+ *   [{ s, depth }] —— 父后面【紧跟】它的子 ✓ depth 即缩进层级 ✓
+ *
+ * 【两个边界（实测会遇到 ✓）】
+ *   ① parent 指向的会话【不在同一组】（跨 cwd / 已删除 ✓）
+ *      → 把它当【根】处理 ✓（否则会整条消失 ✗）
+ *   ② 环（A→B→A）—— 理论上不会 ✗（父总是先创建 ✓）
+ *      但加载了被改坏的文件就可能 → 用 seen 兜一下 ✓
+ */
+function treeify(items: SessionInfo[]): { s: SessionInfo; depth: number }[] {
+    const byPath = new Map(items.map((s) => [s.path, s]));
+    const kids = new Map<string, SessionInfo[]>();
+    const roots: SessionInfo[] = [];
+    for (const s of items) {
+        if (s.parent && byPath.has(s.parent) && s.parent !== s.path) {
+            const arr = kids.get(s.parent) ?? [];
+            arr.push(s);
+            kids.set(s.parent, arr);
+        } else {
+            roots.push(s); // ★ 边界 ①：当根 ✓
+        }
+    }
+    const out: { s: SessionInfo; depth: number }[] = [];
+    const seen = new Set<string>();
+    const walk = (s: SessionInfo, depth: number) => {
+        if (seen.has(s.path)) return; // ★ 边界 ②：环保护 ✓
+        seen.add(s.path);
+        out.push({ s, depth });
+        for (const c of kids.get(s.path) ?? []) walk(c, depth + 1);
+    };
+    for (const r of roots) walk(r, 0);
+    return out;
+}
+
 export function renderSessions(list: SessionInfo[]): void {
     log.info(`会话列表：收到 ${list.length} 条`);
     sessionList.innerHTML = "";
@@ -192,12 +243,31 @@ export function renderSessions(list: SessionInfo[]): void {
         g.appendChild(head);
 
         // 条目列表（会话 ✓）
+        // ★ B24：排成【树】✗ —— fork / clone 出来的会话缩进到主的下面 ✓
         const body = document.createElement("div");
         body.className = "sg-body";
-        for (const s of items) {
+        for (const { s, depth } of treeify(items)) {
             const row = document.createElement("button");
             row.className = "session-item";
             row.dataset.path = s.path;
+            // ★ 缩进（每层 14px ✓）+ 分支标记 ✓
+            if (depth > 0) {
+                row.classList.add("is-branch");
+                // ★★ 缩进用 paddingLeft ✗（B24 修正 ✓）
+                //   为什么不用 marginLeft？
+                //     margin 会【把元素推到父容器外】✗ → 横向滚动条 ✓
+                //       （用户：“创造出了一个左右滑块”✓）
+                //   配合 .session-item 的 box-sizing:border-box ✗
+                //     → 元素仍占满宽度 ✓ 只是【内容右移】✓
+                //       内容自然变窄 —— 这正是缩进该有的效果 ✓
+                const left = 24 + depth * 14;
+                row.style.paddingLeft = `${left}px`;
+                // ★ 传给 CSS 它【字符的起点】✗ → 拐角自己往前推 ✓
+                //   一个缩进单位（每层 14px）= 【线 7px + 空隙 7px】✗
+                //   ★ 为什么不能直接画在字符左边？
+                //     那样线和字会【顶在一起】✓（用户报的“字符和线重合”✓）
+                row.style.setProperty("--indent", `${left}px`);
+            }
 
             if (s.broken) {
                 // ★ 异常文件：标红 + 显示原因 + 【不可点】（防切过去出错 ✗）

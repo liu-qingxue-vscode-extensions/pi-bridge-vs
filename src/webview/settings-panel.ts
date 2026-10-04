@@ -28,7 +28,7 @@ interface FieldView {
     key: string;
     label: string;
     desc?: string;
-    kind: "text" | "number" | "boolean" | "select" | "list" | "extlist";
+    kind: "text" | "number" | "boolean" | "select" | "list" | "extlist" | "providers";
     options?: { value: string; label: string; title?: string }[];
     min?: number;
     max?: number;
@@ -195,8 +195,88 @@ function buildRow(f: FieldView): HTMLElement {
         };
         renderItems();
         ctl.appendChild(box);
-    } else if (f.kind === "extlist") {
-        // ★ 已装扩展的启用/停用（B24 ✓）
+    } else if (f.kind === "providers") {
+        // ★ 供应商凭据（B24）—— 看 / 增 / 删 ✓
+        //   ★ oauth 完全只读 ✗（用户定的：“做成灰色的不可改项目”✓）
+        const box = document.createElement("div");
+        box.className = "s-providers";
+        const entries = (Array.isArray(f.value) ? f.value : []) as {
+            provider: string;
+            type: string;
+            editable: boolean;
+            masked?: string;
+            expiresAt?: string;
+        }[];
+
+        for (const e of entries) {
+            const line = document.createElement("div");
+            line.className = "sp-item" + (e.editable ? "" : " readonly");
+
+            const name = document.createElement("span");
+            name.className = "sp-name";
+            name.textContent = e.provider;
+
+            const type = document.createElement("span");
+            type.className = "sp-type";
+            type.textContent = e.type;
+
+            line.appendChild(name);
+            line.appendChild(type);
+
+            if (e.editable) {
+                // ★★ 不显示 key（连掩码也不 ✓ B24 用户要求 ✓）
+                //   列表里只说“已配置”✗
+                //   想确认是哪一把？→ 【悬停看 title】✓
+                const mk = document.createElement("span");
+                mk.className = "sp-masked";
+                mk.textContent = "已配置";
+                mk.title = e.masked
+                    ? `已配置（${e.masked}）` // ★ 只在悬停时露半截 ✓
+                    : "已配置";
+                line.appendChild(mk);
+
+                const del = document.createElement("button");
+                del.className = "sp-del";
+                del.textContent = "删除";
+                del.title = "删除这个 API key（= 登出 ✓）";
+                del.addEventListener("click", (ev) => {
+                    ev.stopPropagation();
+                    vscode.postMessage({ kind: "removeAuth", provider: e.provider });
+                });
+                line.appendChild(del);
+            } else {
+                const note = document.createElement("span");
+                note.className = "sp-note";
+                note.textContent = e.expiresAt ? `只会读 · 过期 ${e.expiresAt}` : "只读";
+                note.title = "OAuth 凭据不能在插件里改 ✗\n要用终端：pi auth login <provider>";
+                line.appendChild(note);
+            }
+            box.appendChild(line);
+        }
+
+        // ★ 添加 api key（一行两个输入框 + 按钮 ✓）
+        const add = document.createElement("div");
+        add.className = "sp-add";
+        const prov = document.createElement("input");
+        prov.type = "text";
+        prov.placeholder = "供应商（如 deepseek）";
+        const key = document.createElement("input");
+        key.type = "password"; // ★ 密码框（不明文显示 ✓）
+        key.placeholder = "API key";
+        const btn = document.createElement("button");
+        btn.textContent = "添加 / 更新";
+        btn.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            const p = prov.value.trim();
+            const k = key.value.trim();
+            if (!p || !k) return;
+            vscode.postMessage({ kind: "addApiKey", provider: p, key: k });
+            key.value = "";
+        });
+        add.append(prov, key, btn);
+        box.appendChild(add);
+        ctl.appendChild(box);
+    } else if (f.kind === "extlist") {        // ★ 已装扩展的启用/停用（B24 ✓）
         //   值是一个字符串数组（= 已启用的 ✓）
         //   而【全部候选】在 f.options 里 ✓ 所以【每个包都能看到一个复选框】✗
         //   （而不是“已启用列表 + 添加框”✗ 那样看不出哪些装了 ✓）
@@ -337,7 +417,17 @@ export function setupSettingsPanel(): void {
         const t = e.target as HTMLElement | null;
         if (
             t?.closest(
-                "#settings-panel button, #settings-panel input, #settings-panel select, #settings-panel textarea, #btn-settings",
+                // ★★ .sg-title 必须排除 ✗（B24 用户报的 bug ✓）
+                //   它是【可点的分组标题】✗（点一下收缩那一组 ✓）
+                //   不排除的话 → 同一次 click 冒泡到 document
+                //     → 被当成“点面板内空白” → ★ 整个面板直接收起来 ✓
+                //     （用户：“我点击模型或者说行为这种收起来的东西，
+                //        这个东西点一下，这个面板直接弹上去了”✓）
+                //
+                //   ★ 注意 .s-item 不排除 ✗ —— 它占满面板 ✓
+                //     排除它就会让“点面板内任何地方都不收起”✓
+                //     而 .sg-title 只是一行标题 ✓ 排除它影响很小 ✓
+                "#settings-panel button, #settings-panel input, #settings-panel select, #settings-panel textarea, #settings-panel .sg-title, #btn-settings",
             )
         ) {
             return;

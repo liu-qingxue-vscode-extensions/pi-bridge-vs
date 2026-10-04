@@ -502,6 +502,30 @@
     if (!p) return "\uFF08\u672A\u77E5\u76EE\u5F55\uFF09";
     return p;
   }
+  function treeify(items) {
+    const byPath = new Map(items.map((s) => [s.path, s]));
+    const kids = /* @__PURE__ */ new Map();
+    const roots = [];
+    for (const s of items) {
+      if (s.parent && byPath.has(s.parent) && s.parent !== s.path) {
+        const arr = kids.get(s.parent) ?? [];
+        arr.push(s);
+        kids.set(s.parent, arr);
+      } else {
+        roots.push(s);
+      }
+    }
+    const out = [];
+    const seen = /* @__PURE__ */ new Set();
+    const walk = (s, depth) => {
+      if (seen.has(s.path)) return;
+      seen.add(s.path);
+      out.push({ s, depth });
+      for (const c of kids.get(s.path) ?? []) walk(c, depth + 1);
+    };
+    for (const r of roots) walk(r, 0);
+    return out;
+  }
   function renderSessions(list) {
     log.info(`\u4F1A\u8BDD\u5217\u8868\uFF1A\u6536\u5230 ${list.length} \u6761`);
     sessionList.innerHTML = "";
@@ -550,10 +574,16 @@
       g.appendChild(head);
       const body = document.createElement("div");
       body.className = "sg-body";
-      for (const s of items) {
+      for (const { s, depth } of treeify(items)) {
         const row = document.createElement("button");
         row.className = "session-item";
         row.dataset.path = s.path;
+        if (depth > 0) {
+          row.classList.add("is-branch");
+          const left = 24 + depth * 14;
+          row.style.paddingLeft = `${left}px`;
+          row.style.setProperty("--indent", `${left}px`);
+        }
         if (s.broken) {
           row.classList.add("broken");
           row.disabled = true;
@@ -1095,6 +1125,66 @@ ${s.path}`;
       };
       renderItems();
       ctl.appendChild(box);
+    } else if (f.kind === "providers") {
+      const box = document.createElement("div");
+      box.className = "s-providers";
+      const entries = Array.isArray(f.value) ? f.value : [];
+      for (const e of entries) {
+        const line = document.createElement("div");
+        line.className = "sp-item" + (e.editable ? "" : " readonly");
+        const name2 = document.createElement("span");
+        name2.className = "sp-name";
+        name2.textContent = e.provider;
+        const type = document.createElement("span");
+        type.className = "sp-type";
+        type.textContent = e.type;
+        line.appendChild(name2);
+        line.appendChild(type);
+        if (e.editable) {
+          const mk = document.createElement("span");
+          mk.className = "sp-masked";
+          mk.textContent = "\u5DF2\u914D\u7F6E";
+          mk.title = e.masked ? `\u5DF2\u914D\u7F6E\uFF08${e.masked}\uFF09` : "\u5DF2\u914D\u7F6E";
+          line.appendChild(mk);
+          const del = document.createElement("button");
+          del.className = "sp-del";
+          del.textContent = "\u5220\u9664";
+          del.title = "\u5220\u9664\u8FD9\u4E2A API key\uFF08= \u767B\u51FA \u2713\uFF09";
+          del.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            vscode.postMessage({ kind: "removeAuth", provider: e.provider });
+          });
+          line.appendChild(del);
+        } else {
+          const note = document.createElement("span");
+          note.className = "sp-note";
+          note.textContent = e.expiresAt ? `\u53EA\u4F1A\u8BFB \xB7 \u8FC7\u671F ${e.expiresAt}` : "\u53EA\u8BFB";
+          note.title = "OAuth \u51ED\u636E\u4E0D\u80FD\u5728\u63D2\u4EF6\u91CC\u6539 \u2717\n\u8981\u7528\u7EC8\u7AEF\uFF1Api auth login <provider>";
+          line.appendChild(note);
+        }
+        box.appendChild(line);
+      }
+      const add = document.createElement("div");
+      add.className = "sp-add";
+      const prov = document.createElement("input");
+      prov.type = "text";
+      prov.placeholder = "\u4F9B\u5E94\u5546\uFF08\u5982 deepseek\uFF09";
+      const key = document.createElement("input");
+      key.type = "password";
+      key.placeholder = "API key";
+      const btn = document.createElement("button");
+      btn.textContent = "\u6DFB\u52A0 / \u66F4\u65B0";
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const p = prov.value.trim();
+        const k = key.value.trim();
+        if (!p || !k) return;
+        vscode.postMessage({ kind: "addApiKey", provider: p, key: k });
+        key.value = "";
+      });
+      add.append(prov, key, btn);
+      box.appendChild(add);
+      ctl.appendChild(box);
     } else if (f.kind === "extlist") {
       const box = document.createElement("div");
       box.className = "s-extlist";
@@ -1199,7 +1289,17 @@ ${s.path}`;
       if (!isEditing()) return;
       const t = e.target;
       if (t?.closest(
-        "#settings-panel button, #settings-panel input, #settings-panel select, #settings-panel textarea, #btn-settings"
+        // ★★ .sg-title 必须排除 ✗（B24 用户报的 bug ✓）
+        //   它是【可点的分组标题】✗（点一下收缩那一组 ✓）
+        //   不排除的话 → 同一次 click 冒泡到 document
+        //     → 被当成“点面板内空白” → ★ 整个面板直接收起来 ✓
+        //     （用户：“我点击模型或者说行为这种收起来的东西，
+        //        这个东西点一下，这个面板直接弹上去了”✓）
+        //
+        //   ★ 注意 .s-item 不排除 ✗ —— 它占满面板 ✓
+        //     排除它就会让“点面板内任何地方都不收起”✓
+        //     而 .sg-title 只是一行标题 ✓ 排除它影响很小 ✓
+        "#settings-panel button, #settings-panel input, #settings-panel select, #settings-panel textarea, #settings-panel .sg-title, #btn-settings"
       )) {
         return;
       }

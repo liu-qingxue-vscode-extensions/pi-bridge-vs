@@ -42,6 +42,10 @@
                 "command": "pi-bridge.toggleNotices",
                 "title": "展开/收起通知板",
                 "category": "pi-bridge"
+            },
+            {
+                "command": "pi-bridge.showChangelog",
+                "title": "pi-bridge: 打开更新日志"
             }
         ],
         "keybindings": [

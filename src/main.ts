@@ -30,7 +30,7 @@ import path from "node:path";
 import fs, { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, getPackageDir, VERSION } from "@earendil-works/pi-coding-agent";
 import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
 import { ChatView } from "./view/chat-view.js";
@@ -41,6 +41,8 @@ import {
     resolveSessionRoot,
     settingsPath,
 } from "./pi/settings.js";
+import { listAuth, removeAuth, setApiKey } from "./pi/auth.js";
+import { checkPiVersion } from "./pi/version-check.js";
 import { SETTINGS_GROUPS, getByPath, setByPath } from "./pi/settings-schema.js";
 import { toChatPatch } from "./bridge/format-backend.js";
 import { messagesToPatches, type ReplayMessage } from "./bridge/replay.js";
@@ -476,6 +478,44 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
+            // ★ 供应商凭据（B24）：增加 api key / 删除凭据 ✓
+            //
+            // 【为什么走这里而不是 settings 保存？】
+            //   它们写的是【另一个文件】auth.json ✗（不是 settings.json ✓）
+            //   → 单独的消息 ✓ 不混进 saveSettings 的批量提交流 ✓
+            if (msg.kind === "addApiKey") {
+                try {
+                    setApiKey(msg.provider, msg.key);
+                    postSettings(); // ★ 回读重绘 ✓
+                    void vscode.window.showInformationMessage(
+                        `已保存 ${msg.provider} 的 API key ✓` +
+                            "（如果 pi 已在运行，需要重启 pi 才生效 ✗）",
+                    );
+                } catch (err) {
+                    logError(`保存 API key 失败: ${toErrorMessage(err)}`);
+                    void vscode.window.showErrorMessage(`保存失败：${toErrorMessage(err)}`);
+                }
+                return;
+            }
+            if (msg.kind === "removeAuth") {
+                try {
+                    // ★ 二次确认（不可逆 ✗）
+                    const pick = await vscode.window.showWarningMessage(
+                        `确定删除「${msg.provider}」的凭据？（= 登出 ✗）`,
+                        { modal: true, detail: "删掉后 pi 就不能再用这个供应商了 ✓" },
+                        "删除",
+                    );
+                    if (pick !== "删除") return;
+                    removeAuth(msg.provider);
+                    postSettings();
+                    void vscode.window.showInformationMessage(`已删除 ${msg.provider} 的凭据 ✓`);
+                } catch (err) {
+                    logError(`删除凭据失败: ${toErrorMessage(err)}`);
+                    void vscode.window.showErrorMessage(`删除失败：${toErrorMessage(err)}`);
+                }
+                return;
+            }
+
             // ★ 设置面板（B24）：打开 / 重新读取（本地文件操作 ✓）
             if (msg.kind === "openSettings") {
                 postSettings();
@@ -734,6 +774,12 @@ export function activate(context: vscode.ExtensionContext): void {
     if (context.extensionMode === vscode.ExtensionMode.Development) {
         debugPanel.show();
     }
+
+    // ★ 版本检测（B24）：异步跑 ✗ 不阻塞激活 ✓
+    //   （每次激活都查 ✓ 只有真的有新版才提示 ✓ 失败静默 ✓）
+    void runVersionCheck();
+    // ★ 更新日志检测（B24）：本地比较版本号 ✓ 不联网 ✓
+    void checkChangelog();
     context.subscriptions.push(
         // 侧边栏聊天视图
         vscode.window.registerWebviewViewProvider(ChatView.viewId, chatView),
@@ -755,6 +801,15 @@ export function activate(context: vscode.ExtensionContext): void {
             //   理由：它【每次重载窗口都弹】✗ 而且【没有信息量】✓（用户早就知道它活着了 ✓）
             //   开发模式下调试板会自动打开 ✓ 那才是真正的“已就绪”信号 ✓
             logInfo("pi-bridge-vs 已激活（首条消息时惰启动 pi）");
+        }),
+
+        // ★ 手动打开更新日志（B24）—— 随时都能看 ✗
+        //   为什么需要它？
+        //     · 自动提示只在【版本变化时】弹一次 ✓
+        //     · 想看历史变更 / 想验证功能时，需要一个入口 ✓
+        //     · 下测试也方便 ✓（不用真的等升级 ✓）
+        vscode.commands.registerCommand("pi-bridge.showChangelog", () => {
+            void openChangelog();
         }),
 
         // 扩展停用时杀掉 pi 子进程（避免孤儿进程）
@@ -1049,6 +1104,126 @@ export function activate(context: vscode.ExtensionContext): void {
         void vscode.window.showInformationMessage(`已导入到当前工作目录的会话列表 ✓`);
     }
 
+    /**
+     * ★ 版本检测（B24）—— 启动时异步跑一次 ✓
+     *
+     * 【用户定的 ✓】
+     *   “自动检测，检测到有差异就提醒更新了，并且告知差异，
+     *     发个通知就好”✓
+     *
+     * 【几个约束 ✗】
+     *   · 必须【异步、不阻塞激活】✗（要网络 ✓ 可能几秒 ✓）
+     *   · 失败要【静默】✗（离线 / 代理挂了是常态 ✓）
+     *   · 一天最多查一次 ✗（缓存到 globalState ✓ 别每次启动都打网络 ✓）
+     */
+    async function runVersionCheck(): Promise<void> {
+        // ★★ 每次都查 ✗（B24 用户要求 ✓）
+        //   用户原话：“通知频率你是二十四小时最多一次，我希望每次都有，
+        //             反正它可以每次清理”✓
+        //   ★ 两点保证它不会变成“刷屏”✗：
+        //     ① 只有【真的有新版】才发 ✓（已是最新就什么都不做 ✓）
+        //     ② npm 自己【有缓存】✗（npm view 第二次很快 ✓）
+        //   而重复的通知在通知板里可以一键清空 ✓
+        const r = await checkPiVersion("@earendil-works/pi-coding-agent", VERSION);
+        if (!r.latest) return; // 查不到（离线 / 代理挂了 ✓）→ 静默 ✓
+        if (!r.hasUpdate) return;
+
+        logInfo(`★ pi 有新版本：${r.current} → ${r.latest}`);
+
+        // ★★ 两个都发 ✗（B24 用户要求 ✓）
+        //   ① 我们自己的通知板（chatState → 前端 ✓）
+        //      ★ 为什么通知板也要？
+        //        VS Code 原生通知【会消失】✗ 而且不归我们管 ✓
+        //        版信息是“需要记住、过会再处理”的东西 ✓ → 通知板更合适 ✓
+        //   ② VS Code 原生通知（带按钮，能立刻操作 ✓）
+        chatState.apply({
+            kind: "notice",
+            text: `pi 有新版本：${r.current} → ${r.latest}（终端跑 pi update ✓）`,
+            level: "info",
+        } as never);
+
+        const pick = await vscode.window.showInformationMessage(
+            `pi 有新版本：${r.current} → ${r.latest}`,
+            "看更新命令",
+            "忽略",
+        );
+        if (pick === "看更新命令") {
+            void vscode.window.showInformationMessage(
+                "在终端运行：pi update（或 pi update self / pi update pi ✓）",
+                { modal: true, detail: "pi 自己的升级命令会处理全局安装与模型目录刷新 ✓" },
+            );
+        }
+    }
+
+    /**
+     * ★ 更新日志检测（B24）
+     *
+     * 【怎么做？】（用户定的 ✓）
+     *   “我们不是有个数据文件嘛，维护一下版本号。
+     *    进来的时候发现不一样，然后就去找日志，发个通知，点一下就渲染”✓
+     *
+     * 【★★ 用我们自己的 key ✗】
+     *   pi 的 settings.lastChangelogVersion 会被【 TUI 【自己【改 ✗
+     *   （用户在 TUI 里能看更新日志 ✓ 它就会写那个字段 ✓）
+     *   → 我们用 pi-bridge.changelog.lastSeen ✓ 互不干扰 ✓
+     *
+     * 【★★★ 初始值照拄 pi 的 ✓】（用户：“初始值照拄过来”✓）
+     *   → 首次运行【不会误报 ✓】（两边都是 0.85.1 ✓）
+     */
+    async function checkChangelog(): Promise<void> {
+        const KEY = "pi-bridge.changelog.lastSeen";
+        let last = context.globalState.get<string>(KEY);
+
+        if (!last) {
+            // ★ 首次：照拄 pi 已有的值 ✗（它可能是 TUI 写过的 ✓）
+            const piLast = readSettings().lastChangelogVersion;
+            last = typeof piLast === "string" && piLast ? piLast : "0.0.0";
+            await context.globalState.update(KEY, last);
+            logInfo(`更新日志：初始化 lastSeen = ${last}（照拄 pi 的值 ✓）`);
+        }
+
+        if (last === VERSION) {
+            logDebug(`更新日志：版本未变（${VERSION}）✓`);
+            return;
+        }
+
+        logInfo(`★ 检测到 pi 版本变化：${last} → ${VERSION}（有新更新日志 ✓）`);
+        const msg = `pi 已更新：${last} → ${VERSION}（有更新日志 ✓）`;
+
+        // ★ 两个都发（同版本检测那里 ✓）
+        chatState.apply({ kind: "notice", text: msg, level: "info" } as never);
+
+        const pick = await vscode.window.showInformationMessage(msg, "查看更新日志", "忽略");
+        if (pick === "查看更新日志") void openChangelog();
+
+        // ★ 记下看过（下次不再提示 ✓）
+        //   ★ 放在最后 ✗ —— 先提醒再改，不然用户连看都没看过就再也不提了 ✓
+        await context.globalState.update(KEY, VERSION);
+    }
+
+    /**
+     * ★ 打开更新日志（B24）
+     *
+     * 【为什么直接开 MD 而不自己渲染？】（用户定的 ✓）
+     *   “MD 好像没必要解析嘛，MD 直接打到 VS Code 里，Ctrl V 不就渲染了？”✓
+     *   → 用 markdown.showPreview ✗（VS Code 自己渲染 ✓ 比我们写得好 ✓）
+     */
+    async function openChangelog(): Promise<void> {
+        try {
+            const p = path.join(getPackageDir(), "CHANGELOG.md");
+            if (!existsSync(p)) {
+                void vscode.window.showWarningMessage(`找不到更新日志：${p}`);
+                return;
+            }
+            const doc = await vscode.workspace.openTextDocument(p);
+            // ★ 直接开【预览】✗（不是源码视图 ✓）
+            await vscode.commands.executeCommand("markdown.showPreview", doc.uri);
+        } catch (err) {
+            logError(`打开更新日志失败: ${toErrorMessage(err)}`);
+            void vscode.window.showErrorMessage(`打开更新日志失败：${toErrorMessage(err)}`);
+        }
+    }
+
     async function replaySessionMessages(): Promise<void> {        const resp = (await pi.sendRaw({ type: "get_messages" })) as {
             data?: { messages?: ReplayMessage[] };
         };
@@ -1157,8 +1332,7 @@ export function activate(context: vscode.ExtensionContext): void {
                         value: `${m.provider}/${m.id}`,
                         label: `${m.provider}/${m.id}`,
                     }));
-                } else if (f.kind === "extlist") {
-                    // ★ 已装扩展：选项 = 全部已装 ✓ 值 = 当前启用的 ✓
+                } else if (f.kind === "extlist") {                    // ★ 已装扩展：选项 = 全部已装 ✓ 值 = 当前启用的 ✓
                     //   前端用复选框列表渲染 ✓
                     options = readInstalledExtensions().map((x) => ({
                         value: x.source,
@@ -1179,6 +1353,18 @@ export function activate(context: vscode.ExtensionContext): void {
                     const prov = typeof all.defaultProvider === "string" ? all.defaultProvider : "";
                     const id = typeof all.defaultModel === "string" ? all.defaultModel : "";
                     value = id ? (prov ? `${prov}/${id}` : id) : "";
+                }
+                // ★ 供应商凭据（B24）：值直接给【凭据列表】✗（不是 settings 字段 ✓）
+                //   ★ 注意：listAuth 已经做过【脱敏】✗ 不含原始 key ✓
+                if (f.kind === "providers") {
+                    return {
+                        key: f.key,
+                        label: f.label,
+                        desc: f.desc,
+                        kind: f.kind,
+                        value: listAuth(),
+                        exists: true,
+                    };
                 }
                 return {
                     key: f.key,

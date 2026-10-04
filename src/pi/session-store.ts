@@ -53,14 +53,25 @@ export interface SessionInfo {
      *   → 只能【真的数行】✓（但只需数 \n，不解析 JSON，很快 ✓）
      */
     turns?: number;
+    /**
+     * ★ 父会话路径（B24）—— fork / clone 出来的会话会带它 ✓
+     *
+     * 【它从哪来？】会话文件【首行的 parentSession 字段】✗
+     *   实测：clone/fork 生成的会话 header：
+     *     { type:"session", id, timestamp, cwd, parentSession: "/…/xxx.jsonl" }
+     *   ★ 顺便读首行就拿得到 ✗（我们本来就要读首行验文件 ✓）
+     *
+     * 【用途】会话面板把它渲染成【缩进的分支】✗（把分支放主的下面 ✓）
+     */
+    parent?: string;
 }
 
 /** 持久化形状 */
 interface StoreData {
     /** 目录名 → 真实 cwd（空/缺 = 待补 ✓） */
     cwdMap: Record<string, string>;
-    /** 文件路径 → 内容信息（★ 只有刷新过才有 name/broken/turns ✓） */
-    files: Record<string, { name?: string; broken?: string; turns?: number }>;
+    /** 文件路径 → 内容信息（★ 只有刷新过才有 name/broken/turns/parent ✓） */
+    files: Record<string, { name?: string; broken?: string; turns?: number; parent?: string }>;
 }
 
 const STORE_KEY = "pi-bridge.sessionStore";
@@ -124,14 +135,22 @@ async function readCwd(file: string): Promise<string | undefined> {
  *
  * @returns { name, broken? } —— broken 有值表示文件异常 ✓
  */
-async function readNameAndCheck(file: string): Promise<{ name?: string; broken?: string }> {
+async function readNameAndCheck(
+    file: string,
+): Promise<{ name?: string; broken?: string; parent?: string }> {
     // ① 先验首行（异常文件在这里就能判出来 ✓）
     const head = await readHead(file);
     if (head === undefined) return { broken: "文件读不了（权限/损坏）" };
+    let parent: string | undefined;
     try {
-        const rec = JSON.parse(head) as { type?: string; cwd?: unknown };
+        const rec = JSON.parse(head) as { type?: string; cwd?: unknown; parentSession?: unknown };
         if (rec?.type !== "session") return { broken: "首行不是 session 元数据（文件不完整？）" };
         if (typeof rec.cwd !== "string" || !rec.cwd) return { broken: "首行缺 cwd" };
+        // ★ parentSession（B24）：fork/clone 出来的会话会带它 ✓
+        //   顺便读一行就拿到了 ✗ 不用额外 IO ✓
+        if (typeof rec.parentSession === "string" && rec.parentSession) {
+            parent = rec.parentSession;
+        }
     } catch {
         return { broken: "首行不是合法 JSON" };
     }
@@ -143,7 +162,7 @@ async function readNameAndCheck(file: string): Promise<{ name?: string; broken?:
         fh = await fs.open(file, "r");
         size = (await fh.stat()).size;
     } catch {
-        return {};
+        return { parent }; // ★ 读尾部失败不算异常 ✗ 但仍要带上 parent ✓
     }
     try {
         const want = Math.min(size, 16384);
@@ -154,13 +173,16 @@ async function readNameAndCheck(file: string): Promise<{ name?: string; broken?:
             try {
                 const o = JSON.parse(line) as { type?: string; name?: unknown };
                 if (o?.type === "session_info" && typeof o.name === "string" && o.name.trim()) {
-                    return { name: o.name.trim() };
+                    // ★★ 这里【必须带上 parent】✗（B24 踩到的坑 ✓）
+                    //   原来只 return { name } ✓ → parent 在成功路径上被丢掉了 ✓
+                    //   → 缓存里 88 条全是 parent 缺失 ✓ 前端自然看不到任何分支 ✓
+                    return { name: o.name.trim(), parent };
                 }
             } catch {
                 /* 被截断的行 ✓ 跳过 */
             }
         }
-        return {};
+        return { parent }; // ★ 没名字（正常 ✓）但 parent 不能丢 ✗
     } finally {
         await fh.close();
     }
@@ -342,6 +364,7 @@ export class SessionStore {
                     name: cached?.name,
                     broken: cached?.broken,
                     turns: cached?.turns,
+                    parent: cached?.parent, // ★ 父会话（B24 fork 树用 ✓）
                 });
             }
         }

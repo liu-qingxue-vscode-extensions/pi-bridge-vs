@@ -65,6 +65,9 @@ export type FrontendMessage =
     //   （rpc-types.d.ts 里 grep "settings" 零命中 ✓）
     //   → 只能我们自己读写文件 ✓ 但要小心并发（见 pi/settings.ts 顶部注释 ✓）
     | { kind: "openSettings" } // 打开面板（或重新读）
+    // ★ 供应商凭据（B24）：写的是 auth.json ✗ 不是 settings.json ✓
+    | { kind: "addApiKey"; provider: string; key: string }
+    | { kind: "removeAuth"; provider: string }
     | { kind: "saveSettings"; values: Record<string, unknown> } // 只含【改动过】的字段 ✓
     // ★ 技能面板（B25）—— 本地处理（扫目录 / 读 SKILL.md ✓）
     | { kind: "openSkills" }

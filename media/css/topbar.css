@@ -299,7 +299,14 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 4px 8px 4px 24px;   /* 左缯进：属属分组 ✓ */
+  /* ★★ 关键：border-box + 不溢出 ✗（B24 用户报的“出现左右滚动条” ✓）
+   *   原因：缩进若用 margin-left ✗ 会把元素【推到父容器外】✗ → 横向滚动条 ✓
+   *   改成【padding-left + border-box】✗ → 元素仍占满宽度 ✓
+   *     → 内容自然变窄（正是缩进该有的效果 ✓）而不是整体溢出 ✓ */
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 4px 8px 4px 24px;   /* 左缩进：属分组 ✓ */
   border: none;
   background: transparent;
   color: inherit;
@@ -453,3 +460,33 @@
 /* 拿不到上下文窗口大小 → 整个电池区变成一个问号 ✓ */
 #status-bar.no-limit .battery { display: none; }
 #status-bar.no-limit #sb-battery-pct { font-size: 12px; }
+
+/* ===== ★ 会话树的分支缩进（B24 fork 渲染）=====
+   【参考】VS Code 自己的文件树 ✓（用户截图指出：“这个不错”✓）
+     · 用【柔和的主题色】✗ 不是亮蓝 ✓
+     · 缩进用【padding-left + border-box】✗ 不溢出 ✓
+     · 连接线是【L 形拐角】✓ 单像素、淡淡的 ✓
+   ★ CSS 变量：VS Code 有专门的缩进线颜色 ✗
+     --vscode-tree-indentGuidesStroke ✓ 主题会自己调 ✓ */
+.session-item.is-branch {
+  position: relative;
+  /* ★ 缩进由 JS 设 padding-left ✗（不设 margin ✓ → 不溢出 ✓）*/
+}
+/* ★ L 形拐角（单像素线，不用整条竖线 ✗ 更轻 ✓）
+   ★ --indent = 字符的起点 ✗（由 JS 传 ✓）
+     拐角必须【画在它左边】✗ 并【留点空隙】✓
+     一个缩进单位（每层 14px）= 【线 7px + 空隙 7px】✗
+     → left = 字符起点 - 7（线宽）- 7（空隙）= -14px ✓
+     这样线 / 空隙 / 字符三者【互不重叠】✓ */
+.session-item.is-branch::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--indent, 14px) - 14px);
+  top: 0;
+  width: 7px;
+  height: 50%;
+  border-left: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(128, 128, 128, .45));
+  border-bottom: 1px solid var(--vscode-tree-indentGuidesStroke, rgba(128, 128, 128, .45));
+  border-bottom-left-radius: 3px;
+  pointer-events: none;
+}

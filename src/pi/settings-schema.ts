@@ -19,7 +19,8 @@ export type FieldKind =
     | "boolean" // 复选框
     | "select" // 下拉（有限选项 ✓）
     | "list" // 字符串列表（添加 / 删除项 ✓）
-    | "extlist"; // ★ 已装扩展的启用/停用（复选框列表 ✓）
+    | "extlist" // ★ 已装扩展的启用/停用（复选框列表 ✓）
+    | "providers"; // ★ 供应商凭据（看 / 增 / 删 ✓ oauth 只读 ✓）
 
 export interface FieldDef {
     /** settings.json 里的键（支持 "a.b" 这种嵌套 ✗ 见 getByPath ✓）*/
@@ -89,6 +90,17 @@ export const SETTINGS_GROUPS: GroupDef[] = [
                 label: "启用模型列表",
                 desc: "★ 模型切换菜单只在这里面循环（留空 = 全部可用 ✓）格式 provider/id",
                 kind: "list",
+            },
+            {
+                // ★ 供应商凭据（B24 ✓）
+                //   ★ 为什么放在“模型”组？
+                //     因为凭据就是“能不能用某家模型”的前提 ✓ 同属一类 ✓
+                //   ★ 只做 api_key ✗（OAuth 完全只读 ✓ 用户定的 ✓）
+                key: "__providers", // ★ 伪键 ✗ 不是 settings 字段（只用于渲染 ✓）
+                label: "供应商凭据",
+                desc: "★ api_key 可以在这里增删 ✓；OAuth（如 github-copilot）只能看 ✗ " +
+                    "要登录/登出走终端：pi auth login <provider>",
+                kind: "providers",
             },
         ],
     },
