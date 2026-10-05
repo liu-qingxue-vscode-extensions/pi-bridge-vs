@@ -2,8 +2,8 @@
  * build-webview —— 把 src/webview/*.ts 和 src/interaction/*.ts 打包成 media/*.js
  *
  * 【两个入口】（B26 起 ✓）
- *   src/webview/index.ts     → media/chat.js        侧栏聊天页
- *   src/interaction/index.ts → media/interaction.js 交互面板页
+ *   src/webview/index.ts     → media/out/chat.js        侧栏聊天页
+ *   src/interaction/index.ts → media/out/interaction.js 交互面板页
  *
  * 【它们是分开打包的 ✗】
  *   聊天页依赖一大堆 DOM 元素（messages / input / 顶栏 … ✓）
@@ -28,12 +28,18 @@ const options = {
     entryPoints: [
         { in: "src/webview/index.ts", out: "chat" },
         { in: "src/interaction/index.ts", out: "interaction" },
+        // ★ mermaid 单独打包变开关：它约 2MB ✗ 不能拖累主包 ✓
+        //   （只有消息里真出现 ```mermaid 时才由主程序动态注入 ✓）
+        { in: "src/webview/mermaid-entry.ts", out: "mermaid" },
     ],
-    outdir: "media",
+    outdir: "media/out",
     bundle: true,          // 把 import 的全部打进一个文件 ✓
     format: "iife",        // webview 里就是普通脚本 —— 不能是 ESM ✗
     target: "es2022",
     platform: "browser",
+    // ★★ 开压缩（B29 P2 ✗）：mermaid 不压是 11.7MB ✗ 压完小一个数量级 ✓
+    //   （webview 直接加载本地文件 ✗ 没有 gzip ✗ 所以必须预压缩 ✓）
+    minify: true,
     sourcemap: false,
     logLevel: "info",
     // 注意：不改 out 的扩展名（html 里写死了 chat.js / interaction.js ✓）

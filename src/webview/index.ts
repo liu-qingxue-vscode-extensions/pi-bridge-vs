@@ -22,6 +22,7 @@ import { setupCompact } from "./compact.js";
 import { setupModelPicker } from "./model-picker.js";
 import { setupSettingsPanel } from "./settings-panel.js";
 import { setupSkillsPanel } from "./skills-panel.js";
+import { setupMarkdown } from "./markdown.js";
 import { setupSlashMenu } from "./slash-menu.js";
 import { setupUiRequest } from "./ui-request.js";
 import { setupHostBridge } from "./apply.js";
@@ -57,6 +58,7 @@ safe("settings", setupSettingsPanel);
 safe("skills", setupSkillsPanel);
 safe("uiRequest", setupUiRequest);
 safe("slashMenu", setupSlashMenu);
+safe("markdown", setupMarkdown);
 
 // ② 宿主消息监听（★ 最关键：无论前面谁崩，它必须挂上 ✓）
 safe("hostBridge", setupHostBridge);
@@ -64,3 +66,5 @@ safe("hostBridge", setupHostBridge);
 // ③ 通知宿主：webview 已就绪 → 请求重放快照
 //    （webview 被销毁重建后靠这个恢复画面 —— "显示器"没脑子，状态都在插件端）
 post("ready");
+// ★ B29：主动要一次 VS Code 主题 ✗（代码高亮用 ✓）
+post("getTheme");

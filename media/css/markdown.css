@@ -1,0 +1,238 @@
+@import url("../out/katex.css");
+/* =====================================================================
+   markdown.css —— 正文气泡里的 MD 排版（B29）
+   =====================================================================
+   【★ 核心原则】
+     · 这是【气泡内部】✗ 所以要克制：不要大标题、不要夸张间距 ✓
+     · 首尾不留多余 margin ✗ 否则气泡上下会鼓出空白 ✓
+     · 全部用 VS Code 主题变量 ✗ 自动跟随明暗 ✓
+   ===================================================================== */
+
+.md { line-height: 1.6; word-break: break-word; }
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+
+/* ── 段落 ── */
+.md p { margin: 0 0 10px; }
+
+/* ── 标题：气泡里所以收着用 ✗ 靠字号层次而不是夸张间距 ✓ ── */
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  margin: 14px 0 8px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.md h1 { font-size: 1.35em; }
+.md h2 { font-size: 1.22em; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 4px; }
+.md h3 { font-size: 1.1em; }
+.md h4, .md h5, .md h6 { font-size: 1em; }
+
+/* ── 列表 ── */
+.md ul, .md ol { margin: 0 0 10px; padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md li > ul, .md li > ol { margin: 2px 0; }
+
+/* ── 行内代码 ── */
+.md code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: .92em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, .18));
+}
+
+/* ══════════ ★★ B29 P0：代码块（参照用户给的形式 ✗）══════════
+   ┌─ python ───────────── [复制] ─┐
+   │ 代码……                          │
+   └────────────────────────────────┘
+   ① 标题栏：左语言名 ✗ 右按钮容器 ✓
+   ② 按钮容器 .code-actions 是可插拔的 ✗ 以后加东西只改这里 ✓
+   ③ 代码区自己横向滚 ✗ 标题栏不动 ✓ */
+
+.code-block {
+  margin: 0 0 10px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, .3));
+  border-radius: 6px;
+  overflow: hidden;                /* ★ 让标题栏的底色贴住圆角 ✓ */
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, .1));
+}
+
+.code-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 10px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, .16));
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, .22));
+  font-size: 11px;
+}
+.code-lang {
+  flex: 0 0 auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  opacity: .75;
+  text-transform: lowercase;
+}
+/* ★ 按钮容器：以后加“下载 / 折叠 / 行号”都往这里塞 ✓ */
+.code-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.code-btn {
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: .7;
+}
+.code-btn:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+}
+
+/* 代码本体：只有底色 ✗ 语法高亮以后再说 ✓ */
+.code-block pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.code-block pre code {
+  padding: 0;
+  background: transparent;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: .9em;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+/* ══════════ 表格（B29 修正 ✗）══════════
+   ★ 旧做法的坑：在 table 上写 display:block + overflow ✗
+     → thead/tbody 变成独立块 ✗ 表头与内容“断开”✓
+   ★ 正确：容器负责滚 ✗ table 保持原生表格布局 ✓ */
+.table-wrap {
+  margin: 0 0 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.table-wrap::-webkit-scrollbar { height: 8px; }
+.table-wrap::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, .35));
+  border-radius: 4px;
+}
+.md table {
+  /* ★ width:100% = 撑满 ✗（用户要求的 ✓）*/
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .95em;
+}
+.md table + .md table { margin-top: 0; }
+
+/* ── 引用 ── */
+.md blockquote {
+  margin: 0 0 10px;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--vscode-focusBorder, rgba(128, 128, 128, .5));
+  opacity: .88;
+}
+.md blockquote > *:last-child { margin-bottom: 0; }
+
+/* ── 表格：单元格样式（布局在文件上面那份 ✗ 别在这里重复 table 规则 ✓）── */
+.md th, .md td {
+  padding: 5px 10px;
+  border: 1px solid var(--vscode-panel-border);
+  text-align: left;
+}
+.md th { background: var(--vscode-editorWidget-background, rgba(128, 128, 128, .12)); font-weight: 600; }
+
+/* ── 链接 / 分隔线 / 图片 ── */
+.md a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+.md a:hover { text-decoration: underline; color: var(--vscode-textLink-activeForeground); }
+.md hr {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+.md img { max-width: 100%; border-radius: 6px; }
+.md strong { font-weight: 600; }
+
+/* ══════════ ★ B29 P1：行内扩展 + 脚注 ══════════ */
+
+/* 高亮 ==文本== ✗ 用 VS Code 的“查找命中”底色 ✓ 自动跟随主题 ✓ */
+.md mark {
+  background: var(--vscode-editor-findMatchHighlightBackground, rgba(255, 214, 0, .32));
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+/* 插入 ++文本++ */
+.md ins { text-decoration: underline; text-decoration-style: dotted; }
+/* 上标 ^文本^ ✗ 与脚注共用一个 sup 规则 ✓ */
+.md sup { font-size: .78em; line-height: 0; vertical-align: super; }
+
+/* ── 脚注（marked-footnote 的结构 ✓）──
+   行内：<sup><a id="footnote-ref-1" href="#footnote-1">1</a></sup>
+   末尾：<section class="footnotes"><h2 class="sr-only">Footnotes</h2><ol>… */
+.md sup a {
+  padding: 0 3px;
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+  font-weight: 600;
+}
+.md sup a:hover { text-decoration: underline; }
+
+/* ★ 那个 h2 是给读屏用的 ✗ 视觉上要藏掉 ✓ */
+.md .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.md [data-footnotes] {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--vscode-panel-border);
+  font-size: .9em;
+  opacity: .85;
+}
+.md [data-footnotes] ol { margin: 0; padding-left: 20px; }
+.md [data-footnotes] li { margin: 4px 0; }
+.md [data-footnotes] p { margin: 0; display: inline; }
+.md [data-footnotes] a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+
+/* ══════════ ★ B29 P2：Mermaid 图 ══════════
+   ★ 设计：源码【折叠起来】✗ 图显示在下面 ✓
+     （保留源码很重要 ✗ 出错了用户还能看到原文 ✓）*/
+/* ★ 默认【只显示图】✗ 源码折叠 ✓（用户定的 ✓）
+   点「源码」按钮 → 给块加 data-show-src ✗ 源码才出来 ✓ */
+.code-mermaid pre { display: none; }
+.code-mermaid[data-show-src] pre { display: block; }
+/* 没渲染出图之前（流式中）不要把源码藏死 ✗ 否则一片空白 ✓ */
+.code-mermaid:not([data-mermaid-done]):not([data-show-src]) pre { display: block; }
+/* 渲染出来的图 */
+.mermaid-out {
+  padding: 10px;
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  background: transparent;
+}
+.mermaid-out svg { max-width: 100%; height: auto; }
+
+/* 渲染失败时的一行提示 ✗ 不遮挡上面的源码 ✓ */
+.mermaid-err {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--vscode-errorForeground, #f48771);
+  border-top: 1px solid var(--vscode-panel-border);
+  white-space: pre-wrap;
+  word-break: break-word;
+}

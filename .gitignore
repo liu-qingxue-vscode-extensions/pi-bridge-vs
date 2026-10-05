@@ -4,6 +4,12 @@ node_modules/
 # === 编译产物（由 tsc 生成；F5 前会自动编译）===
 dist/
 
+# === 前端构建产物（B29 ✗ 由 scripts/ 生成 ✓）
+#   media/     = 【手写的源】：html / css ✓   ← 进 git ✓
+#   media/out/ = 【生成的东西】：js / katex.css / fonts ✓  ← 不进 ✓
+#   全部可用 `npm run compile` 重建 ✓（sync-katex 会从 node_modules 提取字体 ✓）
+media/out/
+
 # === 日志 ===
 logs/
 *.log

@@ -23,7 +23,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const mediaDir = path.join(here, "..", "media");
 
 /** 允许的模板占位符（loader 会替换 ✓）*/
-const ALLOWED_PLACEHOLDER = new Set(["nonce", "cspSource", "css", "js", "styleVars"]);
+const ALLOWED_PLACEHOLDER = new Set(["nonce", "cspSource", "css", "js", "styleVars", "mermaidJs"]);
 
 let failed = 0;
 const fail = (file, msg) => {

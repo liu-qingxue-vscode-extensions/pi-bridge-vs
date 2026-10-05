@@ -18,7 +18,8 @@ import { ui } from "./state.js";
 import { log, vscode } from "./vscode-api.js";
 import { createBubble, refreshForkButtons, removePending, showPending } from "./bubbles.js";
 import { setQueueing, showInserting } from "./inserting.js";
-import { appendSegment } from "./segments.js";
+import { appendSegment, endSegment } from "./segments.js";
+import { appendMarkdown, finishMarkdown, setHighlightTheme } from "./markdown.js";
 import { createThinkingBubble, markThinkDone } from "./thinking.js";
 import { createToolBubble, ensureResultHost, markStreamingDone, renderArgs, renderResultParts, setToolState } from "./tool.js";
 import { appendStopNote, showRetryNotice } from "./notices.js";
@@ -144,10 +145,19 @@ function replaySnapshot(payload: unknown, opts?: { keepNotices?: boolean }): voi
                 if (!last || !last.classList.contains("text")) {
                     last = createBubble("text");
                 }
-                last.textContent += blk.text ?? "";
+                // ★ B29：历史重建也走 MD 渲染 ✗（与流式同一条路 ✓）
+                appendMarkdown(last, blk.text ?? "");
             }
             ui.bubble = last;
         }
+    }
+
+    // ★★ B29：历史重放后把所有 text 气泡“封尾”✗
+    //   不封的话它们会一直停在“尾块”状态 ✗ 而尾块用 plainParser
+    //   （不带 KaTeX ✓）→ ★ 用户实测的：“会话文件直接渲染时公式泄露”✓
+    //   封尾时会用 richParser 重渲染一次 ✗ 公式这时才真的排出来 ✓
+    for (const el of messagesEl.querySelectorAll<HTMLElement>(".bubble.text")) {
+        finishMarkdown(el);
     }
 
     // ★ 顶栏也从快照恢复（取最后一条带 usage 的气泡）
@@ -184,6 +194,9 @@ function applyPatch(p: Record<string, unknown>): void {
             return;
 
         case "endBubble": {
+            // ★ B29：这条消息的正文段结束 → 把 MD 尾块“封”掉 ✗
+            //   （否则后面的新段会继续改它 ✗ 而它内容其实已定了 ✓）
+            endSegment();
             // ★ 异常结束（截断/中断/出错）→ 在最后一条 AI 气泡底部补一行提示
             //   但"中断"且已有重试气泡时：由重试气泡负责显示"已中断"✓（不重复挂 ✗）
             const stopReason = p.stopReason as string | undefined;
@@ -388,6 +401,10 @@ export function setupHostBridge(): void {
                 return;
             case "skillDetail":
                 renderSkillDetail((data.payload ?? {}) as never);
+                return;
+            // ★ B29：VS Code 主题（代码高亮用 ✗ 逐色统一 ✓）
+            case "theme":
+                setHighlightTheme((data.payload ?? {}) as never);
                 return;
             // ★ B27：斜杠补全的命令列表 ✓
             case "commands":

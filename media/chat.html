@@ -2,6 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<!-- ★ B29：mermaid 的脚本地址（独立打包 ✗ 主程序按需注入 ✓）-->
+<meta name="pi-mermaid-uri" content="{{mermaidJs}}">
 <!--
   CSP（内容安全策略）：
     default-src 'none'                        默认禁止一切外部资源
@@ -11,7 +13,7 @@
   {{nonce}} {{cspSource}} {{css}} {{js}} {{styleVars}} 由扩展加载时注入（见 src/view/html-loader.ts）
 -->
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'nonce-{{nonce}}';">
+      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}';">
 <link rel="stylesheet" href="{{css}}">
 <style>{{styleVars}}</style>
 </head>

@@ -11,6 +11,7 @@
 import { ui } from "./state.js";
 import { createBubble, removePending, scrollToBottom } from "./bubbles.js";
 import { createThinkingBubble } from "./thinking.js";
+import { appendMarkdown, finishMarkdown } from "./markdown.js";
 
 /** 追加文本到"当前气泡"（thinking / text）；类型变了就新建气泡 */
 export function appendSegment(kind: "thinking" | "text", text: string): void {
@@ -25,7 +26,24 @@ export function appendSegment(kind: "thinking" | "text", text: string): void {
         if (!ui.bubble || !ui.bubble.classList.contains(kind)) {
             ui.bubble = createBubble(kind);
         }
-        ui.bubble.textContent += text; // textContent：免疫 HTML 注入
+        // ★★ B29：正文走 MD 渲染 ✗（流式增量 ✓）
+        //   思考块仍是纯文本 ✓（不需要排版 ✓）
+        appendMarkdown(ui.bubble, text);
     }
     scrollToBottom();
+}
+
+/**
+ * ★ 正文段结束（B29）
+ *
+ * 【为什么要封尾？】
+ *   流式时最后一块一直是“尾块”（每次重渲染 ✓）
+ *   如果它后面又接了新的段（比如接着来个工具调用 ✓）
+ *   尾块会被继续改 ✗ 但它内容其实已经定了 ✓
+ *   → 把它“封”成普通块 ✗ 不再追踪 ✓
+ */
+export function endSegment(): void {
+    if (ui.bubble && ui.bubble.classList.contains("text")) {
+        finishMarkdown(ui.bubble);
+    }
 }

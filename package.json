@@ -532,7 +532,7 @@
     },
     "activationEvents": [],
     "scripts": {
-        "compile": "node scripts/check-html.mjs && tsc -p ./ && tsc -p tsconfig.webview.json --noEmit && node scripts/build-webview.mjs",
+        "compile": "node scripts/check-html.mjs && node scripts/sync-katex.mjs && tsc -p ./ && tsc -p tsconfig.webview.json --noEmit && node scripts/build-webview.mjs",
         "watch": "tsc --watch -p ./",
         "vscode:prepublish": "npm run compile",
         "watch:webview": "node scripts/build-webview.mjs --watch",
@@ -547,5 +547,13 @@
         "@types/vscode": "^1.135.0",
         "esbuild": "^0.28.2",
         "typescript": "^7.0.2"
+    },
+    "dependencies": {
+        "katex": "^0.18.10",
+        "marked": "^18.0.14",
+        "marked-footnote": "^1.4.0",
+        "marked-katex-extension": "^5.1.13",
+        "mermaid": "^12.1.0",
+        "shiki": "^4.5.0"
     }
 }

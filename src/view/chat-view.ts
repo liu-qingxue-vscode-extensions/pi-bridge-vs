@@ -12,6 +12,7 @@ import * as vscode from "vscode";
 import { loadWebviewHtml } from "./html-loader.js";
 import { readStyleVars, styleVarsToCss, onStyleChange } from "./style-config.js";
 import { getModelContextWindowsObject } from "../pi/model-limits.js";
+import { getCurrentTheme } from "../pi/theme-loader.js";
 import type { FrontendMessage } from "../bridge/format-frontend.js";
 import type { ChatState } from "./chat-state.js";
 
@@ -96,6 +97,16 @@ export class ChatView implements vscode.WebviewViewProvider {
                 //   为什么放回调而不是这里？→ 它要读 settings.json / 问 pi ✓
                 //   这两个都是【main.ts 的职责】✗（chat-view 只该管显示 ✓）
                 this.onReady?.();
+                return;
+            }
+
+            // ★ B29：前端要 VS Code 当前主题 ✗（异步读文件 ✓ 不走 format 白名单 ✓）
+            //   为什么放这里？→ 它要访问 vscode API ✗ 而 chat-view 已经有 ✓
+            if (kind === "getTheme") {
+                void getCurrentTheme().then((t) => {
+                    // ★ theme 可能很大（几十 KB ✗）但一次就够 ✓
+                    this.post("theme", t);
+                });
                 return;
             }
 

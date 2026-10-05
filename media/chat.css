@@ -4,6 +4,7 @@
    （CSP 的 style-src 允许同源加载 ✓ · 本地文件无网络开销 ✓）
    ===================================================================== */
 @import url("./css/base.css");
+@import url("./css/markdown.css");
 @import url("./css/topbar.css");
 @import url("./css/notices.css");
 @import url("./css/bubbles.css");

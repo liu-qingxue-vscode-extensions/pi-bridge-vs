@@ -54,11 +54,13 @@ export function loadWebviewHtml(
      * ★ 为什么不用 package.json 的 version？
      *   开发时改 CSS 不会动 version ✗ 而 mtime 【每次存盘都变】✓
      */
-    const mediaUri = (name: string): string => {
-        const uri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", name)).toString();
+    const mediaUri = (rel: string): string => {
+        const uri = webview
+            .asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", rel))
+            .toString();
         let stamp = "0";
         try {
-            stamp = String(fs.statSync(path.join(extensionUri.fsPath, "media", name)).mtimeMs);
+            stamp = String(fs.statSync(path.join(extensionUri.fsPath, "media", rel)).mtimeMs);
         } catch {
             // 文件不存在（比如某页没有同名 css ✗）→ 不加时间戳即可 ✓
         }
@@ -72,5 +74,7 @@ export function loadWebviewHtml(
         .replace(/\{\{cspSource\}\}/g, webview.cspSource)
         .replace(/\{\{styleVars\}\}/g, extraCss)
         .replace(/\{\{css\}\}/g, mediaUri(`${base}.css`))
-        .replace(/\{\{js\}\}/g, mediaUri(`${base}.js`));
+        .replace(/\{\{js\}\}/g, mediaUri(`out/${base}.js`))
+        // ★ B29：mermaid 的 URI（它是独立打包的 ✗ 主程序按需注入 ✓）
+        .replace(/\{\{mermaidJs\}\}/g, mediaUri("out/mermaid.js"));
 }
