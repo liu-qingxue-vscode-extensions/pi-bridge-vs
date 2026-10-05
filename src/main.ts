@@ -50,6 +50,13 @@ import { messagesToPatches, type ReplayMessage } from "./bridge/replay.js";
 import { SessionStore, deleteSessionFile, sessionDirForCwd, validateSessionFile } from "./pi/session-store.js";
 import { ChatState } from "./view/chat-state.js";
 import { toErrorMessage } from "./utils.js";
+import { compactHome, expandHome } from "./util/paths.js";
+import { getEnabledModels, readModelCatalog, sortCatalog, type ModelEntry } from "./panels/model-catalog.js";
+import { readInstalledExtensions } from "./panels/extensions-scan.js";
+import { defaultForKind, needsRestartHint } from "./panels/settings-utils.js";
+import { readSkills } from "./panels/skill-scan.js";
+import { createSettingsPoster } from "./panels/settings-post.js";
+import { readPiDefaults, shortIdOf } from "./panels/misc-utils.js";
 
 export function activate(context: vscode.ExtensionContext): void {
     // 0. 日志（LogOutputChannel：VS Code 自动落盘 + 分级 + 轮转）
@@ -1423,25 +1430,10 @@ export function activate(context: vscode.ExtensionContext): void {
      *
      * ★ 等 pi 起来后，探针会用【真实值】覆盖它 ✓（所以只是"先占位"✓）
      */
-    function readPiDefaults(): {
-        model?: string;
-        provider?: string;
-        thinkingLevel?: string;
-    } {
-        try {
-            const p = path.join(getAgentDir(), "settings.json");
-            const d = JSON.parse(fs.readFileSync(p, "utf8")) as Record<string, unknown>;
-            return {
-                model: typeof d.defaultModel === "string" ? d.defaultModel : undefined,
-                provider: typeof d.defaultProvider === "string" ? d.defaultProvider : undefined,
-                thinkingLevel:
-                    typeof d.defaultThinkingLevel === "string" ? d.defaultThinkingLevel : undefined,
-            };
-        } catch (err) {
-            logDebug(`读 settings.json 默认值失败（忽略）: ${toErrorMessage(err)}`);
-            return {};
-        }
-    }
+
+    // ★ B30：设置内容的推送逻辑已搬到 src/panels/settings-post.ts ✗
+    //   用工厂把 chatView.post 依赖传进去 ✓
+    const postSettings = createSettingsPoster({ post: (k, p) => chatView.post(k, p) });
 
     /** ★ webview 就绪 → 推模型信息（已启动用真实值 ✓ 未启动用默认值占位 ✓）*/
     chatView.onReady = () => {
@@ -1470,75 +1462,6 @@ export function activate(context: vscode.ExtensionContext): void {
      *   pi 进程也会写这个文件 ✗（lastChangelogVersion 等 ✓）
      *   缓存的话用户会看到【旧值】✗ 而文件很小 ✓ 读它几乎免费 ✓
      */
-    function postSettings(): void {
-        const all = readSettings();
-        // ★ 模型目录（给下拉框用 ✓）
-        const catalog = readModelCatalog();
-        const providers = [...new Set(catalog.map((m) => m.provider))].sort();
-
-        const groups = SETTINGS_GROUPS.map((g) => ({
-            title: g.title,
-            items: g.items.map((f) => {
-                // ★ 动态注入选项（B24 用户要求：这些字段改成“有限字段”下拉 ✓）
-                let options = f.options;
-                if (f.key === "defaultModel") {
-                    // ★ 选项与值【都用 `provider/id`】✗（B24 合并决定 ✓）
-                    //   为什么值也用全名？→ 保存时能拆成两个字段 ✓
-                    //   （另外：只有 id 的话，同名模型在不同供应商下会歧义 ✓）
-                    options = sortCatalog(catalog).map((m) => ({
-                        value: `${m.provider}/${m.id}`,
-                        label: `${m.provider}/${m.id}`,
-                    }));
-                } else if (f.kind === "extlist") {                    // ★ 已装扩展：选项 = 全部已装 ✓ 值 = 当前启用的 ✓
-                    //   前端用复选框列表渲染 ✓
-                    options = readInstalledExtensions().map((x) => ({
-                        value: x.source,
-                        label: x.source + (x.enabled ? "" : "（已停用）"),
-                    }));
-                } else if (f.key === "enabledModels") {
-                    // ★ 列表控件也用它：下拉“选一个添加”✗ 不用手敲 ✓
-                    //   ★ 同样的排序 ✓（用户看下拉时体验一致 ✓）
-                    options = sortCatalog(catalog).map((m) => ({
-                        value: `${m.provider}/${m.id}`,
-                        label: `${m.provider}/${m.id}`,
-                    }));
-                }
-                // ★ defaultModel 要【合成】provider/id 显示 ✗（B24 合并 ✓）
-                //   因为文件里是分开存的（provider + model 两个字段 ✓）
-                let value = getByPath(all, f.key) ?? f.fallback ?? defaultForKind(f.kind);
-                if (f.key === "defaultModel") {
-                    const prov = typeof all.defaultProvider === "string" ? all.defaultProvider : "";
-                    const id = typeof all.defaultModel === "string" ? all.defaultModel : "";
-                    value = id ? (prov ? `${prov}/${id}` : id) : "";
-                }
-                // ★ 供应商凭据（B24）：值直接给【凭据列表】✗（不是 settings 字段 ✓）
-                //   ★ 注意：listAuth 已经做过【脱敏】✗ 不含原始 key ✓
-                if (f.kind === "providers") {
-                    return {
-                        key: f.key,
-                        label: f.label,
-                        desc: f.desc,
-                        kind: f.kind,
-                        value: listAuth(),
-                        exists: true,
-                    };
-                }
-                return {
-                    key: f.key,
-                    label: f.label,
-                    desc: f.desc,
-                    kind: f.kind,
-                    options,
-                    min: f.min,
-                    max: f.max,
-                    needsRestart: f.needsRestart,
-                    value,
-                    exists: getByPath(all, f.key) !== undefined,
-                };
-            }),
-        }));
-        chatView.post("settings", { path: settingsPath(), groups });
-    }
 
     /**
      * ★ 已装的【扩展】列表（B24 —— 拓展组用 ✓）
@@ -1557,53 +1480,6 @@ export function activate(context: vscode.ExtensionContext): void {
      *   启用 = 在 settings.packages 里 ✓（pi 会加载它 ✓）
      *   停用 = 从 packages 里移掉 ✗（包还在磁盘上 ✓ 只是不加载 ✓）
      */
-    function readInstalledExtensions(): { source: string; enabled: boolean }[] {
-        const nm = path.join(getAgentDir(), "npm", "node_modules");
-        const enabledSet = new Set(
-            (readSettings().packages as string[] | undefined)?.filter(
-                (x) => typeof x === "string",
-            ) ?? [],
-        );
-        const out: { source: string; enabled: boolean }[] = [];
-
-        const check = (pkgName: string, dir: string) => {
-            try {
-                const pj = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) as {
-                    pi?: unknown;
-                };
-                if (!pj.pi) return; // ★ 没有 pi 字段 → 不是扩展 ✗
-                const src = `npm:${pkgName}`;
-                out.push({ source: src, enabled: enabledSet.has(src) });
-            } catch {
-                /* 读不到就当不是 ✓ */
-            }
-        };
-
-        try {
-            for (const e of fs.readdirSync(nm, { withFileTypes: true })) {
-                if (!e.isDirectory()) continue;
-                if (e.name.startsWith("@")) {
-                    // ★ scope 包（@xxx/yyy ✓）多一层 ✓
-                    const scopeDir = path.join(nm, e.name);
-                    for (const s of fs.readdirSync(scopeDir, { withFileTypes: true })) {
-                        if (s.isDirectory()) check(`${e.name}/${s.name}`, path.join(scopeDir, s.name));
-                    }
-                } else if (!e.name.startsWith(".")) {
-                    check(e.name, path.join(nm, e.name));
-                }
-            }
-        } catch (err) {
-            logDebug(`读已装扩展失败: ${toErrorMessage(err)}`);
-        }
-
-        // ★ git: 开头的包（settings 里声明但不在 npm 目录 ✓）也一并列出 ✓
-        for (const src of enabledSet) {
-            if (src.startsWith("git:")) out.push({ source: src, enabled: true });
-        }
-        out.sort((a, b) => a.source.localeCompare(b.source));
-        logInfo(`已装扩展：${out.length} 个（启用 ${out.filter((x) => x.enabled).length} ✓）`);
-        return out;
-    }
 
     /**
      * ★ 扫描技能（B25）
@@ -1621,89 +1497,6 @@ export function activate(context: vscode.ExtensionContext): void {
      *     ---
      *   ★ 只读前 30 行 ✗（避开大文件 ✓ 而且 frontmatter 必定在开头 ✓）
      */
-    function readSkills(): {
-        dir: string;
-        skills: { name: string; description?: string; source?: string; path?: string }[];
-    } {
-        const out: { name: string; description?: string; source?: string; path?: string }[] = [];
-
-        /** 从一个 SKILL.md 提取 name/description ✓ */
-        const parse = (file: string): { name?: string; description?: string } => {
-            try {
-                const head = fs.readFileSync(file, "utf8").split("\n").slice(0, 30).join("\n");
-                const m = /^---\s*\n([\s\S]*?)\n---/.exec(head);
-                if (!m) return {};
-                const body = m[1];
-                const name = /^name:\s*(.+)$/m.exec(body)?.[1]?.trim();
-                // ★ description 可能很长 / 含中文 ✓ 直接取到行尾 ✓
-                const description = /^description:\s*(.+)$/m.exec(body)?.[1]?.trim();
-                return { name, description };
-            } catch {
-                return {};
-            }
-        };
-
-        /** 扫一个 skills 目录（里面是 <name>/SKILL.md ✓）*/
-        const scanDir = (dir: string, source: string) => {
-            let entries: fs.Dirent[];
-            try {
-                entries = fs.readdirSync(dir, { withFileTypes: true });
-            } catch {
-                return;
-            }
-            for (const e of entries) {
-                if (!e.isDirectory()) continue;
-                const file = path.join(dir, e.name, "SKILL.md");
-                if (!existsSync(file)) continue;
-                const meta = parse(file);
-                out.push({
-                    name: meta.name ?? e.name,
-                    description: meta.description,
-                    source,
-                    path: file,
-                });
-            }
-        };
-
-        // ① 用户自己的技能 ✓
-        const userDir = path.join(getAgentDir(), "skills");
-        scanDir(userDir, "用户技能");
-
-        // ② 扩展包提供的技能 ✓
-        const nm = path.join(getAgentDir(), "npm", "node_modules");
-        const scanExt = (dir: string) => {
-            try {
-                const pj = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) as {
-                    name?: string;
-                    pi?: { skills?: string[] };
-                };
-                for (const rel of pj.pi?.skills ?? []) {
-                    scanDir(path.join(dir, rel), pj.name ?? "扩展");
-                }
-            } catch {
-                /* ignore */
-            }
-        };
-        try {
-            for (const e of fs.readdirSync(nm, { withFileTypes: true })) {
-                if (!e.isDirectory()) continue;
-                if (e.name.startsWith("@")) {
-                    const sd = path.join(nm, e.name);
-                    for (const s of fs.readdirSync(sd, { withFileTypes: true })) {
-                        if (s.isDirectory()) scanExt(path.join(sd, s.name));
-                    }
-                } else if (!e.name.startsWith(".")) {
-                    scanExt(path.join(nm, e.name));
-                }
-            }
-        } catch (err) {
-            logDebug(`扫扩展技能失败: ${toErrorMessage(err)}`);
-        }
-
-        out.sort((a, b) => a.name.localeCompare(b.name));
-        logInfo(`技能：${out.length} 个（` + out.map((s) => s.name).join(", ") + `）`);
-        return { dir: userDir, skills: out };
-    }
 
     /**
      * ★ 模型目录的【展示排序】✗（B24 用户要求 ✓）
@@ -1722,19 +1515,6 @@ export function activate(context: vscode.ExtensionContext): void {
      *
      * ★ 相同数量时按供应商名排 ✗（保证顺序稳定 ✓ 不随扫目录顺序变 ✓）
      */
-    function sortCatalog(
-        list: { provider: string; id: string; name?: string }[],
-    ): { provider: string; id: string; name?: string }[] {
-        const byProv = new Map<string, { provider: string; id: string; name?: string }[]>();
-        for (const m of list) {
-            const arr = byProv.get(m.provider) ?? [];
-            arr.push(m);
-            byProv.set(m.provider, arr);
-        }
-        return [...byProv.entries()]
-            .sort((a, b) => a[1].length - b[1].length || a[0].localeCompare(b[0]))
-            .flatMap(([, arr]) => arr.sort((x, y) => x.id.localeCompare(y.id)));
-    }
 
     /**
      * ★ 拉一次模型目录（磁盘上的 ✓）
@@ -1757,63 +1537,10 @@ export function activate(context: vscode.ExtensionContext): void {
      *   只读一个的话：ollama 不全 · GitHub 完全没有 ✓（用户报的 ✓）
      *   → ★ 两个都读，按 provider/id 去重 ✓
      */
-    function readModelCatalog(): { provider: string; id: string; name?: string }[] {
-        const out: { provider: string; id: string; name?: string }[] = [];
-        const seen = new Set<string>();
-
-        const addFrom = (prov: string, models: { id?: string; name?: string }[] | undefined) => {
-            for (const m of models ?? []) {
-                if (!m?.id) continue;
-                const key = `${prov}/${m.id}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                out.push({ provider: prov, id: m.id, name: m.name });
-            }
-        };
-
-        // ① models.json（用户自定义 ✓ 有 providers 包装）
-        try {
-            const p = path.join(getAgentDir(), "models.json");
-            const d = JSON.parse(fs.readFileSync(p, "utf8")) as {
-                providers?: Record<string, { models?: { id?: string; name?: string }[] }>;
-            };
-            for (const [prov, v] of Object.entries(d.providers ?? {})) addFrom(prov, v.models);
-        } catch (err) {
-            logDebug(`读 models.json 失败: ${toErrorMessage(err)}`);
-        }
-
-        // ② models-store.json（pi 的内置目录 ✓ 没有 providers 包装）
-        try {
-            const p = path.join(getAgentDir(), "models-store.json");
-            const d = JSON.parse(fs.readFileSync(p, "utf8")) as Record<
-                string,
-                { models?: { id?: string; name?: string }[] }
-            >;
-            for (const [prov, v] of Object.entries(d)) {
-                if (v && typeof v === "object" && !Array.isArray(v)) addFrom(prov, v.models);
-            }
-        } catch (err) {
-            logDebug(`读 models-store.json 失败: ${toErrorMessage(err)}`);
-        }
-
-        logDebug(`模型目录（合并两个文件）：${out.length} 个 · ${[...new Set(out.map((m) => m.provider))].length} 个供应商`);
-        return out;
-    }
 
     /** 控件类型对应的“空值”（未配置时展示用 ✓）*/
-    function defaultForKind(kind: string): unknown {
-        if (kind === "boolean") return false;
-        if (kind === "number") return 0;
-        if (kind === "list") return [];
-        return "";
-    }
 
     /** ★ 改动里有没有“需要重启 pi”的项（给用户提示 ✓）*/
-    function needsRestartHint(values: Record<string, unknown>): boolean {
-        return SETTINGS_GROUPS.some((g) =>
-            g.items.some((f) => f.needsRestart && f.key in values),
-        );
-    }
 
     /**
      * ★ 启用模型列表（B24）
@@ -1826,10 +1553,6 @@ export function activate(context: vscode.ExtensionContext): void {
      * 【格式】`provider/id` ✓
      * 【空数组】= 不限制 ✓ 用全部可用模型 ✓
      */
-    function getEnabledModels(): string[] {
-        const v = readSettings().enabledModels;
-        return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-    }
 
     /**
      * ★ 把【模型切换菜单】的候选推给前端（带 current 标记 ✓）
@@ -1961,11 +1684,6 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     /** 从会话文件路径里取【短 id】（文件名 2026-…Z_<uuid>.jsonl ✓）*/
-    function shortIdOf(file: string): string {
-        const base = file.split(/[/\\]/).pop() ?? "";
-        const m = /_([0-9a-f-]{6,})\.jsonl$/i.exec(base);
-        return m ? m[1].slice(0, 8) : base.replace(/\.jsonl$/i, "").slice(0, 12);
-    }
 
     /**
      * ★ 推【会话列表】给前端（scope 过滤在这里做 ✓）
@@ -2009,24 +1727,3 @@ export function deactivate(): void {
     // 清理工作主要由上面的 subscriptions 完成
 }
 
-/**
- * 把 ~ 展开成家目录（用户输入路径时最自然的写法 ✓）
- *   "~/Projects" → "/home/xxx/Projects"
- *   "~"          → "/home/xxx"
- *   其他          → 原样返回
- */
-function expandHome(p: string): string {
-    if (p === "~") return os.homedir();
-    if (p.startsWith("~/")) return path.join(os.homedir(), p.slice(2));
-    return p;
-}
-
-/**
- * 反向美化：家目录下的路径 → ~/xxx（显示用，短且好读 ✓）
- *   ★ 只用于展示，不参与任何文件操作 ✓
- */
-function compactHome(p: string): string {
-    const home = os.homedir();
-    if (p === home) return "~";
-    return p.startsWith(home + path.sep) ? "~" + p.slice(home.length) : p;
-}
