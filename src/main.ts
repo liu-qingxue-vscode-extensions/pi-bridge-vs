@@ -35,6 +35,7 @@ import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
 import { ChatView } from "./view/chat-view.js";
 import { InteractionPanel } from "./view/interaction-panel.js";
+import { SkillsPanel } from "./view/skills-panel.js";
 import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
 import {
     readSettings,
@@ -255,6 +256,252 @@ export function activate(context: vscode.ExtensionContext): void {
                 .get<number>("interaction.closeDelay", 600),
         () => chatView.focusInput(),
     );
+
+    /**
+     * ★★ 技能面板（B31）：从侧栏搬到编辑器区 ✓
+     *
+     * 【为什么要 onMessage 回调？】
+     *   面板前端只管画 ✗ 读写磁盘是宿主的活 ✓
+     *   （和前端的 postMessage 通道不同 ✗ 这是 webviewPanel 自己的 ✓）
+     */
+    const skillsPanel = new SkillsPanel(context.extensionUri, (kind, payload) => {
+        if (kind === "openSkills") {
+            void refreshSkills();
+            return;
+        }
+        if (kind === "skillDetail") {
+            const name = (payload as { name?: string } | undefined)?.name;
+            if (name) void pushSkillDetail(name);
+        }
+        // ★ B31：在 VS Code 编辑器里打开 SKILL.md（★ 直接编辑磁盘文件 ✗ 无暂存问题 ✓）
+        if (kind === "skillOpenFile") {
+            const p = payload as { name?: string; reveal?: boolean } | undefined;
+            void openSkillFile(p?.name ?? "", p?.reveal === true);
+        }
+        if (kind === "skillDelete") {
+            const name = (payload as { name?: string } | undefined)?.name;
+            if (name) void deleteSkill(name);
+        }
+        if (kind === "skillHide") {
+            const name = (payload as { name?: string } | undefined)?.name;
+            if (name) void hideSkill(name);
+        }
+        // ★ 新建（B31 ✓ 要弹输入框 ✗ 只有宿主能做 ✓）
+        if (kind === "skillCreate") {
+            void createSkill();
+            return;
+        }
+        // ★★ 这两个【必须在这里接】✗（B31 修 ✗）
+        //   技能面板是【独立页面】✗ 它发的消息走 panel 自己的通道 ✓
+        //   不会进 chatView 那个 onMessage ✗（那条是聊天页面的 ✓）
+        //   ★ 之前漏了这两个 → 点技能"没反应"✓
+        if (kind === "skillInsert") {
+            const name = (payload as { name?: string } | undefined)?.name;
+            if (name) {
+                const hit = readSkills().skills.find((x) => x.name === name);
+                if (hit?.path) {
+                    try {
+                        chatView.post("insertToInput", { text: fs.readFileSync(hit.path, "utf8") });
+                        logInfo(`技能注入输入框：${name}`);
+                    } catch (err) {
+                        logError(`读技能内容失败：${toErrorMessage(err)}`);
+                    }
+                }
+            }
+            return;
+        }
+        if (kind === "skillAsCommand") {
+            const name = (payload as { name?: string } | undefined)?.name;
+            if (name) {
+                logInfo(`技能作为命令发送：/skill:${name}`);
+                // ★★ 必须带斜杠（B31 修 ✗）
+                //   pi 文档：“Run one through the `prompt` command by
+                //           prefixing its name with `/`” ✓
+                //   少了它 → pi 把它当成【普通消息】✗ 技能不会执行 ✓
+                chatView.post("sendText", { text: `/skill:${name}` });
+            }
+            return;
+        }
+    });
+
+    /** ★ 扫技能并推给面板（顺带把"单击行为"配置一起发 ✗ 前端要用 ✓）*/
+    const refreshSkills = async (): Promise<void> => {
+        try {
+            const data = readSkills();
+            const cfg = vscode.workspace.getConfiguration("pi-bridge");
+            const clickAction = cfg.get<string>("skills.clickAction", "insert");
+            // ★ 过滤掉被隐藏的（B31 ✓）
+            const hidden = new Set(cfg.get<string[]>("skills.hidden", []));
+            const visible = data.skills.filter((x) => !hidden.has(x.name));
+            skillsPanel.post("skills", { ...data, skills: visible, clickAction });
+        } catch (err) {
+            logError(`扫技能失败: ${toErrorMessage(err)}`);
+        }
+    };
+
+    /** ★ 推某条技能的正文 ✓ */
+    const pushSkillDetail = async (name: string): Promise<void> => {
+        const hit = readSkills().skills.find((x) => x.name === name);
+        if (!hit?.path) {
+            logWarn(`技能详情：找不到 ${name}`);
+            return;
+        }
+        try {
+            skillsPanel.post("skillDetail", {
+                name: hit.name,
+                path: hit.path,
+                content: fs.readFileSync(hit.path, "utf8"),
+            });
+        } catch (err) {
+            logError(`读技能内容失败: ${toErrorMessage(err)}`);
+        }
+    };
+
+    /**
+     * ★ 在 VS Code 编辑器里打开技能的 SKILL.md（B31 ✓）
+     *
+     * 【★ 为什么不用"我们的弹层"编辑？】
+     *   用户定的：“临时去拿还能理解 ✗ 我这边修改完保存好了 ✗ 用到的就是最新的 ✓”
+     *   → ★ 用原生编辑器打开【磁盘上那个文件本身】✗ 保存即落盘 ✓
+     *   → 没有暂存 / 没有同步问题 ✓✓✓
+     *
+     * @param reveal true = 只在文件管理器里定位（不打开编辑器 ✓）
+     */
+    const openSkillFile = async (name: string, reveal: boolean): Promise<void> => {
+        const hit = readSkills().skills.find((x) => x.name === name);
+        if (!hit?.path) {
+            logWarn(`打开技能文件：找不到 ${name}`);
+            return;
+        }
+        const uri = vscode.Uri.file(hit.path);
+        if (reveal) {
+            await vscode.commands.executeCommand("revealFileInOS", uri);
+            return;
+        }
+        // ★★ 只读技能 → 打开成【未命名文档】✗（用户要求 ✓）
+        //   ★ 为什么？→ 扩展包里的技能改了会被下次装包覆盖 ✗ 不如不给改 ✓
+        //   ★★ 未命名文档的物理特性 ✗：
+        //     你改了想保存 ✗ VS Code 会弹"另存为"✗ 不会覆盖原文件 ✓✓✓
+        //     （不需要 FileSystemProvider 那套重活 ✓）
+        if (!hit.mine) {
+            const doc = await vscode.workspace.openTextDocument({
+                content: fs.readFileSync(hit.path, "utf8"),
+                language: "markdown",
+            });
+            await vscode.window.showTextDocument(doc, { preview: false });
+            void vscode.window.showInformationMessage(
+                `这是只读预览（扩展包提供的技能 ✗ 改了会被下次安装覆盖 ✓）。原文件：${hit.path}`,
+            );
+            return;
+        }
+        await vscode.window.showTextDocument(uri, { preview: false });
+    };
+
+    /**
+     * ★ 删除一个技能（B31 ✗ 删整个目录 ✓）
+     *
+     * 【★ 只允许删用户自己的】
+     *   扩展包提供的技能是【包的一部分】✗ 删了下次装包又回来 ✓
+     *   → 直接拒绝 ✓（前端也不会给入口 ✓ 这里是第二道防线 ✓）
+     */
+    const deleteSkill = async (name: string): Promise<void> => {
+        const hit = readSkills().skills.find((x) => x.name === name);
+        if (!hit?.path || !hit.mine) {
+            skillsPanel.post("skillToast", { text: "只读技能不能删除 ✓", err: true });
+            return;
+        }
+        // ★ 二次确认（删目录不可逆 ✗ 虽然会进回收站 ✓）
+        const ok = await vscode.window.showWarningMessage(
+            `删除技能「${name}」？（整个目录会进回收站）`,
+            { modal: true },
+            "删除",
+        );
+        if (ok !== "删除") return;
+        const dir = path.dirname(hit.path);
+        const r = await deleteSessionFile(dir);
+        if (r.ok) {
+            logInfo(`删除技能：${name}（${r.method}）`);
+            skillsPanel.post("skillToast", { text: `已删除：${name}` });
+        } else {
+            logError(`删除技能失败：${r.error}`);
+            skillsPanel.post("skillToast", { text: `删除失败：${r.error}`, err: true });
+        }
+        await refreshSkills();
+    };
+
+    /**
+     * ★ 隐藏一个技能（B31 ✗ 不删 ✗ 只是不显示 ✓）
+     *
+     * 【为什么需要它？】
+     *   有些技能是别人包的 ✗ 删不掉 ✓ 但又不想天天看见 ✓
+     *   → 加进隐藏清单 ✓（VS Code 配置里一个字符串数组 ✓）
+     */
+    const hideSkill = async (name: string): Promise<void> => {
+        const cfg = vscode.workspace.getConfiguration("pi-bridge");
+        const cur = cfg.get<string[]>("skills.hidden", []);
+        if (cur.includes(name)) return;
+        await cfg.update("skills.hidden", [...cur, name], vscode.ConfigurationTarget.Global);
+        skillsPanel.post("skillToast", { text: `已隐藏：${name}（可在设置里恢复 ✓）` });
+        await refreshSkills();
+    };
+
+    /**
+     * ★★ 新建技能（B31 ✓）
+     *
+     * 【流程】输入名字 → 校验 → 建目录 + 写模板 → 直接用编辑器打开 ✓
+     *
+     * 【为什么要模板？】
+     *   SKILL.md 必须带 YAML front-matter（name / description ✓）
+     *   否则不会被识别 ✗ 也不能只给它一个空文件 ✓
+     *   → 给一个能直接开写的骨架 ✗ 用户改两行就好了 ✓
+     */
+    const createSkill = async (): Promise<void> => {
+        const root = path.join(getAgentDir(), "skills");
+        const name = await vscode.window.showInputBox({
+            title: "新建技能",
+            prompt: "起个名字（当目录名 ✗ 建议用英文小写 + 连字符 ✓）",
+            placeHolder: "my-skill",
+            // ★ 校验（防路径穿越 ✗ 防重名 ✓）
+            validateInput: (v) => {
+                const t = v.trim();
+                if (!t) return "名字不能为空";
+                if (!/^[A-Za-z0-9._-]+$/.test(t)) return "只能用字母 / 数字 / . _ -（别用空格和斜杠 ✓）";
+                if (t === "." || t === "..") return "这个名字不合法";
+                if (fs.existsSync(path.join(root, t))) return `已存在同名技能：${t}`;
+                return undefined;
+            },
+        });
+        if (!name) return;
+
+        const dir = path.join(root, name.trim());
+        const file = path.join(dir, "SKILL.md");
+        try {
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(
+                file,
+                [
+                    "---",
+                    `name: ${name.trim()}`,
+                    "description: （一句话说明这个技能是干什么的 ✗ 会显示在技能列表里 ✓）",
+                    "---",
+                    "",
+                    `# ${name.trim()}`,
+                    "",
+                    "（在这里写指令 ✗ 模型读到的就是这段内容 ✓）",
+                    "",
+                ].join("\n"),
+                "utf8",
+            );
+            logInfo(`新建技能：${file}`);
+            // ★ 直接打开让它开写 ✓
+            await vscode.window.showTextDocument(vscode.Uri.file(file), { preview: false });
+            skillsPanel.post("skillToast", { text: `已创建：${name.trim()}（改完保存即可 ✓）` });
+            await refreshSkills();
+        } catch (err) {
+            logError(`新建技能失败：${toErrorMessage(err)}`);
+            skillsPanel.post("skillToast", { text: `新建失败：${toErrorMessage(err)}`, err: true });
+        }
+    };
 
     /** ★ 侧栏提示条内容（B26）：只报告“有没有待答 + 当前问题标题” ✓ */
     const pushHint = (): void => {
@@ -588,32 +835,29 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
-            // ★ 技能面板（B25）：扫描技能 → 推给前端 ✓
+            // ★ 技能面板（B31）：打开【编辑器区面板】✗ 不再是侧栏那块 ✓
             if (msg.kind === "openSkills") {
-                try {
-                    chatView.post("skills", readSkills());
-                } catch (err) {
-                    logError(`扫技能失败: ${toErrorMessage(err)}`);
-                }
+                skillsPanel.show();
+                await refreshSkills();
                 return;
             }
 
-            // ★ 看某个技能的详情（B25）：读 SKILL.md 正文 → 推给前端 ✓
+            // ★ 看某个技能的详情（B31）：读 SKILL.md 正文 → 推给【技能面板】✓
             if (msg.kind === "skillDetail") {
-                const all = readSkills().skills;
-                const hit = all.find((x) => x.name === msg.name);
+                await pushSkillDetail(msg.name);
+                return;
+            }
+
+            // ★ 技能 → 塞进【聊天输入框】（B31 ✗ 面板是独立页面 ✗ 碰不到侧栏 ✓）
+            if (msg.kind === "skillInsert") {
+                const hit = readSkills().skills.find((x) => x.name === msg.name);
                 if (!hit?.path) {
-                    logWarn(`技能详情：找不到 ${msg.name}`);
+                    logWarn(`技能注入：找不到 ${msg.name}`);
                     return;
                 }
                 try {
-                    const text = fs.readFileSync(hit.path, "utf8");
-                    chatView.post("skillDetail", {
-                        name: hit.name,
-                        source: hit.source,
-                        path: hit.path,
-                        content: text,
-                    });
+                    chatView.post("insertToInput", { text: fs.readFileSync(hit.path, "utf8") });
+                    logInfo(`技能注入输入框：${msg.name}`);
                 } catch (err) {
                     logError(`读技能内容失败: ${toErrorMessage(err)}`);
                 }
@@ -627,11 +871,12 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
-            // ★ 技能 → 作为命令发送（B25）：发 `skill:<name>` ✓
-            //   ★ pi 原生支持 skill 命令 ✗（我们之前 get_commands 看到过 ✓）
-            //   → 走正常 prompt 通道即可 ✓（busy 时会自动转 steer ✓）
+            // ★ 技能 → 作为命令发送（B25 ✓ 侧栏那条路）
+            //   ★★ 必须带斜杠（B31 修 ✗）：pi 的命令都要 `/name` 前缀 ✓
+            //      （文档：“prefixing its name with `/`”✓）
+            //      少了它 → 被当成普通消息 ✗ 技能不执行 ✓
             if (msg.kind === "skillAsCommand") {
-                const text = `skill:${msg.name}`;
+                const text = `/skill:${msg.name}`;
                 logInfo(`技能作为命令发送：${text}`);
                 chatView.post("sendText", { text });
                 return;
@@ -686,6 +931,16 @@ export function activate(context: vscode.ExtensionContext): void {
                 try {
                     const patch: Record<string, unknown> = {};
                     for (const [k, v] of Object.entries(msg.values ?? {})) {
+                        // ★★ 分流（B31 ✓）：`pi-bridge.*` 是【我们扩展自己的 VS Code 配置】✗
+                        //   不能写进 pi 的 settings.json ✓
+                        //   （用前缀判断就够 ✗ pi 的字段不可能以 pi-bridge. 开头 ✓）
+                        //   ★ 例如 pi-bridge.skills.clickAction（技能单击行为 ✓）
+                        if (k.startsWith("pi-bridge.")) {
+                            await vscode.workspace
+                                .getConfiguration()
+                                .update(k, v, vscode.ConfigurationTarget.Global);
+                            continue;
+                        }
                         // ★★ defaultModel 是【合成字段】✗（界面上的值是 "provider/id" ✓）
                         //   要拆回 pi 认的【两个】字段 ✓（B24 合并决定 ✓）
                         //
@@ -934,6 +1189,17 @@ export function activate(context: vscode.ExtensionContext): void {
         debugPanel.show();
     }
 
+    // ★ B31：技能相关配置变了 → 刷新技能面板（单击行为 / 隐藏清单 ✓）
+    //   ★ 不刷新的话：用户在设置面板改了"单击行为"✗ 面板里的按钮语义不变 ✓
+    //     （实测就是这个 bug ✓）
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration("pi-bridge.skills") && skillsPanel.isOpen()) {
+                void refreshSkills();
+            }
+        }),
+    );
+
     // ★ 版本检测（B24）：异步跑 ✗ 不阻塞激活 ✓
     //   （每次激活都查 ✓ 只有真的有新版才提示 ✓ 失败静默 ✓）
     void runVersionCheck();
@@ -946,6 +1212,12 @@ export function activate(context: vscode.ExtensionContext): void {
         // ctrl+alt+d / 命令面板 → 打开调试板
         vscode.commands.registerCommand("pi-bridge.showDebug", () => {
             debugPanel.show();
+        }),
+
+        // ★ 命令面板 → 打开技能面板（B31 ✓）
+        vscode.commands.registerCommand("pi-bridge.showSkills", () => {
+            skillsPanel.show();
+            void refreshSkills();
         }),
 
         // ★ 命令面板 → 打开交互面板（B26 ✓ 没有待答请求时是空操作 ✓）

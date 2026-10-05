@@ -13,6 +13,7 @@ import { listAuth } from "../pi/auth.js";
 import { VERSION } from "@earendil-works/pi-coding-agent";
 import { sortCatalog, readModelCatalog } from "./model-catalog.js";
 import { readInstalledExtensions } from "./extensions-scan.js";
+import * as vscode from "vscode";
 import { defaultForKind } from "./settings-utils.js";
 import { getByPath } from "../pi/settings-schema.js";
 
@@ -54,7 +55,16 @@ export function createSettingsPoster(deps: {
             }
             // ★ defaultModel 要【合成】provider/id 显示 ✗（B24 合并 ✓）
             //   因为文件里是分开存的（provider + model 两个字段 ✓）
-            let value = getByPath(all, f.key) ?? f.fallback ?? defaultForKind(f.kind);
+            //
+            // ★★ scope 分流（B31 ✓）：
+            //   "vscode" 的字段不在 settings.json 里 ✗
+            //   → 从 VS Code 的工作区配置读 ✓（如 pi-bridge.skills.clickAction ✓）
+            let value: unknown;
+            if (f.scope === "vscode") {
+                value = vscode.workspace.getConfiguration().get(f.key) ?? f.fallback ?? "";
+            } else {
+                value = getByPath(all, f.key) ?? f.fallback ?? defaultForKind(f.kind);
+            }
             if (f.key === "defaultModel") {
                 const prov = typeof all.defaultProvider === "string" ? all.defaultProvider : "";
                 const id = typeof all.defaultModel === "string" ? all.defaultModel : "";

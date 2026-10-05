@@ -51,6 +51,11 @@
                 "command": "pi-bridge.showInteraction",
                 "title": "Pi：打开交互面板",
                 "category": "Pi"
+            },
+            {
+                "command": "pi-bridge.showSkills",
+                "title": "Pi：打开技能面板",
+                "category": "Pi"
             }
         ],
         "keybindings": [
@@ -217,18 +222,38 @@
                         "minimum": 9,
                         "maximum": 22,
                         "markdownDescription": "设置面板的**字号**（px）。设置面板里所有文字都跟着它缩放 ✓"
+                    },
+                    "pi-bridge.style.settingsPanelPadX": {
+                        "type": "number",
+                        "default": 10,
+                        "minimum": 0,
+                        "markdownDescription": "设置面板内容区的**左右内边距**（px）。\n\n★ 原来这里是 0 ✗ 所以内容左边紧贴边框 ✓ 调大可让它离边框远一点。"
                     }
                 }
             },
             {
                 "title": "pi-bridge：面板：技能",
                 "properties": {
-                    "pi-bridge.style.skillsFontSize": {
-                        "type": "number",
-                        "default": 12,
-                        "minimum": 9,
-                        "maximum": 22,
-                        "markdownDescription": "**技能面板**的字号（px）。技能名 / 描述 / 正文都跟着它缩放 ✓"
+                    "pi-bridge.skills.clickAction": {
+                        "type": "string",
+                        "enum": [
+                            "insert",
+                            "send"
+                        ],
+                        "default": "insert",
+                        "enumDescriptions": [
+                            "填入聊天输入框（可以再改改再发 ✓）",
+                            "直接作为 skill:<name> 命令发送 ✓"
+                        ],
+                        "markdownDescription": "技能面板里【单击】一条技能时的行为。\n\n★ 列表每一项右侧还有一个【反向按钮】✗ 语义随这里的设置翻转：\n· 选「填入输入框」时右侧按钮是「发送」\n· 选「直接发送」时右侧按钮是「填入」\n\n在插件自己的设置面板里也能改 ✗ 位置：「行为」组 ✓"
+                    },
+                    "pi-bridge.skills.hidden": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": [],
+                        "markdownDescription": "**隐藏**的技能名清单。\n\n★ 有些技能是别人包里带的 ✗ 删不掉 ✓ 但又不想天天看见 ✓\n在这列出来它们就不再显示（清空这个列表就能恢复 ✓）。"
                     }
                 }
             },

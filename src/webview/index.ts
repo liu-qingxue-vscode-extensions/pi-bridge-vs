@@ -21,7 +21,7 @@ import { setupSessions } from "./sessions.js";
 import { setupCompact } from "./compact.js";
 import { setupModelPicker } from "./model-picker.js";
 import { setupSettingsPanel } from "./settings-panel.js";
-import { setupSkillsPanel } from "./skills-panel.js";
+import { btnSkills } from "./dom.js";
 import { setupMarkdown } from "./markdown.js";
 import { setupSlashMenu } from "./slash-menu.js";
 import { setupUiRequest } from "./ui-request.js";
@@ -55,9 +55,11 @@ safe("sessions", setupSessions);
 safe("compact", setupCompact);
 safe("modelPicker", setupModelPicker);
 safe("settings", setupSettingsPanel);
-safe("skills", setupSkillsPanel);
+
 safe("uiRequest", setupUiRequest);
 safe("slashMenu", setupSlashMenu);
+// ★ B31：技能面板搬到编辑器区 ✗ 侧栏这个按钮只负责【打开面板】✓
+btnSkills.addEventListener("click", () => post("openSkills"));
 safe("markdown", setupMarkdown);
 
 // ② 宿主消息监听（★ 最关键：无论前面谁崩，它必须挂上 ✓）

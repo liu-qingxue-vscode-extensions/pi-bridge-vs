@@ -64,10 +64,7 @@ export const settingsPath = needEl("settings-path");
 
 // ── 技能面板（B25）──
 export const btnSkills = needEl("btn-skills");
-export const skillsPanel = needEl("skills-panel");
-export const skillsBody = needEl("skills-body");
-export const skillsReload = needEl("skills-reload");
-export const skillsPath = needEl("skills-path");
+// ★ B31：侧栏技能面板的容器已删 ✗ 现在只有按钮（打开编辑器区面板 ✓）
 
 // ── 顶栏（topbar）：统计栏 + 电池 ──
 export const statusBarEl = needEl("status-bar");

@@ -39,9 +39,9 @@ export function readStyleVars(): Record<string, string> {
     num("userMinWidth", "--pi-user-min-width", "%"); // 用户气泡的最小宽度（百分比 ✓）
     num("userMaxWidth", "--pi-user-max-width", "%"); // ★ 用户气泡的最大宽度（超过就换行 ✓）
     // ★ 设置面板的字号（B24）—— 面板里所有文字都跟着它缩放 ✓
+    num("settingsPanelPadX", "--pi-settings-pad-x", "px");
     num("settingsFontSize", "--pi-settings-font", "px");
     // ★ 技能面板的字号（B25）
-    num("skillsFontSize", "--pi-skills-font", "px");
 
     // 居中内容列开关：布尔不能直接当 CSS 变量用 → 传一个特殊值，webview 收到后切换 CSS 类
     vars["--pi-centered-mode"] = cfg.get<boolean>("centerColumn", false) ? "on" : "off";

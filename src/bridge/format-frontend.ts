@@ -95,7 +95,11 @@ export type FrontendMessage =
     | { kind: "skillDetail"; name: string }
     // ★ 技能内容的两个动作（B25）
     | { kind: "skillToInput"; content: string } // 填入输入框（本地 ✓）
-    | { kind: "skillAsCommand"; name: string } // 发 skill:<name> 当命令 ✓
+    | { kind: "skillAsCommand"; name: string }
+    // ★ B31：技能面板（独立页面）把 SKILL.md 塞进聊天输入框 ✓
+    //   ★ 它和 skillToInput 的差别：这个只要【名字】✗ 宿主自己去读文件 ✓
+    //     （因为面板碰不到侧栏的 textarea ✗ 只能求宿主 ✓）
+    | { kind: "skillInsert"; name: string } // 发 skill:<name> 当命令 ✓
     // ★ 分叉（B19）：从【某个 AI 组末尾】切一刀 ✓
     //   userIndex = 该气泡前面有【几个】用户气泡（= get_fork_messages 的下标 ✓）
     //   ★ 注意：这不是“第几条用户消息”，而是【锚点下标】✓ 见 main.ts 的实现 ✓

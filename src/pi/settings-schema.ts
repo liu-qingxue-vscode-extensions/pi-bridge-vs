@@ -25,6 +25,18 @@ export type FieldKind =
 export interface FieldDef {
     /** settings.json 里的键（支持 "a.b" 这种嵌套 ✗ 见 getByPath ✓）*/
     key: string;
+    /**
+     * ★ 这个配置存在哪（B31 ✓）
+     *   "pi"     = pi 的 settings.json（默认 ✓ 绝大多数都是这个 ✓）
+     *   "vscode" = VS Code 的工作区配置（pi-bridge.* ✗ 我们自己的设置 ✓）
+     *
+     * 【为什么要区分？】
+     *   这个面板本来只渲染 pi 的字段 ✗
+     *   但用户要求"技能单击行为"也放进来（放「行为」组 ✓）
+     *   → 它是我们扩展自己的配置 ✗ 不是 pi 的 ✓
+     *   → 读 / 写要分流：走 workspace.getConfiguration 而不是那个 json 文件 ✓
+     */
+    scope?: "pi" | "vscode";
     label: string;
     desc?: string;
     kind: FieldKind;
@@ -155,6 +167,30 @@ export const SETTINGS_GROUPS: GroupDef[] = [
                 label: "重试基础延迟（ms）",
                 kind: "number",
                 min: 0,
+            },
+            {
+                // ★ scope:"vscode" → 它不在 settings.json 里 ✗ 是 VS Code 配置 ✓
+                key: "pi-bridge.skills.clickAction",
+                scope: "vscode",
+                label: "技能：单击行为",
+                desc:
+                    "技能面板里单击一条技能做什么 ✗ " +
+                    "列表每项右侧的反向按钮语义会跟着翻转（选“填入”就显示“发送”✓）",
+                kind: "select",
+                options: [
+                    { value: "insert", label: "填入输入框（默认 ✓ 不会误发 ✓）" },
+                    { value: "send", label: "直接作为命令发送" },
+                ],
+                fallback: "insert",
+            },
+            {
+                // ★ 隐藏清单（B31 ✓）：有些技能是包里带的 ✗ 删不掉 ✓ 但可以不显示 ✓
+                key: "pi-bridge.skills.hidden",
+                scope: "vscode",
+                label: "技能：隐藏清单",
+                desc: "列在这里的技能名不再显示（清空就恢复 ✓）",
+                kind: "list",
+                fallback: [],
             },
         ],
     },

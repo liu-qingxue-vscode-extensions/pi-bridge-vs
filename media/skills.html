@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}';">
+<link rel="stylesheet" href="{{css}}">
+</head>
+<body>
+  <!-- ★ 技能面板（B31 ✗ 从侧栏搬到编辑器区 ✓）-->
+  <div id="host">
+    <div id="head">
+      <span id="count"></span>
+      <span class="spacer"></span>
+      <button id="reload" title="重新扫描技能目录">重新扫描</button>
+    </div>
+    <div id="list"></div>
+    <!-- ★ 点击反馈（B31 ✗ 效果发生在侧栏 ✗ 这里看不见 ✓ 所以要有提示 ✓）-->
+    <div id="toast" data-show="0" data-kind="ok"></div>
+  </div>
+  <script nonce="{{nonce}}" src="{{js}}"></script>
+</body>
+</html>

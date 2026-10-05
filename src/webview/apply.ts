@@ -26,7 +26,6 @@ import { appendStopNote, showRetryNotice } from "./notices.js";
 import { showCompactionEnd, showCompactionStart } from "./compact.js";
 import { setModelInfo, showModelPicker, showThinkingPicker } from "./model-picker.js";
 import { renderSettings } from "./settings-panel.js";
-import { renderSkillDetail, renderSkills } from "./skills-panel.js";
 import { showInteractionHint } from "./ui-request.js";
 import { setCommands } from "./slash-menu.js";
 import { updateStatusBar } from "./topbar.js";
@@ -396,12 +395,6 @@ export function setupHostBridge(): void {
                 renderSettings((data.payload ?? {}) as never);
                 return;
             // ★ 技能列表（B25）
-            case "skills":
-                renderSkills((data.payload ?? {}) as never);
-                return;
-            case "skillDetail":
-                renderSkillDetail((data.payload ?? {}) as never);
-                return;
             // ★ B29：VS Code 主题（代码高亮用 ✗ 逐色统一 ✓）
             case "theme":
                 setHighlightTheme((data.payload ?? {}) as never);

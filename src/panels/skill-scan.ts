@@ -11,11 +11,27 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { logDebug, logInfo } from "../logger.js";
 import { toErrorMessage } from "../utils.js";
 
-export function readSkills(): {
-    dir: string;
-    skills: { name: string; description?: string; source?: string; path?: string }[];
-} {
-    const out: { name: string; description?: string; source?: string; path?: string }[] = [];
+/** 技能条目 ✓ */
+export interface SkillEntry {
+    name: string;
+    description?: string;
+    source?: string;
+    path?: string;
+    /**
+     * ★★ 用户自己的（可改可删 ✓）还是扩展包提供的（只读 ✓）
+     *
+     * 【为什么是【必填】而不是可选？】（B31 的教训 ✗）
+     *   一开始写成了 `mine?: boolean` ✗
+     *   结果：构建时漏赋值了 ✓ 而 TypeScript 【不报错】✓
+     *     （可选字段缺失是合法的 ✓）
+     *   → 于是所有技能都变成“只读”✗ 但编译器一声不吮 ✓
+     *   ★ 改成必填后：漏了就是编译错误 ✗✓✓
+     */
+    mine: boolean;
+}
+
+export function readSkills(): { dir: string; skills: SkillEntry[] } {
+    const out: SkillEntry[] = [];
 
     /** 从一个 SKILL.md 提取 name/description ✓ */
     const parse = (file: string): { name?: string; description?: string } => {
@@ -34,7 +50,7 @@ export function readSkills(): {
     };
 
     /** 扫一个 skills 目录（里面是 <name>/SKILL.md ✓）*/
-    const scanDir = (dir: string, source: string) => {
+    const scanDir = (dir: string, source: string, mine: boolean) => {
         let entries: fs.Dirent[];
         try {
             entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -51,13 +67,18 @@ export function readSkills(): {
                 description: meta.description,
                 source,
                 path: file,
+                // ★★ 这个字段后面漏过一次（B31 ✗）
+                //   症状：所有技能都被当成“扩展包提供” → 全都变成了只读 ✓
+                //   原因：用脚本做批量替换时【静默失败】✗（没匹配上也不报错 ✓）
+                //   ★ 教训：改代码用 edit 工具 ✗（不匹配会当场报错 ✓）
+                mine,
             });
         }
     };
 
     // ① 用户自己的技能 ✓
     const userDir = path.join(getAgentDir(), "skills");
-    scanDir(userDir, "用户技能");
+    scanDir(userDir, "用户技能", true);  // ★ 用户自己的 → 可改可删 ✓
 
     // ② 扩展包提供的技能 ✓
     const nm = path.join(getAgentDir(), "npm", "node_modules");
@@ -68,7 +89,7 @@ export function readSkills(): {
                 pi?: { skills?: string[] };
             };
             for (const rel of pj.pi?.skills ?? []) {
-                scanDir(path.join(dir, rel), pj.name ?? "扩展");
+                scanDir(path.join(dir, rel), pj.name ?? "扩展", false); // ★ 扩展包提供 → 只读 ✓
             }
         } catch {
             /* ignore */

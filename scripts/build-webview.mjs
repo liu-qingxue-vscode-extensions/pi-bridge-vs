@@ -31,6 +31,8 @@ const options = {
         // ★ mermaid 单独打包变开关：它约 2MB ✗ 不能拖累主包 ✓
         //   （只有消息里真出现 ```mermaid 时才由主程序动态注入 ✓）
         { in: "src/webview/mermaid-entry.ts", out: "mermaid" },
+        // ★ 技能面板（B31 ✗ 从侧栏搬到编辑器区 ✓）
+        { in: "src/skills/index.ts", out: "skills" },
     ],
     outdir: "media/out",
     bundle: true,          // 把 import 的全部打进一个文件 ✓
