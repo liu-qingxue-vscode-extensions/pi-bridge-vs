@@ -85,6 +85,20 @@ export class SessionPanel {
      *   代价：下次 show() 会【重建】✗ 前端重新加载 → 再走一次 sessionReady 握手 ✓
      *   （列表会重新推一遍 ✗ 用户看到的是“面板重新出现”✓ 可接受 ✓）
      */
+    /**
+     * ★★ B37：面板是不是【正显示着】（被别的 tab 盖住时 visible=false ✓）
+     *
+     * 【为什么要它？】
+     *   侧栏按钮要做【再点一次就关掉】（toggle ✓）✗ 而判断依据必须是
+     *   “它现在真的在用户眼前”✗ 不是“它存在”✓
+     *   · 存在但被盖住（visible=false）→ 点按钮应该【把它露出来】✓
+     *   · 存在且就在眼前（visible=true）→ 点按钮应该【关掉它】✓
+     *   ★ 只看 isOpen() 就会把“在后台的那个面板”直接关掉 ✗ 不符合直觉 ✓
+     */
+    isVisible(): boolean {
+        return this.panel?.visible ?? false;
+    }
+
     hide(): void {
         this.panel?.dispose();
     }

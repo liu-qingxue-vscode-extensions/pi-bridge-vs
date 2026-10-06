@@ -225,7 +225,22 @@ export function activate(context: vscode.ExtensionContext): void {
                 return; // ★ 不再往下走（它没有被 toChatPatch 处理 ✓）
             }
         }
-        const patch = toChatPatch(event);
+        // ★★ B37：pi 侧的【非协议】消息（pi_stdout_raw / pi_exit / pi_spawn_error ✓）
+        //   ★ 它们【只给调试板看】✗ 没有任何对应的 UI ✓
+        //     （用户定的：调试板是“防漏表”✗ 但“看见”不等于“要渲染”✓）
+        //   ★ 注意位置：必须在 debugPanel.log(event) 【之后】✗
+        //     否则调试板就看不到它们了 ✓（B25 踩过同样的坑 ✓）
+        if (
+            event.type === "pi_stdout_raw" ||
+            event.type === "pi_exit" ||
+            event.type === "pi_spawn_error"
+        ) {
+            return;
+        }
+
+        // ★ 上面已经拦掉了 pi_* ✗ 但 TS 窄化不了（JsonAgentSessionEvent 的
+        //   type 是 string ✗ 不是字面量联合 ⇒ 判别式窄化失效 ✓）→ 断言一下 ✓
+        const patch = toChatPatch(event as never);
         if (!patch) return;
         // 任务级状态不进 ChatState（它不是气泡），直接推给视图
         if (patch.kind === "agentState") {
@@ -862,7 +877,8 @@ export function activate(context: vscode.ExtensionContext): void {
             // ★ 技能面板（B31）：打开【编辑器区面板】✗ 不再是侧栏那块 ✓
             if (msg.kind === "openSkills") {
                 // ★★ B35：走互斥协调器 ✓
-                showExclusive("skills");
+                // ★★ B37：带 toggle ✗ 再点一次就关掉（侧栏技能按钮 ✓）
+                showExclusive("skills", true);
                 await skillsActions.refresh();
                 return;
             }
@@ -1124,7 +1140,8 @@ export function activate(context: vscode.ExtensionContext): void {
         chatState,
         postChat: (kind, payload) => chatView.post(kind, payload),
         postPanel: (kind, payload) => sessionPanel.post(kind, payload),
-        showPanel: () => showExclusive("session"),
+        // ★★ B37：侧栏 ☰ 带 toggle ✗ 再点一次就关 ✓
+        showPanel: () => showExclusive("session", true),
         closePanelAfterAction: () => closeSessionPanelAfterAction(),
         replay: () => replaySessionMessages(),
         pushTitle: (overrideName) => pushCurrentSessionTitle(overrideName),
@@ -1154,7 +1171,8 @@ export function activate(context: vscode.ExtensionContext): void {
      */
     const settingsActions = createSettingsActions({
         postSettings: () => postSettings(),
-        showPanel: () => showExclusive("settings"),
+        // ★★ B37：侧栏 ⚙ 带 toggle ✗ 再点一次就关 ✓
+        showPanel: () => showExclusive("settings", true),
         onSessionDirChanged: async () => {
             // ★ 改了 sessionDir → 我们的会话扫目录要跟着改 ✓
             //   （否则列表全空 ✗ 用户预言的"一定会出错"✓）
@@ -1192,7 +1210,33 @@ export function activate(context: vscode.ExtensionContext): void {
      *   设置面板直接丢 ✗（用户定的："直接关，丢弃改动"✓）
      */
     type ExclusivePanel = "session" | "settings" | "skills";
-    const showExclusive = (which: ExclusivePanel): void => {
+    /**
+     * ★★ B35：编辑器区【三面板互斥】✓
+     *
+     * 【★★ B37 加的第二件事：toggle】
+     *   `toggle = true` 时：如果目标面板【正显示着】→ 就关掉它 ✗ 而不是显示 ✓
+     *   用户原话：“我打开绘画面板 ✗ 再点击绘画按钮 ✗ 关闭不了它”✓
+     *
+     * 【谁用 toggle？】
+     *   ✅ 侧栏那三个按钮（☰ 会话 / ⚙ 设置 / 技能 ✓）—— 它们是"同一个开关"✓
+     *   ❌ 命令面板入口（Pi: 打开会话面板 ✓）—— 那是"我要用它"的明确意图 ✗
+     *      点了它再把面板关掉会很怪 ✓
+     *
+     * 【★ 判断用 isVisible() ✗ 不是 isOpen()】
+     *   面板存在但被别的 tab 盖住时 ✗ 点按钮应该【把它露出来】✓
+     *   （直接关掉一个用户看不见的面板 ✗ 等于什么都没发生却丢了它 ✓）
+     */
+    const showExclusive = (which: ExclusivePanel, toggle = false): void => {
+        const target =
+            which === "session" ? sessionPanel : which === "settings" ? settingsPanel : skillsPanel;
+
+        // ★ 再点一次 → 关掉（只对侧栏按钮生效 ✗ 见上 ✓）
+        if (toggle && target.isVisible()) {
+            target.hide();
+            logInfo(`再点一次 → 关掉「${which}」面板 ✓`);
+            return;
+        }
+
         if (which !== "session") sessionPanel.hide();
         if (which !== "settings") settingsPanel.hide();
         if (which !== "skills") skillsPanel.hide();

@@ -14,6 +14,8 @@ const C_CLOSE = "--" + ">";
  *
  * 【检查】① 注释配对 ② 注释里误用 CSS 风格结尾
  *        ③ 标签配对 ④ id 重复 ⑤ 未知模板占位符
+ *        ⑥ ★★ B37：{{js}} 有没有对应的打包入口
+ *           （真实事故 ✗ 调试板前端被误删 ⇒ 静默 404 ⇒ 页面上什么都没发生 ✓）
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -21,6 +23,16 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const mediaDir = path.join(here, "..", "media");
+
+/**
+ * ★★ B37：打包入口名（用于 ⑥）
+ *
+ * 【为什么从脚本里读而不是看 out/ 目录？】
+ *   本脚本跑在【构建之前】✗ 产物还不存在 ✓
+ *   而“有没有入口”是【源码事实】✗ 什么时候查都准 ✓
+ */
+const buildSrc = fs.readFileSync(path.join(here, "..", "scripts", "build-webview.mjs"), "utf8");
+const entryNames = new Set([...buildSrc.matchAll(/out:\s*"([^"]+)"/g)].map((m) => m[1]));
 
 /** 允许的模板占位符（loader 会替换 ✓）*/
 const ALLOWED_PLACEHOLDER = new Set([
@@ -88,6 +100,27 @@ function checkHtml(file) {
     // ⑤ 未知模板占位符
     for (const m of raw.matchAll(/\{\{(\w+)\}\}/g)) {
         if (!ALLOWED_PLACEHOLDER.has(m[1])) fail(name, `未知占位符 {{${m[1]}}}`);
+    }
+
+    // ⑥ ★★ B37：{{js}} 指向的产物【有没有打包入口】
+    //
+    // 【真实事故】（就是写这条检查的原因 ✗）
+    //   调试板的前端 media/debug.js 在 B32 被误删 ✓
+    //   而 debug.html 里 `<script src="{{js}}">` 留着 ✓
+    //   ⇒ 加载 out/debug.js → 404 ⇒ 【页面一行脚本都没有】✗
+    //   ⇒ 症状：面板永远空白、按钮全死 ✗ 而且【不报错】✓
+    //   ⇒ 一个“安静地什么都不干”的 bug ✗ 靠人肉发现太难了 ✓
+    //
+    // ★ 为什么不用 out/ 目录查？→ 本脚本跑在构建【之前】✗ 产物还没生成 ✓
+    if (raw.includes("{{js}}")) {
+        const base = name.replace(/\.[^.]*$/, "");
+        if (!entryNames.has(base)) {
+            fail(
+                name,
+                `引用了 {{js}} ✗ 但 build-webview.mjs 里【没有】 out: "${base}" 入口 `+
+                    "★ 会加载到 404 ⇒ 前端静默死掉（什么都不报错 ✓）",
+            );
+        }
     }
 
     console.log(`✓ ${name}：注释 ${opens} 对 · 标签平衡 · id ${ids.length} 个`);

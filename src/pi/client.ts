@@ -23,6 +23,7 @@ import type {
     RpcResponse,
 } from "@earendil-works/pi-coding-agent";
 import { logDebug, logInfo, logError } from "../logger.js";
+import type { PiLocalEvent } from "./rpc-client.js";
 
 /** 事件订阅回调 */
 /**
@@ -34,8 +35,15 @@ import { logDebug, logInfo, logError } from "../logger.js";
  *     · 回执（response）—— 我们主动发的命令的结果
  *   两条【都该进调试板】✗（以前只广播事件 ✗ → 主动命令“看不到” ✓）
  *   → 所以回调参数放宽为联合类型 ✓
+ *
+ * ★★ B37：再加一类 —— PiLocalEvent（pi 侧的【非协议】消息 ✓）
+ *   ① stdout 里混入的非 JSON 行
+ *   ② 进程退出 / 启动失败
+ *   ⇒ 它们不是协议包 ✗ 但“看不见”是不行的（调试板 = 防漏表 ✓）
  */
-export type PiEventHandler = (event: JsonAgentSessionEvent | RpcResponse) => void;
+export type PiEventHandler = (
+    event: JsonAgentSessionEvent | RpcResponse | PiLocalEvent,
+) => void;
 
 /**
  * 解析 pi CLI（dist/cli.js）的绝对路径

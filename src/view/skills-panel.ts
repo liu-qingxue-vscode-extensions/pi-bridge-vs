@@ -67,6 +67,11 @@ export class SkillsPanel {
         return this.panel !== undefined;
     }
 
+    /** ★★ B37：面板是不是【正显示着】（给侧栏按钮的 toggle 用 ✗ 同 session-panel ✓）*/
+    isVisible(): boolean {
+        return this.panel?.visible ?? false;
+    }
+
     /**
      * ★★ 主动关闭（B35 ✓）
      *

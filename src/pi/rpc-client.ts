@@ -54,6 +54,30 @@ const KILL_GRACE_MS = 1_000;
 /** pi 从 stdout 发给我们的东西：回执 或 事件 */
 type Incoming = RpcResponse | JsonAgentSessionEvent;
 
+/**
+ * ★★ B37：pi 侧【非协议输出】（用户定的：调试板是“防漏表”✓）
+ *
+ * 【为什么需要它？】
+ *   调试板原来只看得到“协议包”✗ 而 pi 还会发两种【不发包】的东西：
+ *     ① stdout 里混入的非 JSON 行
+ *        （原来 catch 一句 `log.debug("忽略非 JSON 行")` ✗ 调试板看不见 ✓）
+ *     ② 进程退出 / 启动失败
+ *        （原来只变成 exitError ✗ 同样看不见 ✓）
+ *   ⇒ 用户：“它就是进度表和防漏表 ✗ 有字段没消费 ✗ 我随时都能看”✓
+ *   ⇒ 所以“看不见”是不行的 ✗ 它们也得往调试板发一份 ✓
+ *
+ * ★ 单独用一个类型名（`pi_` 前缀 ✗）✗ 在调试板里一眼能区分：
+ *   “这是 pi 说的话”还是“这是我们解析出来的协议包”✓
+ * ★ 它们【不是协议包】✗ 所以 toChatPatch 会返回 undefined ✗ 不会污染渲染 ✓
+ */
+export interface PiLocalEvent {
+    type: "pi_stdout_raw" | "pi_exit" | "pi_spawn_error";
+    /** 原文（raw / spawn_error 用 ✓）*/
+    text?: string;
+    code?: number | null;
+    signal?: string | null;
+}
+
 interface PendingRequest {
     resolve: (response: RpcResponse) => void;
     reject: (error: Error) => void;
@@ -150,11 +174,15 @@ export class OwnRpcClient {
             if (this.proc !== proc) return; // 已被 stop() 换掉 → 不重复处理
             this.exitError = new Error(`pi 进程退出 (code=${code} signal=${signal})`);
             this.rejectAll(this.exitError);
+            // ★★ B37：退出也广播一份（调试板要看 ✓ 它不是协议包 ✗ 见 PiLocalEvent ✓）
+            this.broadcastLocal({ type: "pi_exit", code, signal });
         });
         proc.once("error", (err) => {
             if (this.proc !== proc) return;
             this.exitError = new Error(`无法启动 pi: ${err.message}`);
             this.rejectAll(this.exitError);
+            // ★★ B37：启动失败同理 ✓
+            this.broadcastLocal({ type: "pi_spawn_error", text: err.message });
         });
 
         // 等一小会：若进程立刻崩了，这里就报错（比等到超时更友好 ✓）
@@ -307,8 +335,11 @@ export class OwnRpcClient {
         try {
             data = JSON.parse(line) as Incoming;
         } catch {
-            // 不是 JSON 的行（pi 偶尔会混入非协议输出）→ 忽略，不当错误 ✓
-            this.log.debug(`[rpc] 忽略非 JSON 行: ${line.slice(0, 120)}`);
+            // 不是 JSON 的行（pi 偶尔会混入非协议输出）→ 不当错误 ✓
+            // ★★ B37：但【不能静默丢掉】✗ 它也是 pi 发的东西 ✓
+            //   调试板是“防漏表”✗ 看不见 == 不存在 ✓
+            this.log.debug(`[rpc] 非 JSON 行: ${line.slice(0, 120)}`);
+            this.broadcastLocal({ type: "pi_stdout_raw", text: line });
             return;
         }
 
@@ -326,6 +357,13 @@ export class OwnRpcClient {
         // ② 全部当事件广播（含回执 ✓）
         for (const handler of this.eventHandlers) {
             handler(data);
+        }
+    }
+
+    /** ★★ B37：广播一条【非协议】的 pi 侧消息（只给调试板那类读者 ✓）*/
+    private broadcastLocal(ev: PiLocalEvent): void {
+        for (const handler of this.eventHandlers) {
+            handler(ev as never);
         }
     }
 

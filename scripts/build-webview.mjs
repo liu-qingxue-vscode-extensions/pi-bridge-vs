@@ -37,6 +37,11 @@ const options = {
         { in: "src/command/index.ts", out: "command" },
         // ★ 会话面板（B35 ✗ 从侧栏搬到编辑器区 ✓）
         { in: "src/sessions/index.ts", out: "session" },
+        // ★★ B37：调试板前端
+        //   ★ 它是被【误删】后恢复的 ✗ 见 src/debug/index.js 顶部的说明 ✓
+        //   ★ 以前它是手写的 media/debug.js ✗ 不经过打包 ✓
+        //     而 html 里写的是 {{js}}（= out/debug.js ✓）⇒ 一直 404 ✓
+        { in: "src/debug/index.js", out: "debug" },
         // ★ 设置面板（B35 ✗ 从侧栏搬到编辑器区 ✓）
         { in: "src/settings/index.ts", out: "settings" },
     ],
