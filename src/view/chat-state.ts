@@ -177,6 +177,9 @@ export class ChatState {
                 if (!blk) return; // 关联不上就忽略（不崩）
                 blk.resultParts = patch.parts;
                 blk.resultIsError = patch.isError;
+                // ★ B39：会话文件里 toolResult 顶层就带 details（edit 的 patch ✓）
+                //   不存下来 ⇒ webview 重建 / 切会话后 diff 就没了 ✓
+                if (patch.details !== undefined) blk.details = patch.details;
                 break;
             }
 
@@ -200,6 +203,8 @@ export class ChatState {
                 const blk = this.findToolBlock(patch.callId);
                 if (!blk) return;
                 blk.executing = false;
+                // ★ B39：实时路径的 details 在这条事件上（会话重放那条在 toolResult 上 ✓）
+                if (patch.details !== undefined) blk.details = patch.details;
                 break;
             }
 

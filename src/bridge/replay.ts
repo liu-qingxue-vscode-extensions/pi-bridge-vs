@@ -42,6 +42,8 @@ export interface ReplayMessage {
     /** toolResult 用 */
     toolCallId?: string;
     isError?: boolean;
+    /** ★ B39：toolResult 顶层的附加信息（edit 的 patch 就在这 ✓ 重放必须带上）*/
+    details?: unknown;
     /** assistant 用 */
     stopReason?: string;
     usage?: unknown;
@@ -61,7 +63,7 @@ type Patch =
       }
     | { kind: "toolStart"; name: string; callId: string }
     | { kind: "toolEnd"; args: unknown }
-    | { kind: "toolResult"; callId: string; parts: unknown[]; isError: boolean };
+    | { kind: "toolResult"; callId: string; parts: unknown[]; isError: boolean; details?: unknown };
 
 /** 把 content 切成数组（可能是字符串 ✓ 也可能是数组 ✓） */
 function partsOf(content: unknown): ContentPart[] {
@@ -106,6 +108,7 @@ export function messagesToPatches(messages: ReplayMessage[]): Patch[] {
                 callId: msg.toolCallId,
                 parts: Array.isArray(msg.content) ? (msg.content as unknown[]) : [],
                 isError: msg.isError === true,
+                details: msg.details, // ★ B39：edit 的 patch（不传 ⇒ 重放后没 diff）
             });
             continue;
         }

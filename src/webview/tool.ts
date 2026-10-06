@@ -516,6 +516,75 @@ export function renderResultParts(
 }
 
 /**
+ * ★★★ B39：工具气泡的【数据】—— 前端唯一的权威状态
+ *   以前这些字段散在 DOM 的 dataset 和几条渲染路径里 ✗ 没有一份权威数据
+ */
+export interface ToolData {
+    /** 参数（toolEnd 时到 / snapshot 直接给）*/
+    args?: unknown;
+    /** 最终结果（toolResult / snapshot）*/
+    resultParts?: unknown[];
+    /** 执行中的实时输出（★ 累积全文 ✗ toolExecUpdate）*/
+    partialParts?: unknown[];
+    isError?: boolean;
+    executing?: boolean;
+    /** edit 的结果附加信息（含 patch）*/
+    details?: unknown;
+    /** bash 的命令主体（宿主用 bash-parser 解析后推来）*/
+    commands?: string[];
+}
+
+/** 气泡 → 数据（弱引用：气泡销毁自动回收）*/
+const toolDataMap = new WeakMap<HTMLElement, ToolData>();
+
+/** 取一个气泡当前的数据（调试用）*/
+export function getToolData(bubble: HTMLElement): ToolData | undefined {
+    return toolDataMap.get(bubble);
+}
+
+/**
+ * ★★★ B39：工具气泡的【唯一】填充入口
+ *
+ * 为什么要有它：以前【实时 patch 流】和【snapshot 全量重放】各写了一套填充逻辑
+ *   ⇒ 每加一个特性都要写两遍 ✗ 且总有一条会漏
+ *     （cmdCache 漏了 snapshot ⇒ 改配置后摘要行消失；details 同理）
+ * 现在两条路都调这里 ⇒ 不可能再漏
+ *
+ * ★ 内部各渲染函数都是幂等的（先清空再填）✗ 所以可以随便重复调 ✓
+ * ★ undefined 的字段会被忽略 ✗ 不会清掉已有的值
+ *   （snapshot 里 resultParts 为 undefined 不代表要抹掉流式内容）
+ */
+export function fillToolBubble(bubble: HTMLElement, patch: ToolData): void {
+    const data: ToolData = { ...toolDataMap.get(bubble) };
+    for (const [k, v] of Object.entries(patch)) {
+        if (v !== undefined) (data as Record<string, unknown>)[k] = v;
+    }
+    toolDataMap.set(bubble, data);
+
+    // ── 顺序有讲究 ──
+    // ① 摘要行（只要有就画 ✗ 与其它字段无关）
+    if (data.commands) showCmdChips(bubble, data.commands);
+    // ② 参数
+    if (data.args !== undefined) renderArgs(bubble, data.args);
+    // ③ 结果（最终结果优先于流式内容）
+    const parts = data.resultParts ?? data.partialParts;
+    if (parts !== undefined) {
+        renderResultParts(bubble, parts, data.isError === true, data.resultParts === undefined);
+    }
+    // ④ diff（必须在 ③ 之后：它清掉 result-body 并打 hasDiff 标记挡住后续覆盖）
+    if (data.details !== undefined) renderDiffDetails(bubble, data.details);
+    // ⑤ 状态
+    if (
+        data.isError !== undefined ||
+        data.executing !== undefined ||
+        data.resultParts !== undefined ||
+        data.partialParts !== undefined
+    ) {
+        setToolState(bubble, data.isError ? "error" : data.executing ? "running" : "ok");
+    }
+}
+
+/**
  * 建一个文本 part
  *
  * ★ B38 行级折叠：收起时只显示头 N 行 + 尾 M 行（规则由 toolFold 给）

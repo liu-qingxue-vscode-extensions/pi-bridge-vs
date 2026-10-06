@@ -1545,6 +1545,15 @@ export function activate(context: vscode.ExtensionContext): void {
             return;
         }
         logInfo(`重放历史消息 ${messages.length} 条`);
+        // ★ B39 诊断：确认 get_messages 返回的 toolResult 带 details（edit 的 patch）
+        //   发现：pi 确实原样返回（会话文件里什么样就是什么样 ✓）
+        const trDiag = messages.find((m) => m.role === "toolResult");
+        logDebug(
+            trDiag
+                ? `重放诊断：toolResult 键=[${Object.keys(trDiag).join(",")}] ` +
+                      `details=${trDiag.details ? "有" : "无"}`
+                : "重放诊断：这批消息里没有 toolResult",
+        );
         for (const patch of messagesToPatches(messages)) {
             // ★ 走 ChatState.apply：与实时流同一条渲染路径 ✓
             chatState.apply(patch as never);

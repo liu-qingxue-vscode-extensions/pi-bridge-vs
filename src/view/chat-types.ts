@@ -38,6 +38,8 @@ export interface Block {
     toolDone?: boolean;
     /** 参数的原始 JSON 文本（流式拼装中，备查） */
     argsText?: string;
+    /** ★ B39：edit 的结果附加信息（含 patch ✗ 会话文件里本来就有 → 重放要带上）*/
+    details?: unknown;
     /** 参数解析后的【对象】（toolcall_end 时填入 → 渲染成键值对）★ */
     args?: unknown;
     /** 结果内容部分（toolResult 的 content 数组原样 → 按 type 分发渲染）★ */
@@ -143,7 +145,7 @@ export type ChatPatch =
     | { kind: "toolArgs"; text: string }
     | { kind: "toolEnd"; args: unknown } // 参数拼完 → 传解析好的对象
     // 工具结果（toolResult 消息）—— 不建新气泡，而是【填回】对应的工具块
-    | { kind: "toolResult"; callId: string; parts: unknown[]; isError: boolean }
+    | { kind: "toolResult"; callId: string; parts: unknown[]; isError: boolean; details?: unknown }
     // 工具【执行】阶段（tool_execution_*）—— 补上“执行中”这段盲区
     // （toolcall_* 只管参数生成；toolResult 只管最终结果；中间那段原本是黑的 ✗）
     | { kind: "toolExecStart"; callId: string; name: string }

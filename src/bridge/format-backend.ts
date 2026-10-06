@@ -21,6 +21,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { ChatPatch } from "../view/chat-state.js";
 import type { Usage } from "../view/chat-types.js";
+// ★ B39 诊断用（宿主侧 ✗ logger 依赖 vscode ⇒ 不能进 webview 包 ✓ 这里只在宿主用）
+import { logDebug } from "../logger.js";
 
 /**
  * 后端输出的类型空间（我们讨论过的结论：pi 发给前端的一切都要包含进来）
@@ -79,7 +81,14 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
      */
     message_start: (raw) => {
         const message = (raw as {
-            message?: { role?: unknown; content?: unknown; toolCallId?: unknown; isError?: unknown };
+            message?: {
+                role?: unknown;
+                content?: unknown;
+                toolCallId?: unknown;
+                isError?: unknown;
+                /** ★ B39：edit 的 patch 在这（pi 重放历史时也带 ✓ 实测确认）*/
+                details?: unknown;
+            };
         }).message;
         const role = message?.role;
         if (role === "user" || role === "assistant") {
@@ -87,12 +96,21 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
         }
         if (role === "toolResult") {
             if (typeof message?.toolCallId !== "string") return undefined;
+            // ★ B39：★ 切换会话时 pi 把历史当事件流推回来，走的就是这里
+            //   （不是 get_messages → 所以 replaySessionMessages 根本没跑 ✓）
+            //   原先没取 details ⇒ 重放后 edit 的 diff 全没了 ✓
+            const details = message.details;
+            logDebug(
+                `toolResult(message_start) 键=[${Object.keys(message).join(",")}] ` +
+                    `details=${details ? "有" : "无"}`,
+            );
             return {
                 kind: "toolResult",
                 callId: message.toolCallId,
                 // ★ 原样传 content 数组 → 前端按 type 分发渲染（text / image / 兵底）
                 parts: Array.isArray(message.content) ? message.content : [],
                 isError: message?.isError === true,
+                details,
             };
         }
         return undefined;

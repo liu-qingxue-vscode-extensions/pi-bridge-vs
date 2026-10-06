@@ -21,9 +21,8 @@ import { setQueueing, showInserting } from "./inserting.js";
 import { appendSegment, endSegment } from "./segments.js";
 import { appendMarkdown, finishMarkdown, setHighlightTheme } from "./markdown.js";
 import { createThinkingBubble, markThinkDone } from "./thinking.js";
-import { createToolBubble, ensureResultHost, renderArgs, renderResultParts, setToolState } from "./tool.js";
-import { showCmdChips } from "./tool.js";
-import { renderDiffDetails } from "./tool.js";
+// ★★ B39：fillToolBubble = 工具气泡的【唯一】填充入口（实时流 / snapshot 都走它）
+import { createToolBubble, fillToolBubble } from "./tool.js";
 import { appendStopNote, showRetryNotice } from "./notices.js";
 import { showCompactionEnd, showCompactionStart } from "./compact.js";
 import { setModelInfo, showModelPicker, showThinkingPicker } from "./model-picker.js";
@@ -48,6 +47,8 @@ interface SnapBlock {
     resultIsError?: boolean;
     partialParts?: unknown[];
     executing?: boolean;
+    /** ★ B39：edit 的结果附加信息（含 patch ✗ 重放时靠它画 diff）*/
+    details?: unknown;
 }
 
 interface SnapBubble {
@@ -126,18 +127,17 @@ function replaySnapshot(payload: unknown, opts?: { keepNotices?: boolean }): voi
         for (const blk of b.blocks) {
             if (blk.type === "tool") {
                 last = createToolBubble(blk.toolCallId || "", blk.toolName);
-                renderArgs(last, blk.args);
-                // 优先显示最终结果，其次显示执行中的实时内容
-                if (blk.resultParts !== undefined) {
-                    renderResultParts(last, blk.resultParts, blk.resultIsError === true, false);
-                    setToolState(last, blk.resultIsError ? "error" : "ok");
-                } else if (blk.partialParts !== undefined) {
-                    renderResultParts(last, blk.partialParts, false, blk.executing === true);
-                    setToolState(last, blk.executing ? "running" : "ok");
-                    if (blk.executing) ensureResultHost(last).dataset.streaming = "true";
-                } else {
-                    setToolState(last, blk.executing ? "running" : "ok");
-                }
+                // ★★★ B39：跟实时路径【同一个填充入口】
+                //   （以前这里自己写了一套 ✗ cmdCache / details 都漏在这条路上）
+                fillToolBubble(last, {
+                    args: blk.args,
+                    resultParts: blk.resultParts,
+                    partialParts: blk.partialParts,
+                    details: blk.details, // ★ 漏了这行 ⇒ edit 的 diff 画不出来（惨痛教训）
+                    isError: blk.resultIsError as boolean | undefined,
+                    executing: blk.executing as boolean | undefined,
+                    commands: cmdCache.get(blk.toolCallId || ""),
+                });
             } else if (blk.type === "thinking") {
                 // 历史里的思考：也是可折叠气泡（已完成，无时长可显示）
                 if (!last || !last.classList.contains("thinking")) {
@@ -232,11 +232,12 @@ function applyPatch(p: Record<string, unknown>): void {
         case "toolStart": {
             removePending();
             const b = createToolBubble(p.callId as string, p.name as string);
-            setToolState(b, "running");
-            // ★★ B38：命令摘要是先到的（重放时）→ 现在补填
-            // ★ 常驻表：气泡会因配置变化【重画】✗ 摘要必须能补回来
-            const saved = cmdCache.get(String(p.callId));
-            if (saved) showCmdChips(b, saved);
+            // ★★ B39：命令摘要是先到的（重放时）→ 从常驻表补填
+            //   常驻表：气泡会因配置变化【重画】✗ 摘要必须能补回来
+            fillToolBubble(b, {
+                executing: true,
+                commands: cmdCache.get(String(p.callId)),
+            });
             return;
         }
 
@@ -261,26 +262,32 @@ function applyPatch(p: Record<string, unknown>): void {
         }
 
         case "toolEnd":
-            // ★ 参数拼完 → 渲染成键值对
-            if (ui.bubble) renderArgs(ui.bubble, p.args);
+            // ★ 参数拼完 → 统一走填充入口
+            if (ui.bubble) fillToolBubble(ui.bubble, { args: p.args });
             return;
 
         case "toolResult": {
             // 结果在另一条消息里 → 按 callId 找回工具气泡
             const bubble = findTool(p.callId as string);
             if (bubble) {
-                renderResultParts(bubble, p.parts as unknown[], p.isError === true, false);
-                setToolState(bubble, p.isError ? "error" : "ok");
+                fillToolBubble(bubble, {
+                    resultParts: p.parts as unknown[],
+                    isError: p.isError === true,
+                    executing: false,
+                    commands: cmdCache.get(String(p.callId)),
+                });
             }
             return;
         }
 
         case "toolExecStart": {
-            // ★ 工具开始执行 → 结果区先建好，头部显示"执行中…"
+            // ★ 工具开始执行
             const bubble = findTool(p.callId as string);
             if (bubble) {
-                setToolState(bubble, "running");
-                ensureResultHost(bubble).dataset.streaming = "true";
+                fillToolBubble(bubble, {
+                    executing: true,
+                    commands: cmdCache.get(String(p.callId)),
+                });
             }
             return;
         }
@@ -289,8 +296,11 @@ function applyPatch(p: Record<string, unknown>): void {
             // ★ 执行中的实时输出（累积全文 → 整块替换 ✓）
             const bubble = findTool(p.callId as string);
             if (bubble) {
-                ensureResultHost(bubble).dataset.streaming = "true";
-                renderResultParts(bubble, p.parts as unknown[], false, true);
+                fillToolBubble(bubble, {
+                    partialParts: p.parts as unknown[],
+                    executing: true,
+                    commands: cmdCache.get(String(p.callId)),
+                });
             }
             return;
         }
@@ -298,13 +308,13 @@ function applyPatch(p: Record<string, unknown>): void {
         case "toolExecEnd": {
             const bubble = findTool(p.callId as string);
             if (bubble) {
-                // ★ B38：markStreamingDone 已删（只设了没人读的 dataset ✗）
-                // 状态先按 exec 的 isError 定；若随后 toolResult 到达会再覆盖一次 ✓
-                setToolState(bubble, p.isError ? "error" : "ok");
-                // ★★ B38：edit 的 diff 在 details 里（不是 content）→ 单独渲染
-                if (bubble.dataset.tool === "edit" && p.details) {
-                    renderDiffDetails(bubble, p.details);
-                }
+                // ★★ B39：details（edit 的 patch）+ 状态 ⇒ 一次填完
+                fillToolBubble(bubble, {
+                    details: p.details,
+                    isError: p.isError === true,
+                    executing: false,
+                    commands: cmdCache.get(String(p.callId)),
+                });
             }
             return;
         }
@@ -367,13 +377,13 @@ export function setupHostBridge(): void {
             // ★★ B38：宿主解析好的命令主体 → 填摘要行
             case "cmdSummary": {
                 const p = (data.payload ?? {}) as { callId?: string; commands?: string[] };
-                const b = p.callId ? findTool(p.callId) : null;
-                log.info(`★ 收到 cmdSummary：${JSON.stringify(p)} → 气泡${b ? "找到" : "★没找到"}`);
+                const id = String(p.callId ?? "");
                 if (Array.isArray(p.commands) && p.commands.length) {
                     if (cmdCache.size > 800) cmdCache.clear(); // 防无限增长
-                    cmdCache.set(p.callId ?? "", p.commands);
-                    if (b) showCmdChips(b, p.commands);
-                    else cmdCache.set(p.callId ?? "", p.commands); // 气泡还没建 → 先存
+                    cmdCache.set(id, p.commands);
+                    // ★★ B39：气泡在就填；不在也没关系（下次建/重画气泡时会从常驻表补）
+                    const b = id ? findTool(id) : null;
+                    if (b) fillToolBubble(b, { commands: p.commands });
                 }
                 return;
             }
