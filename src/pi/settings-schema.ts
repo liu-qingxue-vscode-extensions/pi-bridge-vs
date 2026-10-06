@@ -195,6 +195,54 @@ export const SETTINGS_GROUPS: GroupDef[] = [
         ],
     },
     {
+        // ★★ 自由按钮容器（B32 ✓）—— 气泡区左侧那根竖排快捷命令条
+        //
+        // 【为什么单独一组？】（用户定的 ✓）
+        //   它是个新东西 ✗ 塞进「行为」或「气泡」都不对 ✓
+        //   而且以后还会长（按钮本身 / 收纳器 / 参数… ✓）
+        title: "自由按钮容器",
+        items: [
+            {
+                key: "pi-bridge.style.cmdRailShow",
+                scope: "vscode",
+                label: "显示容器",
+                desc: "气泡区左侧的竖排快捷命令条（关掉 = 整条收走 ✗ 气泡区自动变宽 ✓）",
+                kind: "boolean",
+                fallback: true,
+            },
+            {
+                key: "pi-bridge.style.cmdRailWidth",
+                scope: "vscode",
+                label: "容器宽度",
+                desc: "★ 这一个值同时决定：竖条宽度 / 气泡区左边让出多少 / 输入区左边让出多少",
+                kind: "number",
+                min: 0,
+                max: 200,
+                fallback: 42,
+            },
+            {
+                key: "pi-bridge.style.cmdRailBtnSize",
+                scope: "vscode",
+                label: "按钮边长",
+                desc: "容器里按钮的正方形边长",
+                kind: "number",
+                min: 16,
+                max: 80,
+                fallback: 28,
+            },
+            {
+                key: "pi-bridge.style.cmdRailGap",
+                scope: "vscode",
+                label: "按钮间距",
+                desc: "容器里按钮之间的竖直间距",
+                kind: "number",
+                min: 0,
+                max: 40,
+                fallback: 5,
+            },
+        ],
+    },
+    {
         title: "环境",
         items: [
             {

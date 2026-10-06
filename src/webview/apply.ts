@@ -32,6 +32,8 @@ import { updateStatusBar } from "./topbar.js";
 import { appendNotice, clearNotices, removeNotice, renderNotices, resetNotices, setExpanded } from "./noticeboard.js";
 import { applyStyleVars, autoGrow, setAgentState, showCwd, syncPadding } from "./input.js";
 import { setupSessions, setCurrentCwd, renderSessions, setSessionTitle } from "./sessions.js";
+// ★★ B32：自由按钮容器
+import { setRailCommands } from "./cmdrail.js";
 
 /** 气泡快照的形状（对应插件端 Bubble ✓） */
 interface SnapBlock {
@@ -326,6 +328,13 @@ export function setupHostBridge(): void {
         const data = (event.data ?? {}) as { kind?: string; payload?: unknown };
 
         switch (data.kind) {
+            // ★★ B32：宿主推来整份自由按钮列表
+            //   ★★ 消息名【故意不叫 commands】✗（踩过 ✓）
+            //     slash-menu 的命令补全列表才叫 commands ✗
+            //     switch 遇到第一个匹配就执行 ✗ 同名会把斜杠菜单那个 case 挡死 ✓
+            case "railCommands":
+                setRailCommands(data.payload);
+                return;
             case "styleVars":
                 applyStyleVars(data.payload as Record<string, string>);
                 autoGrow(); // ★ 配置变了（如行数/字号）→ 重新算高度与留白

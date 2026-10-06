@@ -7,10 +7,19 @@
    · pointer-events: none 只作用于遮罩层（不挡鼠标），框本身可交互 ✓ */
 #input-area {
   position: absolute;
-  left: 0;
+  /* ★ 左侧给命令条让位（B32）—— 原来这里是 padding 边距 ✗
+     现在改成了 0：输入框自己的 width% + margin:auto 就能居中 ✓
+     而气泡的边距下沉到了 .bubble-wrap 的 margin 上 ✓
+     ⇒ 两边彻底解耦：改气泡边距不会动输入框 ✓ */
+  left: var(--pi-cmd-rail-w, 42px);
   right: 0;
   bottom: 0;
-  padding: 10px var(--pi-side-gap, 12px) var(--pi-input-bottom-gap, 22px);
+  /* ★★★ B32：左右内边距一律【为 0】
+     为什么？→ 输入框自己的 width% + margin:auto 就能居中 ✗
+       而用 leftGap / rightGap 当 padding 会【和气泡耦合】：
+       改气泡的左边距 → 这里跟着变 → 输入框莫名其妙滑动 ✓
+     ⇒ 输入区的位置只由【自己】决定 ✓ 别人改什么都不影响它 ✓ */
+  padding: 10px 0 var(--pi-input-bottom-gap, 22px) 0;
   background: linear-gradient(
     to top,
     var(--vscode-sideBar-background) 62%,
@@ -40,8 +49,8 @@
    ★ 垂直居中用的是【配置的高度】（改 inputBottomGap 会跟着居中 ✓）*/
 #foot-bar {
   position: absolute;
-  left: var(--pi-side-gap, 12px);
-  right: var(--pi-side-gap, 12px);
+  left: 0;
+  right: 0;
   bottom: 0;
   height: var(--pi-input-bottom-gap, 22px);
   display: flex;

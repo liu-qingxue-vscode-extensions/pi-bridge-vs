@@ -25,7 +25,11 @@ import { btnSkills } from "./dom.js";
 import { setupMarkdown } from "./markdown.js";
 import { setupSlashMenu } from "./slash-menu.js";
 import { setupUiRequest } from "./ui-request.js";
+// ★★ B32：自由按钮容器
+import { setupCmdRail } from "./cmdrail.js";
 import { setupHostBridge } from "./apply.js";
+// ★ B32：布局自检（只在排查时看 ✗ 却很有用 ✓）
+import { diagLayoutSoon } from "./diag.js";
 
 /**
  * ★ 每个 setup 都独立 try/catch —— 【一处出错不能搞崩整个界面】✓
@@ -57,6 +61,8 @@ safe("modelPicker", setupModelPicker);
 safe("settings", setupSettingsPanel);
 
 safe("uiRequest", setupUiRequest);
+// ★★ B32：自由按钮容器（气泡区左侧那根竖条 ✓）
+safe("cmdRail", setupCmdRail);
 safe("slashMenu", setupSlashMenu);
 // ★ B31：技能面板搬到编辑器区 ✗ 侧栏这个按钮只负责【打开面板】✓
 btnSkills.addEventListener("click", () => post("openSkills"));
@@ -70,3 +76,10 @@ safe("hostBridge", setupHostBridge);
 post("ready");
 // ★ B29：主动要一次 VS Code 主题 ✗（代码高亮用 ✓）
 post("getTheme");
+
+// ④ ★★ B32：布局自检 ✗ 延迟两帧（等布局稳定）后量一遍 → 输出面板 ✓
+//   为什么留在正式代码里？
+//     布局问题（气泡怼进容器 / 宽度不对）几乎全从“某个变量没生效”冒出来 ✗
+//     而猜是猜不出来的 ✗ 量一次就清楚了 ✓
+//   默认走 log.info ✗ 用户在输出面板随手就能看到 ✓
+diagLayoutSoon();

@@ -1,0 +1,342 @@
+/* ===== 自由按钮的配置页面（B32 ②）=====
+   ★ 这里是【编辑器区的一个面板】✗ 空间宽敞 ✓
+     所以表单可以一行 label + 一行控件，不用挤 ✓ */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-editor-background);
+  padding: 18px 22px 0;
+  height: 100vh;
+  display: flex;
+}
+
+#host {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ── 表单区（可滚 ✓）── */
+#form {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: 18px;
+  /* ★★ 居中 + 适当最大宽度（B32 ③ 用户反馈 ✓）
+     原来写死 680px 靠左 ✗ 右边一大块空白 ✗ 看起来像“只用左三分之二”✓
+     ⇒ 改居中 + 放宽 ✗ 两边留白均等 ✓ */
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+/* ── 一组字段 ── */
+.row {
+  margin-bottom: 16px;
+}
+.row > label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+.row .desc {
+  font-size: .88em;
+  opacity: .65;
+  margin-bottom: 6px;
+  line-height: 1.45;
+}
+.row input[type="text"] {
+  width: 100%;
+  padding: 6px 9px;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, rgba(128,128,128,.35));
+  border-radius: 4px;
+  outline: none;
+}
+.row input[type="text"]:focus {
+  border-color: var(--vscode-focusBorder);
+}
+.row input[type="text"].bad {
+  border-color: var(--vscode-charts-red, #e05252);
+}
+
+/* ── 类型选择（两个大一点的单选 ✓）── */
+.types {
+  display: flex;
+  gap: 10px;
+}
+.type-card {
+  flex: 1 1 0;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-input-border, rgba(128,128,128,.35));
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color .12s, background .12s;
+}
+.type-card:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,.14));
+}
+.type-card.on {
+  border-color: var(--vscode-focusBorder, #0078d4);
+  background: var(--vscode-list-activeSelectionBackground, rgba(0,120,212,.18));
+}
+.type-card .t {
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.type-card .d {
+  font-size: .85em;
+  opacity: .7;
+  line-height: 1.4;
+}
+
+/* ── 分隔标题 ── */
+.sect {
+  margin: 22px 0 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--vscode-panel-border, rgba(128,128,128,.22));
+  font-size: .9em;
+  font-weight: 600;
+  letter-spacing: .04em;
+  opacity: .8;
+}
+
+/* ── 复选框（跟 VS Code 一致的样子 ✓）── */
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+.check input { margin-top: 3px; }
+
+/* ── 底部操作条 ── */
+#foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0 16px;
+  /* ★ 跟表单同宽同位置（居中 ✓）*/
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+}
+#foot button {
+  padding: 5px 14px;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, rgba(128,128,128,.2));
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#foot button:hover { opacity: .88; }
+#foot #save {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+#foot #save:hover { background: var(--vscode-button-hoverBackground); }
+#foot #save:disabled { opacity: .45; cursor: default; }
+.spacer { flex: 1 1 auto; }
+#tip {
+  font-size: .85em;
+  color: var(--vscode-charts-red, #e05252);
+}
+
+/* ── toast ── */
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%) translateY(12px);
+  padding: 7px 16px;
+  border-radius: 6px;
+  font-size: .9em;
+  background: var(--vscode-notifications-background, #2b2b2b);
+  border: 1px solid var(--vscode-panel-border, rgba(128,128,128,.3));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .16s, transform .16s;
+}
+#toast[data-show="1"] {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+#toast[data-kind="err"] {
+  border-color: var(--vscode-charts-red, #e05252);
+}
+
+/* ══════════ ★ B32 ③：参数一行（紧凑 ✗ 不占地方 ✓）══════════ */
+.fline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  margin: 5px 0;
+  border: 1px solid var(--vscode-panel-border, rgba(128,128,128,.22));
+  border-radius: 5px;
+  background: var(--vscode-editorWidget-background, rgba(128,128,128,.05));
+  font-size: .95em;
+}
+.fline:hover {
+  border-color: var(--vscode-focusBorder, #0078d4);
+}
+.fidx {
+  flex: 0 0 auto;
+  min-width: 18px;
+  text-align: center;
+  font-size: .85em;
+  opacity: .55;
+}
+.flabel {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+.fkind {
+  flex: 0 1 auto;
+  opacity: .6;
+  font-size: .9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fline .spacer { flex: 1 1 auto; }
+
+.fmini {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  font-family: inherit;
+  font-size: .88em;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: .65;
+}
+.fmini:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,.2));
+}
+.fmini.danger:hover {
+  border-color: var(--vscode-charts-red, #e05252);
+  color: var(--vscode-charts-red, #e05252);
+}
+.fok {
+  flex: 0 0 auto;
+  padding: 5px 14px;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.fok:hover { background: var(--vscode-button-hoverBackground); }
+
+/* 编辑卡片的底部操作条 */
+.facts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 12px;
+}
+
+/* ══════════ 参数编辑卡片（就地展开 ✓）══════════ */
+.fcard {
+  margin: 10px 0;
+  padding: 12px 14px 2px;
+  border: 1px solid var(--vscode-focusBorder, #0078d4);
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background, rgba(128,128,128,.06));
+}
+.fcard .row { margin-bottom: 12px; }
+.fcard .row > label { font-weight: 500; font-size: .95em; }
+
+.fhead {
+  font-weight: 600;
+  font-size: .92em;
+  opacity: .85;
+  margin-bottom: 10px;
+}
+
+/* 类型小胶囊 */
+.kinds {
+  display: flex;
+  gap: 6px;
+}
+.kind {
+  flex: 1 1 0;
+  padding: 5px 8px;
+  font-family: inherit;
+  font-size: .92em;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px solid var(--vscode-input-border, rgba(128,128,128,.35));
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: .8;
+}
+.kind:hover { opacity: 1; }
+.kind.on {
+  opacity: 1;
+  border-color: var(--vscode-focusBorder, #0078d4);
+  background: var(--vscode-list-activeSelectionBackground, rgba(0,120,212,.18));
+}
+
+/* 「＋ 添加参数」 */
+.fadd {
+  width: 100%;
+  padding: 8px;
+  margin-top: 4px;
+  font-family: inherit;
+  font-size: .95em;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px dashed var(--vscode-panel-border, rgba(128,128,128,.35));
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: .7;
+}
+.fadd:hover {
+  opacity: 1;
+  border-color: var(--vscode-focusBorder, #0078d4);
+}
+
+/* ══════════ ★ B32 ③：一行两个 ══════════ */
+.pair {
+  display: flex;
+  gap: 14px;
+}
+.pair > .row {
+  flex: 1 1 0;
+  min-width: 0;      /* ★ 不加这个 flex 子项撑不下会被挤爆 ✓ */
+}
+
+/* 命令前面那个固定的 / */
+.withprefix {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.withprefix .pfx {
+  opacity: .55;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 1.05em;
+}
+.withprefix input {
+  flex: 1 1 auto;
+  min-width: 0;
+}

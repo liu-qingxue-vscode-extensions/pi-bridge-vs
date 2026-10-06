@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <!-- CSP 同 chat.html：脚本只认本次 nonce -->
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}';">
+      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}'; img-src *;">
 <link rel="stylesheet" href="{{css}}">
 </head>
 <body>

@@ -10,9 +10,11 @@
  */
 import * as vscode from "vscode";
 import { loadWebviewHtml } from "./html-loader.js";
-import { readStyleVars, styleVarsToCss, onStyleChange } from "./style-config.js";
+import { readStyleVars, styleVarsToCss, classNamesFromVars, onStyleChange } from "./style-config.js";
 import { getModelContextWindowsObject } from "../pi/model-limits.js";
 import { getCurrentTheme } from "../pi/theme-loader.js";
+// ★ B32 图标排查要用日志
+import { logDebug, logWarn } from "../logger.js";
 import type { FrontendMessage } from "../bridge/format-frontend.js";
 import type { ChatState } from "./chat-state.js";
 
@@ -35,6 +37,13 @@ export class ChatView implements vscode.WebviewViewProvider {
      */
     constructor(
         private readonly extensionUri: vscode.Uri,
+        /**
+         * ★★ 扩展的持久存储目录（B32 图标 ✓）
+         *   图标会复制到 <globalStorage>/icons/ ✓
+         *   ★ 必须加进 webview 的 localResourceRoots ✗
+         *     否则 asWebviewUri 生成的地址会被拒 ✗ 图片加载不出来 ✓
+         */
+        private readonly globalStorageUri: vscode.Uri,
         private readonly chatState: ChatState,
         private readonly onMessage: (msg: FrontendMessage) => void | Promise<void>,
         /** pi 的工作目录（= VS Code 工作区目录）→ 显示在输入区下方的极简栏 ✓ */
@@ -66,13 +75,40 @@ export class ChatView implements vscode.WebviewViewProvider {
     resolveWebviewView(webviewView: vscode.WebviewView): void {
         this.view = webviewView;
 
-        webviewView.webview.options = { enableScripts: true };
+        webviewView.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [
+                this.extensionUri,
+                vscode.Uri.joinPath(this.extensionUri, "media"),
+                this.globalStorageUri,
+            ],
+        };
+        // ★★ B32 图标排查：打印【实际生效的】白名单 ✓
+        //   ★ 为什么需要？
+        //     我们确实设了 ✗ 而图片仍然加载失败 ✓
+        //     那就得看“设上了没有”✗ 而不是继续猜 ✓
+        //     （原话：“你说你设了 ✗ 设上了吗？”✓）
+        try {
+            const roots = webviewView.webview.options.localResourceRoots ?? [];
+            logDebug(
+                `webview 白名单（${roots.length} 个）：\n` +
+                    roots.map((u) => `  · ${u.fsPath}`).join("\n"),
+            );
+            logDebug(`globalStorage 应该是：${this.globalStorageUri.fsPath}`);
+            logDebug(`★ webview.cspSource = ${webviewView.webview.cspSource}`);
+        } catch (err) {
+            logWarn(`读白名单失败：${String(err)}`);
+        }
         // 从 media/chat.html 读取 + 注入 CSP nonce + 注入样式变量
+        // ★★ B32：把开关类也【静态写好】✗ 否则首屏居中/折叠全部失效 ✓
+        //   （原来只靠 JS 切类 ✗ 而 JS 那次调用在首次加载时根本不会发生 ✓）
+        const vars = readStyleVars();
         webviewView.webview.html = loadWebviewHtml(
             this.extensionUri,
             "chat.html",
             webviewView.webview,
-            styleVarsToCss(readStyleVars()),
+            styleVarsToCss(vars),
+            classNamesFromVars(vars).join(" "),
         );
 
         // 接收 webview 页面发来的消息
@@ -132,5 +168,19 @@ export class ChatView implements vscode.WebviewViewProvider {
     /** 扩展宿主 → 前端（view 不存在时静默丢弃） */
     post(kind: string, payload: unknown): void {
         this.view?.webview.postMessage({ kind, payload });
+    }
+
+    /**
+     * ★★ 把磁盘路径转成 webview 能加载的 URI（B32 图标 ✓）
+     *
+     * 【为什么必须转？】
+     *   webview 里【不能】直接加载 file:// 路径 ✗（CSP 同理也过不了 ✓）
+     *   必须走 asWebviewUri ✗ 它会生成一个带 nonce 的 vscode-webview-resource 地址 ✓
+     *
+     * ★ 没准备好时返回空串 ✗ 调用方自行处理（别当图片源 ✓）
+     */
+    toWebviewUri(absPath: string): string {
+        if (!this.view) return "";
+        return this.view.webview.asWebviewUri(vscode.Uri.file(absPath)).toString();
     }
 }

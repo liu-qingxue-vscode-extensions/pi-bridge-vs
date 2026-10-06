@@ -33,6 +33,8 @@ const options = {
         { in: "src/webview/mermaid-entry.ts", out: "mermaid" },
         // ★ 技能面板（B31 ✗ 从侧栏搬到编辑器区 ✓）
         { in: "src/skills/index.ts", out: "skills" },
+        // ★ 自由按钮的配置页面（B32 ②）
+        { in: "src/command/index.ts", out: "command" },
     ],
     outdir: "media/out",
     bundle: true,          // 把 import 的全部打进一个文件 ✓

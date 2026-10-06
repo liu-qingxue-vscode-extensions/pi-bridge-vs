@@ -38,6 +38,14 @@ export function syncPadding(): void {
     const actions = last?.querySelector<HTMLElement>(".bubble-actions");
     const actionsH = actions?.offsetHeight ?? 0;
     messagesEl.style.paddingBottom = inputAreaEl.offsetHeight + actionsH + 8 + "px";
+    // ★★ B32：同时写进 CSS 变量 ✗ 让【输入区高度】有两个消费方 ✓
+    //   ① #messages 的 padding-bottom（上面那行 ✓）
+    //   ② #cmd-rail 的 bottom（命令条到输入区上方截断 ✓）
+    //   ★ 两者必须一致 ✗ 分开算迟早会忘掉一处 ✓
+    document.documentElement.style.setProperty(
+        "--pi-input-reserve",
+        inputAreaEl.offsetHeight + actionsH + 8 + "px",
+    );
 }
 
 /** 输入框高度自适应 */

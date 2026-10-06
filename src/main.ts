@@ -36,6 +36,8 @@ import { DebugPanel } from "./view/debug-panel.js";
 import { ChatView } from "./view/chat-view.js";
 import { InteractionPanel } from "./view/interaction-panel.js";
 import { SkillsPanel } from "./view/skills-panel.js";
+// ★★ B32：自由按钮的配置页面（编辑器区独立面板 ✓）
+import { CommandPanel } from "./view/command-panel.js";
 import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
 import {
     readSettings,
@@ -56,6 +58,17 @@ import { getEnabledModels, readModelCatalog, sortCatalog, type ModelEntry } from
 import { readInstalledExtensions } from "./panels/extensions-scan.js";
 import { defaultForKind, needsRestartHint } from "./panels/settings-utils.js";
 import { readSkills } from "./panels/skill-scan.js";
+// ★★ B32：自由按钮容器的数据层
+import {
+    readCommands,
+    writeCommands,
+    normalizeItem,
+    buildCommandLine,
+    needsInput,
+    isImageIcon,
+    isManagedIcon,
+    type CmdItem,
+} from "./panels/command-store.js";
 import { createSettingsPoster } from "./panels/settings-post.js";
 import { readPiDefaults, shortIdOf } from "./panels/misc-utils.js";
 
@@ -264,6 +277,46 @@ export function activate(context: vscode.ExtensionContext): void {
      *   面板前端只管画 ✗ 读写磁盘是宿主的活 ✓
      *   （和前端的 postMessage 通道不同 ✗ 这是 webviewPanel 自己的 ✓）
      */
+    /**
+     * ★★ 自由按钮的配置页面（B32 ②）
+     *
+     * ★ 它的消息走【自己的私有通道】✗ 不经过 chatView ✓
+     *   （跟 skillsPanel 一样 ✓ 因为它们是编辑器区的独立面板 ✓）
+     */
+    const commandPanel = new CommandPanel(context.extensionUri, async (kind, payload) => {
+        if (kind === "commandCancel") {
+            commandPanel.close();
+            return;
+        }
+        if (kind === "commandSave") {
+            const item = (payload as { item?: Record<string, unknown> } | undefined)?.item;
+            if (!item || typeof item.label !== "string") return;
+            const items = readCommands();
+            const id = typeof item.id === "string" ? item.id : "";
+            // ★ 用 command-store 的 normalize 走一遗（不信前端传来的形状 ✓）
+            // ★ 图标先收进标准位置（B32 ✓）
+            //   ★ 要带上【旧图标】✗ 才能把上一张清掉 ✓
+            const oldIcon = id ? readCommands().find((x) => x.id === id)?.icon : undefined;
+            const raw = item as { icon?: string };
+            if (typeof raw.icon === "string") {
+                item.icon = materializeIcon(raw.icon, oldIcon) ?? "";
+            }
+            const clean = normalizeItem(item as never);
+            const idx = id ? items.findIndex((x) => x.id === id) : -1;
+            if (idx >= 0) {
+                items[idx] = clean;
+                logInfo(`修改按钮：${clean.label}`);
+            } else {
+                items.push(clean);
+                logInfo(`新增按钮：${clean.label}`);
+            }
+            await writeCommands(items);
+            pushCommands();
+            commandPanel.close();
+            return;
+        }
+    });
+
     const skillsPanel = new SkillsPanel(context.extensionUri, (kind, payload) => {
         if (kind === "openSkills") {
             void refreshSkills();
@@ -542,8 +595,60 @@ export function activate(context: vscode.ExtensionContext): void {
     // 4. 数据流 ②：聊天视图的消息 → format 表（白名单）→ pi
     const chatView = new ChatView(
         context.extensionUri,
+        // ★★ B32 图标：图标存储目录（要进 webview 白名单 ✓）
+        context.globalStorageUri,
         chatState,
         async (msg: FrontendMessage) => {
+            // ★★ B32：自由按钮容器的三个动作
+            //
+            // 【★ 为什么放在最前面？】
+            //   它们完全属于【我们扩展自己的界面】✗ 跟 pi 无关 ✓
+            //   早拦早走 ✗ 也不会浪费后面那大堆 pi 相关的分支判断 ✓
+            if (msg.kind === "commandNew") {
+                // ★★ B32 ②：改成一个【完整的配置页面】（不再是两个输入框 ✓）
+                commandPanel.open({}, true);
+                return;
+            }
+            if (msg.kind === "commandEdit") {
+                const item = readCommands().find((x) => x.id === msg.id);
+                if (!item) return;
+                commandPanel.open({ ...item }, false);
+                return;
+            }
+            if (msg.kind === "commandDelete") {
+                const all = readCommands();
+                // ★ 删按钮时把它的图标文件也清掉（B32 ✓ 不留垃圾）
+                removeIconFile(all.find((x) => x.id === msg.id)?.icon);
+                const items = all.filter((x) => x.id !== msg.id);
+                await writeCommands(items);
+                pushCommands();
+                logInfo(`删除按钮：${msg.id}`);
+                return;
+            }
+            if (msg.kind === "commandRun") {
+                const item = readCommands().find((x) => x.id === msg.id);
+                if (!item) return;
+                if (item.type === "group") return; // 收纳器不是用来执行的 ✓
+
+                // ★★ 有参数 → 先收集（B32 ③）
+                if (needsInput(item)) {
+                    if (item.inputMode === "panel") {
+                        // ★ 独立窗口模式（下一步 ✓）——先按串行走 ✗ 不报错 ✓
+                        logWarn(`按钮 ${item.label} 选了独立窗口 ✗ 还没做 ✗ 先用串行 ✓`);
+                    }
+                    const line = await collectSerial(item);
+                    if (!line) return; // ★ 用户取消 ✗ 什么都不发 ✓
+                    logInfo(`执行按钮：${item.label} → ${line}`);
+                    chatView.post("sendText", { text: line });
+                    return;
+                }
+
+                const line = buildCommandLine(item);
+                logInfo(`执行按钮：${item.label} → ${line}`);
+                chatView.post("sendText", { text: line });
+                return;
+            }
+
             // ★ 通知板的【本地消息】—— 不发给 pi，直接作用于权威状态（先拦下来 ✓）
             if (msg.kind === "noticeRemove") {
                 chatState.removeNotice(msg.id);
@@ -1708,7 +1813,158 @@ export function activate(context: vscode.ExtensionContext): void {
     const postSettings = createSettingsPoster({ post: (k, p) => chatView.post(k, p) });
 
     /** ★ webview 就绪 → 推模型信息（已启动用真实值 ✓ 未启动用默认值占位 ✓）*/
+    /**
+     * ★★ 收集参数：串行弹窗（B32 ③）
+     *
+     * 【★ 重要认识（用户纠正的 ✓）】
+     *   参数就是【命令行里的一串文本】✗ 不是跟 pi 的交互 ✓
+     *     /test-args add write 42
+     *                  ↑   ↑   ↑
+     *   ⇒ 所以收集完全是我们【本地的事】✗
+     *     循环调 VS Code 原生控件填空 ✗ 拼成一行 ✗ 完事 ✓
+     *
+     * 【固定值不弹窗】
+     *   它每次都一样 ✗ 弹了也没意义 ✓ 直接拼进去 ✓
+     *
+     * @returns 拼好的命令行 ✗ 用户中途取消则 undefined ✓
+     */
+    const collectSerial = async (item: CmdItem): Promise<string | undefined> => {
+        const values: Record<string, string> = {};
+        for (const f of item.fields ?? []) {
+            if (f.kind === "fixed") {
+                values[f.id] = f.value ?? "";
+                continue;
+            }
+            if (f.kind === "select") {
+                const pick = await vscode.window.showQuickPick(f.options ?? [], {
+                    title: item.label,
+                    placeHolder: f.label,
+                    ignoreFocusOut: true,
+                });
+                if (pick === undefined) return undefined; // ★ 取消 → 整条不发 ✓
+                values[f.id] = pick;
+                continue;
+            }
+            // any
+            const val = await vscode.window.showInputBox({
+                title: item.label,
+                prompt: f.label,
+                placeHolder: f.subType === "number" ? "例如 42" : "",
+                ignoreFocusOut: true,
+                validateInput:
+                    f.subType === "number"
+                        ? (s) =>
+                              /^-?\d+(\.\d+)?$/.test(s.trim())
+                                  ? undefined
+                                  : "这里要数字（可带负号 / 小数点 ✓）"
+                        : undefined,
+            });
+            if (val === undefined) return undefined;
+            values[f.id] = val.trim();
+        }
+        return buildCommandLine(item, values);
+    };
+
+    /**
+     * ★★ 把图标路径【收进标准位置】（B32 图标 ✓）
+     *
+     * 【用户原话】
+     *   “图标这里是可以来个本地图标 ✗ 只给个路径的，这应该很轻松吧？
+     *    路径的话 ✗ 那得复制进来 ✗ 把这个图标复制一个到某个地方存起来”
+     *
+     * 【存哪】VS Code 标准位置：context.globalStorageUri（扩展自己的持久目录 ✓）
+     *   → 好处：跟着扩展走 ✗ 不会因为用户移动原文件而失效 ✓
+     *   → 配置里只存 `icons/xxx.png` 这种相对名 ✗ 不存用户那个原始路径 ✓
+     *
+     * ★ 不是图片（emoji / codicon）→ 原样返回 ✓
+     * ★ 找不到文件 → 原样存着（用户在配置里能看到自己填错什么 ✓）
+     */
+    const materializeIcon = (icon?: string, oldIcon?: string): string | undefined => {
+        if (!icon) return undefined;
+        const v = icon.trim();
+        if (!isImageIcon(v)) return v;
+        if (isManagedIcon(v)) return v; // 已经在标准位置 ✓
+        try {
+            const src = v.startsWith("~") ? path.join(os.homedir(), v.slice(1)) : v;
+            if (!fs.existsSync(src)) {
+                logWarn(`图标文件不存在，原样保留：${v}`);
+                return v;
+            }
+            const ext = (path.extname(src) || ".png").toLowerCase();
+            const name = `icons/${Date.now().toString(36)}${ext}`;
+            logDebug(`图标源：${src} → 存到 ${path.join(context.globalStorageUri.fsPath, name)}`);
+            const dst = path.join(context.globalStorageUri.fsPath, name);
+            fs.mkdirSync(path.dirname(dst), { recursive: true });
+            fs.copyFileSync(src, dst);
+            logDebug(`图标已收进标准位置：${name}`);
+            // ★★ 删掉【上一张】（B32 用户指出 ✓）
+            //   原话：“每保存一次就复制一个文件 ✗ 你保存的时候肯定要对比一下呀。
+            //          原本有图片 ✗ 现在来了张新图片 ✗ 当然要把旧图片给删了呀”✓
+            //   ★ 只删我们管的（icons/ 开头 ✓）✗ 用户的原始文件绝不能碰 ✓
+            removeIconFile(oldIcon, name);
+            return name;
+        } catch (err) {
+            logError(`图标复制失败：${toErrorMessage(err)}`);
+            return v;
+        }
+    };
+
+    /**
+     * ★★ 删掉一个存放在标准位置的图标（B32 ✓）
+     *
+     * 【安全边界】只删 `icons/` 开头的 ✗
+     *   用户填的原始路径（/home/…/pi.svg 之类）【绝对不动】✓
+     *   万一它和别的按钮共用呢 ✓
+     *
+     * @param keep 新图标名（一样就不删 ✓）
+     */
+    const removeIconFile = (icon?: string, keep?: string): void => {
+        if (!icon || !isManagedIcon(icon)) return;
+        const name = icon.trim();
+        if (name === keep) return;
+        try {
+            const abs = path.join(context.globalStorageUri.fsPath, name);
+            if (fs.existsSync(abs)) {
+                fs.unlinkSync(abs);
+                logDebug(`已清理旧图标：${name}`);
+            }
+        } catch (err) {
+            logWarn(`清理旧图标失败：${toErrorMessage(err)}`);
+        }
+    };
+
+    /** ★ 推给前端前：把 icons/xxx 变成 webview 能加载的 URI ✓ */
+    const iconForWeb = (icon?: string): string | undefined => {
+        if (!icon || !isManagedIcon(icon)) return icon;
+        const abs = path.join(context.globalStorageUri.fsPath, icon);
+        const uri = chatView.toWebviewUri(abs);
+        logDebug(`图标 URI: ${icon} → ${uri ? uri.slice(0, 100) : "（空 ✗ view 还没就绪）"}`);
+        logDebug(`  文件存在？${fs.existsSync(abs)}`);
+        return uri || icon;
+    };
+
+    /**
+     * ★★ 把自由按钮列表推给容器（B32 ✓）
+     *
+     * ★ 每次【现读配置】✗ 不用缓存 ✓（跟设置面板同一套路 ✓）
+     *   理由：用户可能在 VS Code 原生设置里手改那个 JSON ✗
+     *         缓存了就会跟实际不一致 ✓
+     */
+    const pushCommands = (): void => {
+        // ★★ 消息名用 railCommands ✗ 【不是 commands】✓
+        //   commands 被 slash-menu 的命令补全列表占了 ✗ 同名会互相覆盖 ✓
+        // ★ 推之前把图标路径转成 webview URI（B32 ✓）
+        const mapItem = (x: CmdItem): CmdItem => ({
+            ...x,
+            icon: iconForWeb(x.icon),
+            children: x.children?.map(mapItem),
+        });
+        chatView.post("railCommands", readCommands().map(mapItem));
+    };
+
     chatView.onReady = () => {
+        // ★ B32：把自由按钮推给容器（它只读 VS Code 配置 ✗ 不依赖 pi ✓）
+        pushCommands();
         if (pi.isStarted()) {
             void pushPiState();
             return;

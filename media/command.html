@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!--
+  CSP：跟其他页面一致
+    {{nonce}} {{cspSource}} {{css}} {{js}} {{styleVars}} 由 html-loader.ts 注入
+-->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}'; img-src *;">
+<link rel="stylesheet" href="{{css}}">
+<style>{{styleVars}}</style>
+</head>
+<body>
+  <!-- ★ 整页由 src/command/index.ts 渲染 ✗
+       为什么不用静态 HTML？
+         选「按钮」还是「收纳器」会让表单【变形状】✗
+         静态写死就得两套来回藏 ✓ 还是程序化生成清楚 ✓ -->
+  <div id="host">
+    <div id="form"></div>
+    <div id="foot">
+      <span id="tip"></span>
+      <span class="spacer"></span>
+      <button id="cancel">取消</button>
+      <button id="save">保存</button>
+    </div>
+    <div id="toast" data-show="0"></div>
+  </div>
+  <script nonce="{{nonce}}" src="{{js}}"></script>
+</body>
+</html>

@@ -23,7 +23,18 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const mediaDir = path.join(here, "..", "media");
 
 /** 允许的模板占位符（loader 会替换 ✓）*/
-const ALLOWED_PLACEHOLDER = new Set(["nonce", "cspSource", "css", "js", "styleVars", "mermaidJs"]);
+const ALLOWED_PLACEHOLDER = new Set([
+    "nonce",
+    "cspSource",
+    "css",
+    "js",
+    "styleVars",
+    "mermaidJs",
+    // ★ B32：写到 <html> 上的开关类（居中/折叠 …）
+    //   为什么要在【服务端】就写上？
+    //     原来只由 JS 的 applyStyleVars 切 ✗ 而首屏不会调它 ⇒ 开关全失效 ✓
+    "htmlClass",
+]);
 
 let failed = 0;
 const fail = (file, msg) => {

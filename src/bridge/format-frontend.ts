@@ -96,6 +96,15 @@ export type FrontendMessage =
     // ★ 技能内容的两个动作（B25）
     | { kind: "skillToInput"; content: string } // 填入输入框（本地 ✓）
     | { kind: "skillAsCommand"; name: string }
+    // ★★ B32：自由按钮容器（侧栏聊天页里的那根竖条 ✓）
+    //   commandNew    → 用户点「＋」✗ 宿主去弹输入框 ✓
+    //   commandRun    → 点了一下按钮要执行（★ 有参数时先收集 ✓）
+    //   commandDelete → 右键删除 ✓
+    | { kind: "commandNew" }
+    // ★ commandEdit → 右键「编辑…」（B32 ②）
+    | { kind: "commandEdit"; id: string }
+    | { kind: "commandRun"; id: string }
+    | { kind: "commandDelete"; id: string }
     // ★ B31：技能面板（独立页面）把 SKILL.md 塞进聊天输入框 ✓
     //   ★ 它和 skillToInput 的差别：这个只要【名字】✗ 宿主自己去读文件 ✓
     //     （因为面板碰不到侧栏的 textarea ✗ 只能求宿主 ✓）

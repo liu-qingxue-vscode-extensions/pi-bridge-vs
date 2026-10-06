@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="{{htmlClass}}">
 <head>
 <meta charset="UTF-8">
 <!-- ★ B29：mermaid 的脚本地址（独立打包 ✗ 主程序按需注入 ✓）-->
@@ -13,7 +13,7 @@
   {{nonce}} {{cspSource}} {{css}} {{js}} {{styleVars}} 由扩展加载时注入（见 src/view/html-loader.ts）
 -->
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}';">
+      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}'; img-src *;">
 <link rel="stylesheet" href="{{css}}">
 <style>{{styleVars}}</style>
 </head>
@@ -136,6 +136,20 @@
       <div id="notice-empty">暂无通知</div>
       <div id="notice-collapse" title="点击收起">⌃</div>
     </div>
+  </div>
+
+  <!-- ★★ 命令条（B32）：气泡区左侧、同高度的竖直按钮容器 ✓
+       先放【假按钮】看样式 ✗ 看好了再换成真实数据 ✓ -->
+  <!-- ★★ 命令条（B32）：气泡区左侧的竖向按钮容器 ✓
+       【为什么是两层？】（用户把两种单层写法都试过 ✓）
+         bottom:0 + padding-bottom → 不被遮挡 ✓ 但滑到底有空区域 ✗
+         bottom:输入区高度         → 没空区域 ✓ 但右边框在中间断掉 ✗
+       ⇒ 外层：盒子【一直到底】→ 边框/背景连续 ✓
+         内层：滚动区用【margin】让出输入区
+               ★ 关键：margin 不算进滚动内容 ✗ 所以不会有空白 ✓ -->
+  <div id="cmd-rail">
+    <!-- ★★ 内层：滚动区（按钮由 src/webview/cmdrail.ts 渲染 ✓）-->
+    <div id="cmd-rail-list"></div>
   </div>
 
   <div id="messages"></div>

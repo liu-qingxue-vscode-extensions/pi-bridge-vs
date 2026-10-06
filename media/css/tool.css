@@ -33,6 +33,15 @@
 .bubble.tool[data-open="false"] .tool-body { display: none; }
 .bubble.tool .tool-result {
   background: var(--pi-bg-tool-result, var(--vscode-textBlockQuote-background));
+  /* ★★ 结果区的左侧色条（B32 修 ✗）
+     发现方式：scripts/check-style-vars.mjs 报“--pi-rail-color-result 没人消费”✓
+     ⇒ 用户配了 railColorResult 却【完全没反应】✗ 就是个摆设 ✓
+     修法：用 inset box-shadow 画一条内嵌的竖线 ✗
+       · 不占布局（外框那条 border-left 不会被挤走 ✓）
+       · 两端自然止于结果区的上下边界 ✓（不像 border 会拉满整高 ✓）
+     ★ 默认跟工具调用区分开：调用=橙 ✗ 结果=绿 ✓ */
+  box-shadow: inset var(--pi-rail-width, 2px) 0 0
+    var(--pi-rail-color-result, var(--vscode-charts-green));
   /* ★ 结果区限高 → 超出滚动 ✓（用户可关：见文件末尾的开关规则 ✓）*/
   max-height: var(--pi-tool-result-max, 220px);
   overflow-y: auto;

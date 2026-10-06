@@ -1,0 +1,185 @@
+/* ===== 命令条（B32）：气泡区左侧、同高度的竖直按钮容器 =====
+   ★ 用户定的位置：
+     “容器位置放到气泡区同高度，就放到左侧，不是独立的 web，
+       肯定要放到气泡区的旁边呀，要不然怎么承担快捷的功能性？”
+   ⇒ 所以它是【侧栏聊天页内部】的一根竖直条 ✗ 不是编辑器区的独立面板 ✓
+
+   【布局方式】
+     #messages 本身是 position:absolute 铺满的 ✗
+     所以这里做两件事 ✗：
+       ① 加一根 absolute 的 #cmd-rail ✗ 左贴边 + top/bottom 跟气泡区一样 ✓
+       ② 把 #messages 的 left 从 0 改成 rail 的宽度 ✗ 让出左侧 ✓
+     ⇒ 两者【高度天然一致】✗ 因为它们用同一个 top / bottom ✓
+
+   ★ 宽度由 CSS 变量控制 → 以后可以接到 VS Code 设置里 ✓ */
+
+:root {
+  --pi-cmd-rail-w: 42px;      /* 命令条宽度（0 = 隐藏 ✓）*/
+  --pi-cmd-btn-size: 28px;    /* 按钮正方形边长 ✓*/
+  --pi-cmd-gap: 5px;          /* 按钮之间的间距 ✓*/
+}
+
+/* ★ 给命令条让出左侧空间（覆盖 base.css 里的 left: 0 ✓）*/
+#messages {
+  left: var(--pi-cmd-rail-w, 42px);
+}
+
+#cmd-rail {
+  position: absolute;
+  /* ★★ z-index：它必须盖在 #messages 【上面】（B32 修 ✗）
+     症状（用户实测）：“滚轮不存在 ✗ 在上面滚的时候直接滚动了旁边的消息”✓
+     原因：#cmd-rail 和 #messages 都是 absolute ✗
+         而 #messages 在 DOM 里排【后面】→ 盖在上面 ✓
+         透明背景让你【看得见】rail ✗ 但鼠标事件全被 messages 截走 ✓
+     ⇒ 加 z-index 后：看得见 → 也点得到 / 滚得到 ✓
+     （不用改 HTML 顺序 ✗ 那种修法太“隐形”了 ✓ 以后有人调顺序又坏 ✓）*/
+  z-index: 2;
+  /* ★ 顶部让出：【顶栏 + 按钮行】两条（跟 #messages 完全一致 ✓）*/
+  top: calc(var(--pi-topbar-height) + var(--pi-app-toolbar-height, 28px));
+  left: 0;
+  /* ★★ 底部到【输入区上方】就截断（B32 ✓）
+     为什么不像 #messages 一样用 bottom:0 + padding？
+       气泡区需要“内容能滑到输入区后面”那种穿透感 ✓
+       命令条是【按钮】✗ 被盖住一部分就点不到了 ✓ 直接截断最干净 ✓ */
+  /* ★★ 底部【在输入区上方截断】
+
+     【试过的两种写法（B32 ✗ 用户实测把两种都测了 ✓）】
+       ① bottom: var(--pi-input-reserve) ✗ 盒子停在输入区上方
+          ⇒ 右边框在 876 就结束（但这是【正确位置】✓）
+       ② bottom: 0 + padding-bottom: reserve
+          ⇒ 盒子到底、边框连续 ✓ 但 ★ padding 【会被算进可滚动区】
+            ⇒ 滑到底时下面空出 152px 一块 ✗（用户实测报的 ✓）
+
+     ⇒ 回到 ① ✓ 它才是对的：
+        容器的可用范围【本来就应该】到输入区上方为止 ✓
+        线在那里结束不是“被截断”✗ 是边界 ✗ 合理 ✓
+        （之前觉得像被遮挡 ✗ 是因为当时 CSS 整个乱了 ✓）*/
+  bottom: 0;                  /* ★ 到底 ✗ 边框/背景连续 ✓ */
+  width: var(--pi-cmd-rail-w, 42px);
+  /* ★ 右边界：一条很淡的分隔线 ✗ 让“容器”这件事看得出来 ✓ */
+  border-right: 1px solid var(--vscode-sideBar-border, rgba(128, 128, 128, 0.18));
+  /* ★★ 不透明背景（B32 ✓ 用户要求 ✓）
+     原话：“你既然都已经放到左侧去滚动那里 ✗ 宽度计算也和对话区区分开了 ✗
+            那你这个消息的遮挡怎么还是在挡？下面直接别让消息遮挡它”✓
+     ⇒ 即使 #messages 的滚动区比 rail 长（bottom:0 vs bottom:input-reserve ✓）
+       消息也【穿不过】rail 这一块 —— 直接被挡住 ✓
+     ★ 用侧栏背景色 ✗ 跟 body 一致 ✗ 看不出“多了一层” ✓ */
+  background: var(--vscode-sideBar-background);
+  display: var(--pi-cmd-rail-display, flex);
+  flex-direction: column;
+  /* ★ 内层溢出被裁（真正的滚动在内层 ✓）*/
+  overflow: hidden;
+}
+
+/* ══════════ 内层：真正的滚动区 ══════════
+   ★★ 【不要再加 margin-bottom】（B32 ✗ 我加了一轮又删了 ✓）
+     试错记录：
+       加了 margin-bottom: 输入区高度 → 底部空出 152px 空壳 ✗
+         看起来像“容器被拉进输入区里”✗（用户报的 ✓）
+       ★ 其实根本不需要让位：
+         输入区已经 left: 42 让开了左侧 ✗ 它不会盖到命令条 ✓
+         ⇒ 命令条整条一直到屏幕底都是【干净的】✓✓✓
+         ⇒ 按钮直排到底 ✗ 滑到底就是「＋」✗ 线也一路到底 ✓ */
+#cmd-rail-list {
+  flex: 1 1 auto;
+  min-height: 0;              /* ★ flex 子项要能收缩 ✗ 否则根本不滚 ✓ */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--pi-cmd-gap, 5px);
+  padding: 8px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* ★★ 滚到头也【不把滚轮事件传染给气泡区】（B32 ✓）
+     用户实测：“在上面滚的时候直接滚动了旁边的消息”✓
+     ⇒ contain = 滚到我头就不往外冒了 ✗ 气泡区不会跟着动 ✓ */
+  overscroll-behavior: contain;
+}
+
+/* ★★ 滚动条【完全隐形】（B32 ✗ 用户要求 ✓）
+   原话：“你做滚动的时候不要有滑块 ✗ 本身就很窄了 ✗ 还来个滑块”✓
+   ⇒ 仍然能滚 ✗ 只是没有视觉的滑块 ✓ */
+#cmd-rail-list {
+  scrollbar-width: none;            /* Firefox */
+  -ms-overflow-style: none;         /* 旧 Edge */
+}
+#cmd-rail-list::-webkit-scrollbar {
+  display: none;                    /* Chrome / Electron ✓ */
+  width: 0;
+  height: 0;
+}
+
+/* ===== 按钮 =====
+   ★ 先做成【正方形图标按钮】✗ 名字走悬停提示 ✓
+     因为 42px 宽放不下"图标 + 文字"两行 ✓
+   （以后如果加宽，可以改成"图标在上、文字在下"✓）*/
+.cmd-btn {
+  flex: 0 0 auto;
+  width: var(--pi-cmd-btn-size, 28px);
+  height: var(--pi-cmd-btn-size, 28px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+  font-size: 14px;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+  opacity: .78;
+  transition: opacity .1s, background .1s;
+}
+.cmd-btn:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.22));
+}
+.cmd-btn:active {
+  background: var(--vscode-toolbar-activeBackground, rgba(128, 128, 128, 0.32));
+}
+/* ★ 没有图标时的【首字兜底】✗（用户提的"文字转图标"✓）*/
+.cmd-btn.text {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ★ 分组（收纳器）的标记：右下角一个小三角 ✗ 表示"点开会展开"✓ */
+.cmd-btn.group::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  border-left: 3px solid transparent;
+  border-bottom: 3px solid currentColor;
+}
+.cmd-btn.group { position: relative; }
+
+/* ★「＋」（新建入口 ✗ 列表最后一项永远是加 ✓）*/
+.cmd-btn.add {
+  border-style: dashed;
+  border-color: var(--vscode-sideBar-border, rgba(128, 128, 128, 0.35));
+  opacity: .55;
+}
+.cmd-btn.add:hover {
+  opacity: 1;
+  border-color: var(--vscode-focusBorder, #0078d4);
+}
+
+/* ★★ 本地图片图标（B32 ✓）
+   主机把 icons/xxx 复制到标准位置并转成 webview URI ✗
+   前端只管把它当 img 摆进去 ✓ */
+.cmd-btn .cmd-ico {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  /* ★ 图片别把按钮撑变形 ✓ */
+  display: block;
+}
+
+/* ★★ 文字兜底两种字号（B32 ✓）
+   中文 → 只取首字 ✗ 12px 够大 ✓
+   英文 → 整个词全渲染 ✗ 必须要小一号才放得下 ✓ */
+.cmd-btn.text { font-size: 12px; font-weight: 600; }
+.cmd-btn.text.wide { font-size: 9px; letter-spacing: -.02em; }

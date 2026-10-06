@@ -2,14 +2,30 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "npm: compile",
+      "label": "清理 pi-bridge 日志",
+      "type": "shell",
+      "command": "rm -rf \"$HOME\"/.local/state/VSCodium/*/window*/exthost/liu-qingxue.pi-bridge-vs/* \"$HOME\"/.config/VSCodium/logs/*/window*/exthost/liu-qingxue.pi-bridge-vs/* 2>/dev/null || true",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
       "type": "npm",
       "script": "compile",
       "problemMatcher": "$tsc",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      }
+      "label": "npm: compile"
+    },
+    {
+      "label": "prep-and-compile",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "清理 pi-bridge 日志",
+        "npm: compile"
+      ],
+      "problemMatcher": []
     }
   ]
 }

@@ -18,7 +18,15 @@
 .bubble-wrap {
     display: flex;
     flex-direction: column;   /* 气泡 + 动作区 上下排 ✓ */
-    width: var(--pi-bubble-width, 88%); /* AI：固定宽度（流式无法预测）*/
+    /* ★★ 左边距：只作用于【AI 气泡自己】（B32 修耦合 ✓）
+       为什么不放在 #messages 的 padding 上？
+         那会改变内容区宽度 ✗ 把所有子元素全连在一起 ✓
+       放这里 ⇒ 只影响 AI 气泡 ✗ 用户气泡和输入框完全不受影响 ✓ */
+    margin-left: var(--pi-left-gap, 3%);
+    /* ★★ 用 min() 兜底：
+       就算 leftGap + bubbleWidth 超过 100% ✗ 也不会溢出 ✓
+       而是一直被夹在“对话区减去左边距”之内 ✓ */
+    width: min(var(--pi-bubble-width, 88%), calc(100% - var(--pi-left-gap, 3%)));
     /* ★★ 禁止 flex 压缩 —— 否则内容变多时会被挤成一条线 ✗ */
     flex-shrink: 0;
 }
@@ -29,11 +37,13 @@
 /* ★ 宽度全用【百分比】（用户要求 ✓）—— 这样在任何视口宽度下比例一致 ✓ */
 .bubble-wrap.user {
     align-self: flex-end;                     /* ★ 可靠右对齐 */
+    /* ★★ 右边距：只作用于用户气泡自己 ✓（B32 新增 ✗ 用户抓到的缺口 ✓）*/
+    margin-right: var(--pi-right-gap, 3%);
+    margin-left: 0;                           /* ★ 取消 AI 那条左边距 ✓ */
     width: auto;                              /* 内容多宽就多宽 */
     min-width: var(--pi-user-min-width, 5%);  /* ★ 最小宽度（百分比 ✓）短消息不缩成一条线 */
-    /* ★ 最大宽度：【独立配置】（不再复用 --pi-bubble-width ✗）
-       用户要求单独一个最大宽度 ✓ 超过就换行 ✓ */
-    max-width: var(--pi-user-max-width, 88%);
+    /* ★★ 最大宽度：【独立配置】+ min() 兜底（防配得太大溢出 ✓）*/
+    max-width: min(var(--pi-user-max-width, 88%), calc(100% - var(--pi-right-gap, 3%)));
 }
 /* ★ 用户气泡的【颜色/边框】（视觉属性 —— 仍在 .bubble 上 ✓）*/
 .bubble.user {
@@ -228,8 +238,22 @@
 .bubble-wrap.text + .bubble-wrap.thinking { margin-top: var(--pi-gap-text-thinking, 4px); }
 
 /* ===== 居中内容列模式（centerColumn = true）=====
-   原理：把左右 padding 设为 (100% - 列宽)/2 → 自动形成居中的内容列
-   然后所有气泡占满内容列、用户气泡右对齐到列右边、输入框同宽 ✓ */
+   ★★ 它控制的是一套【对齐方案】✗ 不是某个气泡的属性 ✓
+     这一套同时管三个东西：AI 气泡 / 用户气泡 / 输入框 ✓
+
+   【列宽】
+     直接用 --pi-bubble-width ✗ 不再单设一个 centerWidth
+       （用户指出：两个宽度是多余的 ✓ 一个就够 ✓）
+
+   【列的位置】
+     padding = (100% − 列宽) / 2 ✗ 【算出来的】✓
+     ⇒ 也不需要 centerPadX 这种参数
+        想让列窄一点？直接调小 bubbleWidth ✓ 效果一样 ✓
+
+   【为什么这里不是 leftGap / rightGap？】
+     非居中：AI 左对齐 · 用户右对齐 ✗ 两边是【两种语义】✓
+     居中  ：列整体居中 ✗ 左右【对称】✗ 由算式决定 ✓
+     ★ 两套参数共存 ✗ 各自只在对应场景生效 ✗ 互不干扰 ✓ */
 :root.centered #messages {
   padding-left: calc((100% - var(--pi-bubble-width, 88%)) / 2);
   padding-right: calc((100% - var(--pi-bubble-width, 88%)) / 2);
@@ -238,12 +262,23 @@
   padding-left: calc((100% - var(--pi-bubble-width, 88%)) / 2);
   padding-right: calc((100% - var(--pi-bubble-width, 88%)) / 2);
 }
-:root.centered .bubble-wrap { width: 100%; }  /* ★ 占满内容列（改 wrapper ✗ 不是内层）*/
+:root.centered .bubble-wrap {
+    width: 100%;
+    /* ★★ 居中模式：两条边距【归零】（B32 ✓）
+       因为位置由 (100% − 列宽)/2 自动算 ✗ 再叠一个 margin 就偏了 ✓ */
+    margin-left: 0;
+}
 :root.centered .bubble { width: 100%; }       /* 内层跟 wrapper ✓ */
 :root.centered .bubble-wrap.user {
     width: auto;
+    margin-right: 0;
     /* ★ 用配置（以前写死 100% → 把用户的 userMaxWidth 覆盖了 ✗ 实测踩到 ✓）*/
     max-width: var(--pi-user-max-width, 88%);
     align-self: flex-end;
 }
 :root.centered #input-box { width: 100%; margin: 0; }   /* 输入框与气泡同宽 ✓ */
+/* ★★ B32：居中时输入区也不再用 leftGap / rightGap 当 padding ✗
+   这里直接用列宽算式 ✓ */
+:root.centered #input-area {
+  /* 已在上面统一处理 ✓ 这里仅作位置声明 */
+}

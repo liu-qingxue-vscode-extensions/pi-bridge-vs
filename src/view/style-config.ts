@@ -35,7 +35,15 @@ export function readStyleVars(): Record<string, string> {
     num("bubbleWidth", "--pi-bubble-width", "%");
     num("bubbleRadius", "--pi-bubble-radius");
     raw("bubblePadding", "--pi-bubble-padding");
-    num("sideGap", "--pi-side-gap"); // 气泡与视图左右边界的间距
+    num("leftGap", "--pi-left-gap", "%"); // ★★ AI 气泡的【左边距】（B32 ✓）
+    //   ★ 只有左边 ✗ AI 气泡是左对齐的 ✗ 右边距对它没意义 ✓
+    //   ★★ 只在 centerColumn 关闭时生效 ✓
+    //   ★ 单位必须是 % ✗ 固定 px 在侧栏变宽时比例会乱 ✓
+    //
+    // ★★ 用户气泡的【右边距】（B32 ✗ 用户抓到的缺口 ✓）
+    //   用户原话：“用户气泡的宽度是动态宽度 ✗ 但右对齐的右边距呢？”
+    //   ⇒ 确实缺 ✗ 没有它就没法知道用户气泡离右边多远 ✓
+    num("rightGap", "--pi-right-gap", "%");
     num("userMinWidth", "--pi-user-min-width", "%"); // 用户气泡的最小宽度（百分比 ✓）
     num("userMaxWidth", "--pi-user-max-width", "%"); // ★ 用户气泡的最大宽度（超过就换行 ✓）
     // ★ 设置面板的字号（B24）—— 面板里所有文字都跟着它缩放 ✓
@@ -44,6 +52,11 @@ export function readStyleVars(): Record<string, string> {
     // ★ 技能面板的字号（B25）
 
     // 居中内容列开关：布尔不能直接当 CSS 变量用 → 传一个特殊值，webview 收到后切换 CSS 类
+    // ★★ B32 重构（用户指出的多余 ✓）：
+    //   删掉了 centerWidth / centerPadX ✗
+    //   · 宽度：一个 bubbleWidth 就够 ✗ 两种模式共用 ✓
+    //   · 边距：居中时的左右边距是 (100% − 宽度)/2 【自动算】的 ✓
+    //     根本不需要人配 ✗ 想窄一点就直接调小宽度 ✓
     vars["--pi-centered-mode"] = cfg.get<boolean>("centerColumn", false) ? "on" : "off";
 
     // ★ 通知自动下拉：通知到达时自动展开面板（默认关 ✓）
@@ -72,7 +85,27 @@ export function readStyleVars(): Record<string, string> {
         vars["--pi-result-label"] = '""'; // 显式置空
     }
 
-    // 输入框（行数类传空单位：只是数字，由 JS 读取后自己算像素）
+    // ★★ 自由按钮容器（B32 ✓）—— 气泡区左侧那根竖排快捷命令条
+    //
+    // 【★★ 一处定义、三处消费】
+    //   --pi-cmd-rail-w 这一个值同时被：
+    //     ① #cmd-rail 的 width      （竖条本身多宽 ✓）
+    //     ② #messages 的 left        （气泡区左边让出多少 ✓）
+    //     ③ #input-area 的 left      （输入区左边让出多少 ✓）
+    //   为什么必须同一个变量？
+    //     分开写迟早会忘掉一处 → 三者对不齐 ✗ 看起来像 bug ✓
+    num("cmdRailWidth", "--pi-cmd-rail-w");
+    num("cmdRailBtnSize", "--pi-cmd-btn-size");
+    num("cmdRailGap", "--pi-cmd-gap");
+    // ★ 显示开关：用 CSS 变量直接传 display ✓
+    //   ★★ 为什么不跟 centered 一样让 webview 切类？
+    //     切类需要 JS 配合（多一处耦合 ✓）
+    //     而 display 本来就是 CSS 变量能表达的值 ✗ 直传最干净 ✓✓✓
+    //   ★ 同时把宽度归零（否则容器没了但气泡区还留着空位 ✓）
+    const railShow = cfg.get<boolean>("cmdRailShow", true);
+    vars["--pi-cmd-rail-display"] = railShow ? "flex" : "none";
+    if (!railShow) vars["--pi-cmd-rail-w"] = "0px";
+
     // 输入框（行数类传空单位：只是数字，由 JS 读取后自己算像素）
     num("inputRadius", "--pi-input-radius");
     num("inputWidth", "--pi-input-width", "%");
@@ -134,6 +167,36 @@ export function readStyleVars(): Record<string, string> {
     raw("bgToolResult", "--pi-bg-tool-result");
 
     return vars;
+}
+
+/**
+ * ★★ 哪些「开关变量」需要变成 <html> 上的类名（B32 修 ✗）
+ *
+ * 【发现的 bug】
+ *   用户实测：“居中模式下居中居的不正确 ✗ 竟然没统一宽度”✓
+ *   诊断输出：root 类名 = （无）✗ 但 --pi-centered-mode = on ✓
+ *
+ * 【原因】
+ *   CSS 变量：【HTML 静态注入】✓（<style>{{styleVars}}</style>）
+ *   类名    ：只有 applyStyleVars（JS）会切 ✗
+ *               而它在【首次加载时根本不会被调用】✗
+ *               （只有宿主推 styleVars 消息时才调 ✗ 而 main.ts 从不推 ✓）
+ *   ⇒ 所有开关类在首屏【全部失效】✗ 只有手动改一次设置才生效 ✓
+ *
+ * 【修法】
+ *   把“变量 → 类名”抽成纯函数 ✗ 两边共用：
+ *     · html-loader 在服务端给 <html> 直接写上类（首屏就对 ✓ 不闪 ✓）
+ *     · webview 的 applyStyleVars 照旧用（设置变了时热更新 ✓）
+ */
+export function classNamesFromVars(vars: Record<string, string>): string[] {
+    const out: string[] = [];
+    const has = (k: string, v: string): boolean => vars[k] === v;
+
+    if (has("--pi-centered-mode", "on")) out.push("centered");
+    // ★ 这两个是“off 才加类”
+    if (has("--pi-tool-arg-scroll", "off")) out.push("no-arg-scroll");
+    if (has("--pi-tool-result-scroll", "off")) out.push("no-result-scroll");
+    return out;
 }
 
 /** 把变量映射拼成一段 CSS（注入到 <style> 里） */
