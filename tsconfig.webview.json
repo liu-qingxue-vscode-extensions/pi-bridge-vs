@@ -9,7 +9,7 @@
     "rootDir": ".",
     "outDir": null
   },
-  "include": ["src/webview/**/*.ts", "src/interaction/**/*.ts", "src/skills/**/*.ts", "src/command/**/*.ts"],
+  "include": ["src/webview/**/*.ts", "src/interaction/**/*.ts", "src/skills/**/*.ts", "src/command/**/*.ts", "src/sessions/**/*.ts", "src/settings/**/*.ts"],
   // ★ 必须覆盖父配置的 exclude（父配置把 src/webview 排除了 —— 那是给扩展主体的 tsc 用的 ✗）
   "exclude": []
 }

@@ -127,9 +127,9 @@ export function readStyleVars(): Record<string, string> {
     vars["--pi-tool-arg-scroll"] = cfg.get<boolean>("toolArgsScroll", true) ? "on" : "off";
     vars["--pi-tool-result-scroll"] = cfg.get<boolean>("toolResultScroll", true) ? "on" : "off";
 
-    // ★ 会话面板（B15）
-    num("sessionPanelHeight", "--pi-session-panel-height", "vh");
-    raw("sessionPanelBg", "--pi-session-panel-bg");
+    // ★★ B35：会话面板的高度 / 底色【已删】✗
+    //   面板搬到编辑器区了 ✗ 它是一整页 ✓ 没有“高度占比”这回事 ✓
+    //   （对应配置项也一并从 package.json 删了 ✓ 否则守门员报断点 ② ✓）
 
     // 通知面板（B8）—— 展开后的最大高度
     // ★ 单位用 vh 而不是 %：面板的父元素高度由内容决定，百分数会解析失败 ✗

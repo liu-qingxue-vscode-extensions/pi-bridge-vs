@@ -25,13 +25,12 @@ import { createToolBubble, ensureResultHost, markStreamingDone, renderArgs, rend
 import { appendStopNote, showRetryNotice } from "./notices.js";
 import { showCompactionEnd, showCompactionStart } from "./compact.js";
 import { setModelInfo, showModelPicker, showThinkingPicker } from "./model-picker.js";
-import { renderSettings } from "./settings-panel.js";
 import { showInteractionHint } from "./ui-request.js";
 import { setCommands } from "./slash-menu.js";
 import { updateStatusBar } from "./topbar.js";
 import { appendNotice, clearNotices, removeNotice, renderNotices, resetNotices, setExpanded } from "./noticeboard.js";
 import { applyStyleVars, autoGrow, setAgentState, showCwd, syncPadding } from "./input.js";
-import { setupSessions, setCurrentCwd, renderSessions, setSessionTitle } from "./sessions.js";
+import { setSessionTitle } from "./sessions.js";
 // ★★ B32：自由按钮容器
 import { setRailCommands } from "./cmdrail.js";
 
@@ -347,8 +346,9 @@ export function setupHostBridge(): void {
                 return;
             case "cwd":
                 showCwd(String(data.payload ?? ""));
-                // ★ 会话面板也要知道当前 cwd（决定哪个分组默认展开 ✓）
-                setCurrentCwd(String(data.payload ?? ""));
+                // ★★ B35：不再 setCurrentCwd ✗
+                //   会话面板已搬到编辑器区 ✓ 它自己有 currentCwd
+                //   （宿主在 sessionList 消息里一起给 ✓）
                 return;
             case "agentState": {
                 setAgentState(String(data.payload));
@@ -399,10 +399,9 @@ export function setupHostBridge(): void {
                 setModelInfo(mi as never);
                 return;
             }
-            // ★ 设置面板（B24）
-            case "settings":
-                renderSettings((data.payload ?? {}) as never);
-                return;
+            // ★★ B35：删掉 case "settings" ✗
+            //   设置面板已搬到编辑器区 ✓ 它有自己的 post 通道
+            //   （原来是 chatView.post("settings", …) → 现在 settingsPanel.post ✓）
             // ★ 技能列表（B25）
             // ★ B29：VS Code 主题（代码高亮用 ✗ 逐色统一 ✓）
             case "theme":
@@ -454,10 +453,6 @@ export function setupHostBridge(): void {
             }
             case "toggleNotices":
                 setExpanded();
-                return;
-            case "sessions":
-                // ★ 会话列表（按 cwd 分组渲染 ✓）
-                renderSessions((data.payload ?? []) as never);
                 return;
             case "sessionTitle": {
                 // ★ 按钮行中间的当前会话名（含动态字号 ✓）

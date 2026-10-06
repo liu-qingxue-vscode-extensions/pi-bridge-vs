@@ -29,7 +29,9 @@ export type FrontendMessage =
     // ★ 给当前会话改名（宿主弹输入框 + 发 set_session_name ✓）
     | { kind: "renameSession" }
     // ★ 拉取会话列表（打开面板时按需请求 ✓）
-    | { kind: "listSessions" }
+    /** ★ 侧栏「☰ 会话」→ 打开【独立会话面板】（B35 ✓）
+     *  ★ 会话面板已经搬到编辑器区 ✗ 侧栏只剩这个入口 ✓ */
+    | { kind: "openSessions" }
     // ★ 刷新会话信息（★ 第二级 IO：读文件补名字 ✓ 用户手动触发 ✓）
     | { kind: "refreshSessions" }
     // ★ 切换会话（同 cwd → 直接切；跨 cwd → 宿主会先重载 ✓）
@@ -64,7 +66,9 @@ export type FrontendMessage =
     // 【为什么没有走 RPC？】实测：RPC 【完全没有】settings 接口 ✗
     //   （rpc-types.d.ts 里 grep "settings" 零命中 ✓）
     //   → 只能我们自己读写文件 ✓ 但要小心并发（见 pi/settings.ts 顶部注释 ✓）
-    | { kind: "openSettings" } // 打开面板（或重新读）
+    | { kind: "openSettings" } // 打开（或切到）设置面板（侧栏 ⚙ / 命令入口 ✓）
+    /** ★★ B35：面板里的「重新读取」—— 重读磁盘并重推（不带“把面板叫到前面”的语义 ✓）*/
+    | { kind: "reloadSettings" }
     // ★ 扩展交互回复桥（B25）：前端把用户的选择回给 pi ✓
     //
     // 【为什么不走 formatMap？】
@@ -91,11 +95,19 @@ export type FrontendMessage =
     | { kind: "removeAuth"; provider: string }
     | { kind: "saveSettings"; values: Record<string, unknown> } // 只含【改动过】的字段 ✓
     // ★ 技能面板（B25）—— 本地处理（扫目录 / 读 SKILL.md ✓）
+    //
+    // ★★ B35：侧栏只留【打开面板】这一个入口 ✓
+    //   下面四个技能消息（skillDetail / skillToInput / skillAsCommand /
+    //   skillInsert）【不属于这里】✗
+    //   ⇒ 它们是【技能面板自己的通道】✓ 见 main.ts 里 SkillsPanel 的回调
+    //     （那个回调【不转给 handleFrontendMessage】✗ 它自己处理 ✓）
+    //
+    //   ★★ 为什么要专门提醒？
+    //     我把“技能动作后关面板”的代码加进 handleFrontendMessage 里了 ✗
+    //     而技能面板的消息【永远走不到那里】⇒ 功能静默失效 ✓
+    //     （用户实测：“注入 / 直接发送都没关闭”✓）
+    //     把死消息类型删掉 ✗ 就不会再有人踩这个坑 ✓
     | { kind: "openSkills" }
-    | { kind: "skillDetail"; name: string }
-    // ★ 技能内容的两个动作（B25）
-    | { kind: "skillToInput"; content: string } // 填入输入框（本地 ✓）
-    | { kind: "skillAsCommand"; name: string }
     // ★★ B32：自由按钮容器（侧栏聊天页里的那根竖条 ✓）
     //   commandNew    → 用户点「＋」✗ 宿主去开配置页 ✓
     //   commandRun    → 点了一下按钮要执行（★ 有参数时先收集 ✓）
@@ -111,10 +123,9 @@ export type FrontendMessage =
     // ★★ B34：拖拽重排（同容器内 ✓ 跨容器是后面的事 ✓）
     //   before=true → 插到 targetId 前面 ✗ false → 后面 ✓
     | { kind: "commandMove"; id: string; targetId: string; before: boolean }
-    // ★ B31：技能面板（独立页面）把 SKILL.md 塞进聊天输入框 ✓
-    //   ★ 它和 skillToInput 的差别：这个只要【名字】✗ 宿主自己去读文件 ✓
-    //     （因为面板碰不到侧栏的 textarea ✗ 只能求宿主 ✓）
-    | { kind: "skillInsert"; name: string } // 发 skill:<name> 当命令 ✓
+    // ★★ B35：这里原本还有 skillInsert ✗ 已删
+    //   原因同上：那是【技能面板自己的通道】的消息 ✓
+    //   （它和 handleFrontendMessage 没关系 ✗ 留着会让人找错地方 ✓）
     // ★ 分叉（B19）：从【某个 AI 组末尾】切一刀 ✓
     //   userIndex = 该气泡前面有【几个】用户气泡（= get_fork_messages 的下标 ✓）
     //   ★ 注意：这不是“第几条用户消息”，而是【锚点下标】✓ 见 main.ts 的实现 ✓

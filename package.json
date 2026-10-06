@@ -56,6 +56,16 @@
                 "command": "pi-bridge.showSkills",
                 "title": "Pi：打开技能面板",
                 "category": "Pi"
+            },
+            {
+                "command": "pi-bridge.showSessions",
+                "title": "Pi：打开会话面板",
+                "category": "Pi"
+            },
+            {
+                "command": "pi-bridge.showSettings",
+                "title": "Pi：打开设置面板",
+                "category": "Pi"
             }
         ],
         "keybindings": [
@@ -290,24 +300,17 @@
                         },
                         "default": [],
                         "markdownDescription": "**隐藏**的技能名清单。\n\n★ 有些技能是别人包里带的 ✗ 删不掉 ✓ 但又不想天天看见 ✓\n在这列出来它们就不再显示（清空这个列表就能恢复 ✓）。"
+                    },
+                    "pi-bridge.skills.closeAfterAction": {
+                        "type": "boolean",
+                        "default": true,
+                        "markdownDescription": "技能面板里【单击技能】或点【注入输入框 / 直接发送】之后，自动关闭这个面板（焦点回到聊天输入框）。\n\n★ 关掉它 → 面板保持打开 ✗ 适合“连着点好几个技能”的用法 ✓\n★ 右键的【查看内容 / 定位 / 隐藏 / 删除】都不触发关闭 ✓"
                     }
                 }
             },
             {
                 "title": "pi-bridge：会话",
                 "properties": {
-                    "pi-bridge.style.sessionPanelHeight": {
-                        "type": "number",
-                        "default": 40,
-                        "minimum": 10,
-                        "maximum": 90,
-                        "description": "会话面板的高度（占视图高度的百分比）。"
-                    },
-                    "pi-bridge.style.sessionPanelBg": {
-                        "type": "string",
-                        "default": "",
-                        "description": "会话面板的背景色（CSS 颜色值，如 #1e1e1e 或 rgba(0,0,0,.3)）。留空 = 跟随主题。"
-                    },
                     "pi-bridge.sessions.scope": {
                         "type": "string",
                         "enum": [
@@ -320,6 +323,11 @@
                         ],
                         "default": "all",
                         "description": "会话面板显示范围：all = 所有目录 / current = 只看当前工作目录。"
+                    },
+                    "pi-bridge.sessions.closeAfterAction": {
+                        "type": "boolean",
+                        "default": true,
+                        "markdownDescription": "在会话面板里【切换会话】或点【新建会话】之后，自动关闭这个面板（焦点回到聊天输入框）。\n\n★ 点了就关 ✗ 不等切完（所以切换失败时得看侧栏的报错提示 ✓）\n★ 关掉它 → 面板保持打开 ✗ 适合“连着切好几个会话”的用法 ✓\n★ 导出 / 导入 / 删除 / 改名【不】触发关闭 ✓"
                     }
                 }
             },

@@ -64,12 +64,35 @@ const readKeys = new Set([...sc.matchAll(/cfg\.get<[^>]*>\(\s*"([^"]+)"/g)].map(
 //   （例：--pi-cmd-rail-display / --pi-result-label ✓）
 const scVars = new Set([...sc.matchAll(/"(--pi-[a-z0-9-]+)"/gi)].map((m) => m[1]));
 
+/**
+ * ★★ B35：递归收集指定目录下的某类文件
+ *
+ * 【为什么要加这个？】
+ *   守门员原来只扫 media/css/ ✗（写死的一个目录 ✓）
+ *   而 B35 之后，会话 / 设置这些【独立面板】的样式在 media/ 顶层
+ *   （media/session.css / media/settings.css …✗ 不在 media/css/ ✓）
+ *   ⇒ 上一版把设置面板搬走之后，居然报“--pi-settings-font 没人消费”✗
+ *     而它在 media/settings.css 里用得好好的 ✓（假阳性 ✓）
+ *
+ * ★ 跳过 out/（构建产物 ✗ 扫了就是自己证明自己 ✓）
+ */
+function walk(dir, ext, acc = []) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === "out" || e.name === "node_modules" || e.name === "dist") continue;
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p, ext, acc);
+        else if (e.name.endsWith(ext)) acc.push(p);
+    }
+    return acc;
+}
+
 // ── ③ CSS：哪些 --pi-* 变量真的被 var() 消费了 ──
-const cssDir = path.join(root, "media/css");
+const mediaDir = path.join(root, "media");
 const consumed = new Map(); // cssVar → 出现的文件集合
 const cssDefined = new Set(); // ★ CSS 自己定义的（有默认值 → 不是孤儿 ✓）
-for (const f of fs.readdirSync(cssDir).filter((x) => x.endsWith(".css"))) {
-    const text = fs.readFileSync(path.join(cssDir, f), "utf8");
+for (const abs of walk(mediaDir, ".css")) {
+    const f = path.relative(mediaDir, abs); // 报告里显示 media/ 下的相对路径 ✓
+    const text = fs.readFileSync(abs, "utf8");
     // ★ 只统计 var(--pi-xxx) 的【消费】✗ 不算 `--pi-xxx: value` 的定义行 ✓
     for (const m of text.matchAll(/var\(\s*(--pi-[a-z0-9-]+)/gi)) {
         if (!consumed.has(m[1])) consumed.set(m[1], new Set());
@@ -81,10 +104,12 @@ for (const f of fs.readdirSync(cssDir).filter((x) => x.endsWith(".css"))) {
 
 // ── ④ JS 侧消费：有些变量是【JS 读】而不是 CSS 用 ──
 //   例如 --pi-input-min-rows / --pi-centered-mode ✓
-const webviewDir = path.join(root, "src/webview");
+//   ★★ B35：也改成递归扫【整个 src/】✗
+//     理由同 ③：独立面板的 JS 在 src/settings / src/sessions 里 ✓
+const srcDir = path.join(root, "src");
 const jsConsumed = new Set();
-for (const f of fs.readdirSync(webviewDir).filter((x) => x.endsWith(".ts"))) {
-    const text = fs.readFileSync(path.join(webviewDir, f), "utf8");
+for (const abs of walk(srcDir, ".ts")) {
+    const text = fs.readFileSync(abs, "utf8");
     for (const m of text.matchAll(/["'](--pi-[a-z0-9-]+)["']/g)) jsConsumed.add(m[1]);
 }
 

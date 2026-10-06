@@ -66,4 +66,19 @@ export class SkillsPanel {
     isOpen(): boolean {
         return this.panel !== undefined;
     }
+
+    /**
+     * ★★ 主动关闭（B35 ✓）
+     *
+     * 【两个调用方】
+     *   ① 三面板互斥（main.ts 的 showExclusive ✓）—— 打开别的 → 关掉这个 ✓
+     *   ② 动作后自动关闭（pi-bridge.skills.closeAfterAction ✓）
+     *      —— 单击 / 注入 / 发送之后关掉自己 ✓
+     *
+     * ★ 用 dispose（WebviewPanel 没有 hide ✓ 见 session-panel 的同名注释 ✓）
+     * ★ 这里 dispose 没有副作用：onDidDispose 只把 this.panel 置空 ✓
+     */
+    hide(): void {
+        this.panel?.dispose();
+    }
 }

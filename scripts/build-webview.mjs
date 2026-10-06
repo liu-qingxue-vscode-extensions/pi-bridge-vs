@@ -35,6 +35,10 @@ const options = {
         { in: "src/skills/index.ts", out: "skills" },
         // ★ 自由按钮的配置页面（B32 ②）
         { in: "src/command/index.ts", out: "command" },
+        // ★ 会话面板（B35 ✗ 从侧栏搬到编辑器区 ✓）
+        { in: "src/sessions/index.ts", out: "session" },
+        // ★ 设置面板（B35 ✗ 从侧栏搬到编辑器区 ✓）
+        { in: "src/settings/index.ts", out: "settings" },
     ],
     outdir: "media/out",
     bundle: true,          // 把 import 的全部打进一个文件 ✓

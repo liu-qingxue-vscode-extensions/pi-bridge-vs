@@ -56,11 +56,10 @@ export const footThinking = needEl("foot-thinking");
 
 // ── 设置面板（B24）──
 export const btnSettings = needEl("btn-settings");
-export const settingsPanel = needEl("settings-panel");
-export const settingsBody = needEl("settings-body");
-export const settingsSave = needEl("settings-save") as HTMLButtonElement;
-export const settingsReload = needEl("settings-reload");
-export const settingsPath = needEl("settings-path");
+// ★★ B35：设置面板也搬到编辑器区了 ✗
+//   settingsPanel / settingsBody / settingsSave / settingsReload / settingsPath
+//   —— 全部删掉（它们现在在 media/settings.html 里 ✓）
+//   ★ 留着会启动时报一串“找不到 DOM 元素”✓
 
 // ── 技能面板（B25）──
 export const btnSkills = needEl("btn-skills");
@@ -90,14 +89,14 @@ export const noticeCount = needEl("notice-count");
 export const noticeBell = needEl("notice-bell");
 export const noticeBadge = needEl("notice-badge");
 
-// ── ★ 按钮行 + 会话面板（B15）──
+// ── ★ 按钮行（B15）──
+//   ★★ B35：会话面板搬到编辑器区了 ✗
+//     下面这几个 DOM 已经不存在（原位置：media/chat.html 的 #session-panel ✓）
+//       sessionPanel / sessionList / sessionEmpty /
+//       sessionPanelClose / btnRefreshSessions
+//     ★ 留着会启动时报一串“找不到 DOM 元素”✓
 export const btnSessions = needEl("btn-sessions");
 export const btnNewSession = needEl("btn-new-session");
-export const sessionPanel = needEl("session-panel");
-export const sessionList = needEl("session-list");
-export const sessionEmpty = needEl("session-empty");
-export const sessionPanelClose = needEl("session-panel-close");
-export const btnRefreshSessions = needEl("btn-refresh-sessions");
 /** ★ 按钮行中间的【当前会话名】（点击改名 ✓）*/
 export const sessionTitle = needEl("session-title");
 export const noticeCollapse = needEl("notice-collapse");

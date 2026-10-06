@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="{{htmlClass}}">
+<head>
+<meta charset="UTF-8">
+<!-- CSP 同 skills.html：脚本只认本次 nonce ✓ -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}'; img-src * data:;">
+<link rel="stylesheet" href="{{css}}">
+<style>{{styleVars}}</style>
+</head>
+<body>
+  <!-- ★★ 独立编辑器页面（B35 ✗ 从侧栏搬来 ✓）-->
+  <!-- ★ 侧栏那套「收起 / 底部 ⌃ 热区」在这里【没有意义】✗ 所以结构更简单 ✓ -->
+  <div id="toolbar">
+    <button id="refresh" title="刷新：读取会话名与轮次（会读文件）">⟳ 刷新</button>
+    <button id="new" title="新建会话（伪新建 ✗ 发第一条消息才落盘）">＋ 新建</button>
+    <span class="spacer"></span>
+    <span id="count">0 个会话</span>
+  </div>
+
+  <!-- 列表（按 cwd 分组 ✗ 组内是 fork 树 ✓）-->
+  <div id="list"></div>
+  <div id="empty">尚无会话</div>
+
+  <div id="toast"></div>
+  <script nonce="{{nonce}}" src="{{js}}"></script>
+</body>
+</html>

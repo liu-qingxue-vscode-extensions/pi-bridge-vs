@@ -12,4 +12,6 @@
 @import url("./css/tool.css");
 @import url("./css/input.css");
 @import url("./css/context-menu.css");
-@import url("./css/settings.css");
+/* ★★ B35：settings.css 不在这里了 ✗
+   设置面板搬到编辑器区 ✓ 样式跟着去了 media/settings.css
+   （它由 media/settings.html 自己加载 ✗ 侧栏不再需要 ✓）*/

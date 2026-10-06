@@ -34,6 +34,8 @@ import { getAgentDir, getPackageDir, VERSION } from "@earendil-works/pi-coding-a
 import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
 import { ChatView } from "./view/chat-view.js";
+import { SessionPanel } from "./view/session-panel.js";
+import { SettingsPanel } from "./view/settings-panel.js";
 import { InteractionPanel, type UiReq } from "./view/interaction-panel.js";
 import { SkillsPanel } from "./view/skills-panel.js";
 // ★★ B32：自由按钮的配置页面（编辑器区独立面板 ✓）
@@ -382,6 +384,13 @@ export function activate(context: vscode.ExtensionContext): void {
         //   不会进 chatView 那个 onMessage ✗（那条是聊天页面的 ✓）
         //   ★ 之前漏了这两个 → 点技能"没反应"✓
         if (kind === "skillInsert") {
+            // ★★ B35：技能面板「动作后自动关闭」（用户定的 ✓ 配置可关 ✓）
+            //
+            // ★★ 必须【在这里】调 ✗ 不能加进 handleFrontendMessage ✓
+            //     技能面板是【独立页面】✗ 它的消息走下面这个回调 ✓
+            //     和聊天页那条 handleFrontendMessage 是【两条路】✓
+            //     （第一版就加错了地方 ✗ 用户实测：“注入 / 发送都没关闭”✓）
+            closeSkillsPanelAfterAction();
             const name = (payload as { name?: string } | undefined)?.name;
             if (name) {
                 const hit = readSkills().skills.find((x) => x.name === name);
@@ -397,6 +406,8 @@ export function activate(context: vscode.ExtensionContext): void {
             return;
         }
         if (kind === "skillAsCommand") {
+            // ★★ B35：同上 ✗ 注入 / 发送两个动作都关 ✓
+            closeSkillsPanelAfterAction();
             const name = (payload as { name?: string } | undefined)?.name;
             if (name) {
                 logInfo(`技能作为命令发送：/skill:${name}`);
@@ -775,12 +786,22 @@ export function activate(context: vscode.ExtensionContext): void {
     };
 
     // 4. 数据流 ②：聊天视图的消息 → format 表（白名单）→ pi
-    const chatView = new ChatView(
-        context.extensionUri,
-        // ★★ B32 图标：图标存储目录（要进 webview 白名单 ✓）
-        context.globalStorageUri,
-        chatState,
-        async (msg: FrontendMessage) => {
+    /**
+     * ★★ 前端消息的【统一入口】（B35 抽出来的 ✗）
+     *
+     * 【为什么抽出来？】
+     *   现在有【两个来源】会发同类消息：
+     *     ① 侧栏聊天页（chatView ✓）
+     *     ② ★ 会话面板（sessionPanel ✗ B35 从侧栏搬走的 ✓）
+     *   ⇒ 抽成具名函数 ✗ 两边共用一套分支逻辑 ✓
+     *     （原来它只是 ChatView 构造函数里的一个匿名参数 ✓）
+     *
+     * 【★ 关于顺序】
+     *   函数体里会用到 chatView ✗ 而它在下面才建 ✓
+     *   但这里是【闭包】✗ 调用时才解析 ✓（只有 webview 发消息才会跑 ✓）
+     *   与 interactionPanel 同一情况 ✓ 安全 ✓
+     */
+    const handleFrontendMessage = async (msg: FrontendMessage): Promise<void> => {
             // ★★ B32：自由按钮容器的三个动作
             //
             // 【★ 为什么放在最前面？】
@@ -890,6 +911,8 @@ export function activate(context: vscode.ExtensionContext): void {
             //   → 所以我们【不刷新会话列表】（文件还没建，列表里本来就不该有 ✓）
             //     它会在你发第一句话之后，下次刷新时才出现 ✓
             if (msg.kind === "newSession") {
+                // ★★ B35：绘画面板「点了就关」（点击即关 ✗ 不等结果 ✓）
+                closeSessionPanelAfterAction();
                 try {
                     const r = (await pi.sendRaw({ type: "new_session" })) as {
                         success?: boolean;
@@ -934,13 +957,8 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
-            // ★ 拉取会话列表（打开面板时按需请求 ✓）
-            //   ★ 这是【第一级】IO：只扫文件名（零内容 IO ✓）名字/异常状态从缓存取 ✓
-            if (msg.kind === "listSessions") {
-                await postSessionList();
-                void pushCurrentSessionTitle();
-                return;
-            }
+            // ★★ B35：原 listSessions 分支已删 ✗
+            //   它原来由【侧栏展开】触发 ✓ 而列表改为面板自己的 sessionReady 拉 ✓
 
             // ★ 给【当前会话】改名（点按钮行中间的标题区 ✓）
             if (msg.kind === "renameSession") {
@@ -966,8 +984,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
                     // ★ 只更新缓存（不重读文件 ✓ 用户定的 ✓）
                     await sessionStore.setName(file, trimmed);
-                    const list = await sessionStore.listEntries();
-                    chatView.post("sessions", list);
+                    // ★★ B35：统一走 postSessionList ✗（它会推给独立面板 ✓）
+                    void postSessionList();
                     void pushCurrentSessionTitle(trimmed);
                     logInfo(`会话已改名：${trimmed}`);
                 } catch (err) {
@@ -977,12 +995,23 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
+            // ★★ B35：侧栏「☰ 会话」→ 打开独立面板 ✓
+            //   ★ 原来还有个 listSessions ✗ 那是侧栏展开时要列表用的 ✓
+            //     现在列表由面板自己的 sessionReady 拉 ✗ 不再用它 ✓
+            if (msg.kind === "openSessions") {
+                // ★★ B35：走互斥协调器 ✗ 打开它 = 关掉设置 / 技能 ✓
+                showExclusive("session");
+                // ★ 顺便刷新【顶栏的会话名】（原来在 listSessions 里做 ✓）
+                void pushCurrentSessionTitle();
+                return;
+            }
+
             // ★ 刷新会话信息（★ 第二级 IO：读文件补名字 / 标异常 ✓）
             //   维护边界 = 用户点【刷新】的那一刻 ✓
             if (msg.kind === "refreshSessions") {
                 const stat = await sessionStore.refresh();
-                const list = await sessionStore.listEntries();
-                chatView.post("sessions", list);
+                // ★★ B35：统一走 postSessionList ✗（它会推给独立面板 ✓）
+                void postSessionList();
                 logInfo(
                     `会话刷新完成：${stat.total} 个（${stat.named} 有名字 / ${stat.broken} 异常）`,
                 );
@@ -996,6 +1025,8 @@ export function activate(context: vscode.ExtensionContext): void {
             //   · 跨 cwd → ★ 先改 cwd + reload，再 switch_session ✓
             //     （cwd 是启动参数 → 必须重启子进程才能变 ✓）
             if (msg.kind === "switchSession") {
+                // ★★ B35：绘画面板「点了就关」（同 newSession ✓）
+                closeSessionPanelAfterAction();
                 const list = await sessionStore.listEntries();
                 const info = list.find((s) => s.path === msg.path);
                 if (!info) {
@@ -1029,7 +1060,8 @@ export function activate(context: vscode.ExtensionContext): void {
                     chatView.post("cwd", pi.getCwd());
                     chatView.post("noticesCleared", true);
                     chatView.post("snapshot", chatState.snapshot());
-                    chatView.post("sessions", await sessionStore.listEntries());
+                    // ★★ B35：会话列表走独立面板 ✗
+                    void postSessionList();
                     // ★ 标题也要更新（用户报的 bug ✓）
                     void pushCurrentSessionTitle();
                     void vscode.window.showInformationMessage(
@@ -1165,50 +1197,23 @@ export function activate(context: vscode.ExtensionContext): void {
 
             // ★ 技能面板（B31）：打开【编辑器区面板】✗ 不再是侧栏那块 ✓
             if (msg.kind === "openSkills") {
-                skillsPanel.show();
+                // ★★ B35：走互斥协调器 ✓
+                showExclusive("skills");
                 await refreshSkills();
                 return;
             }
 
-            // ★ 看某个技能的详情（B31）：读 SKILL.md 正文 → 推给【技能面板】✓
-            if (msg.kind === "skillDetail") {
-                await pushSkillDetail(msg.name);
-                return;
-            }
-
-            // ★ 技能 → 塞进【聊天输入框】（B31 ✗ 面板是独立页面 ✗ 碰不到侧栏 ✓）
-            if (msg.kind === "skillInsert") {
-                const hit = readSkills().skills.find((x) => x.name === msg.name);
-                if (!hit?.path) {
-                    logWarn(`技能注入：找不到 ${msg.name}`);
-                    return;
-                }
-                try {
-                    chatView.post("insertToInput", { text: fs.readFileSync(hit.path, "utf8") });
-                    logInfo(`技能注入输入框：${msg.name}`);
-                } catch (err) {
-                    logError(`读技能内容失败: ${toErrorMessage(err)}`);
-                }
-                return;
-            }
-
-            // ★ 技能 → 填入输入框（B25）：推给前端让它自己塞 ✓
-            //   （为什么不直接改 textarea？→ 那是 webview 的 DOM ✗ 宿主碰不到 ✓）
-            if (msg.kind === "skillToInput") {
-                chatView.post("insertToInput", { text: msg.content });
-                return;
-            }
-
-            // ★ 技能 → 作为命令发送（B25 ✓ 侧栏那条路）
-            //   ★★ 必须带斜杠（B31 修 ✗）：pi 的命令都要 `/name` 前缀 ✓
-            //      （文档：“prefixing its name with `/`”✓）
-            //      少了它 → 被当成普通消息 ✗ 技能不执行 ✓
-            if (msg.kind === "skillAsCommand") {
-                const text = `/skill:${msg.name}`;
-                logInfo(`技能作为命令发送：${text}`);
-                chatView.post("sendText", { text });
-                return;
-            }
+            // ★★ B35：这里原本有四个【技能面板】的分支 ✗ 已删 ✓
+            //   （skillDetail / skillInsert / skillToInput / skillAsCommand ✓）
+            //
+            // 【为什么删？】
+            //   它们【永远进不来】✗ —— 技能面板是编辑器区的独立页面 ✓
+            //   它的消息走 SkillsPanel 自己的回调（见上面那个构造 ✓）
+            //   【不转给】handleFrontendMessage ✓
+            //
+            // ★★ 留着最坑的地方：它会让人把新逻辑加在这里 ✗
+            //   ⇒ 静默失效 ✓（我自己就这么踩了一次 ✗ 用户实测“注入 / 发送都不关”✓）
+            //   消息类型也一并从 format-frontend.ts 删了 ✗ 更不容易踩 ✓
 
             // ★ 供应商凭据（B24）：增加 api key / 删除凭据 ✓
             //
@@ -1250,6 +1255,20 @@ export function activate(context: vscode.ExtensionContext): void {
 
             // ★ 设置面板（B24）：打开 / 重新读取（本地文件操作 ✓）
             if (msg.kind === "openSettings") {
+                // ★★ B35：侧栏的 ⚙ 现在只是【入口】✗ 真正显示交回宿主 ✓
+                //   ★ 走互斥协调器 ✗ 打开它 = 关掉会话 / 技能 ✓
+                //   ★ 面板【新开】时会自己发 settingsReady → 再拉一次数据 ✓
+                //     所以这里【不需要】推数据 ✓
+                showExclusive("settings");
+                return;
+            }
+
+            // ★★ B35：面板里的「重新读取」→ 重读磁盘 + 重推 ✓
+            //   ★ 为什么不直接复用 openSettings？
+            //     它现在的语义是“把面板叫到前面来”✗ 不推数据 ✓
+            //     而面板已经开着时 show() 是空转 ✗ 前端就永远收不到新数据 ✓
+            //     → 所以【另一个 kind】把两个语义分开 ✓
+            if (msg.kind === "reloadSettings") {
                 postSettings();
                 return;
             }
@@ -1452,7 +1471,8 @@ export function activate(context: vscode.ExtensionContext): void {
                 chatView.post("noticesCleared", true);
                 chatView.post("cwd", pi.getCwd());
                 chatView.post("snapshot", chatState.snapshot());
-                chatView.post("sessions", await sessionStore.listEntries());
+                // ★★ B35：会话列表走独立面板 ✗
+                void postSessionList();
                 logInfo("=== 重启流程结束 ===");
                 return;
             }
@@ -1504,9 +1524,134 @@ export function activate(context: vscode.ExtensionContext): void {
             } catch (err) {
                 logError(`处理前端消息失败: ${toErrorMessage(err)}`);
             }
-        },
+    };
+
+    // ★★ B35：侧栏聊天视图（消息回调换成具名函数 ✗ 好让会话面板共用 ✓）
+    const chatView = new ChatView(
+        context.extensionUri,
+        // ★★ B32 图标：图标存储目录（要进 webview 白名单 ✓）
+        context.globalStorageUri,
+        chatState,
+        handleFrontendMessage,
         cwd, // ★ 输入区下方极简栏要显示它 ✓
     );
+
+    /**
+     * ★★ B35：会话面板（独立编辑器页面 ✗ 从侧栏搬走的 ✓）
+     *
+     * 【★ 它和 chatView 共用一套消息处理】
+     *   · sessionReady → 推列表
+     *     ★ 为什么叫 sessionReady 而不叫 ready？
+     *       聊天页已经有一个 ready 了 ✗ 语义不同（那边是“重放快照”✓）
+     *       同名会让两边分不清来源 ✓
+     *   · 其余（refreshSessions / newSession / switchSession /
+     *           exportSession / importSession / deleteSession）
+     *     → ★ 转给 handleFrontendMessage ✓
+     *     理由：那些逻辑早就写好了 ✗ 重写一遍就会有两份 ✓
+     *
+     * 【★ 为什么能引用下面的 postSessionList？】
+     *   它是 `async function`（函数声明 ✗）⇒ 会【提升】✓
+     */
+    const sessionPanel = new SessionPanel(context.extensionUri, (kind, payload) => {
+        if (kind === "sessionReady") {
+            void postSessionList();
+            return;
+        }
+        void handleFrontendMessage(payload as FrontendMessage);
+    });
+
+    /**
+     * ★★ B35：设置面板（独立编辑器页面 ✗ 从侧栏搬走的 ✓）
+     *
+     * 【与 sessionPanel 同一套路】
+     *   · settingsReady → 推数据（postSettings ✓）
+     *   · 其余（saveSettings / addApiKey / …）→ 转 handleFrontendMessage ✓
+     * ★ 注意：侧栏的 ⚙ 按钮发的是 openSettings ✗ 那是“打开面板”
+     *   而面板的 settingsReady 才是“给我数据”✓ 两个语义不一样 ✓
+     */
+    const settingsPanel = new SettingsPanel(context.extensionUri, (kind, payload) => {
+        if (kind === "settingsReady") {
+            postSettings();
+            return;
+        }
+        void handleFrontendMessage(payload as FrontendMessage);
+    });
+
+    /**
+     * ★★ B35：编辑器区【三面板互斥】（用户定的 ✓）
+     *
+     * 【哪三个？】
+     *   绘画（= 会话）/ 设置 / 技能 —— 用户主动打开的"工作页面"✓
+     *
+     * 【谁【不】参与？】（用户定的 ✓）
+     *   · 交互面板 ✗ —— 它是 pi 提问时【自动弹出来抢焦点】的 ✓
+     *     若参与 ⇒ 你正读着设置，pi 一问，设置就没了 ✗ 不合理 ✓
+     *   · 调试板 ✗ —— 开发时的观察窗 ✗ 想一直看着 ✓
+     *   · 自由按钮配置页 ✗ —— 用户没把它算进"板子"里 ✓
+     *
+     * 【语义】（用户原话："开启的情况下点击另一个板子就互斥，
+     *        关掉前一个渲染当前的"✓）
+     *   ① 先把【别的两个】关掉 ✓
+     *   ② 再把目标叫起来 ✗ 它自己渲染自己 ✓
+     *
+     * 【★ 被关掉的面板里没保存的改动？】
+     *   设置面板直接丢 ✗（用户定的："直接关，丢弃改动"✓）
+     */
+    type ExclusivePanel = "session" | "settings" | "skills";
+    const showExclusive = (which: ExclusivePanel): void => {
+        if (which !== "session") sessionPanel.hide();
+        if (which !== "settings") settingsPanel.hide();
+        if (which !== "skills") skillsPanel.hide();
+
+        if (which === "session") sessionPanel.show();
+        else if (which === "settings") settingsPanel.show();
+        else skillsPanel.show();
+    };
+
+    /**
+     * ★★ B35：绘画面板（= 会话）的「动作后自动关闭」
+     *
+     * 【开关】pi-bridge.sessions.closeAfterAction（默认 true ✓ 用户定的 ✓）
+     * 【触发】切换会话 / 新建会话 ✓（其它动作【不】关 ✗
+     *         导出 / 导入 / 删除 / 改名 都不算 ✓）
+     * 【时机】★ 点击即关 ✗ 不等 RPC 结果 ✓（用户选中 ✓）
+     *   ⇒ 代价：切换失败时你已经看不到面板了 ✗
+     *     但侧栏会弹错误提示 + 焦点已经回到输入框 ✓ 不至于找不着北 ✓
+     * 【焦点】关完把焦点还给聊天输入框 ✓
+     *   （"新建会话"之后本来就要打字发第一条 ✓）
+     *
+     * ★ 侧栏的「＋ 新建」也发同一个 newSession ✗
+     *   那时面板根本没开 ✗ 所以先看 isOpen() ✓ 不会误触发 ✓
+     */
+    const closeSessionPanelAfterAction = (): void => {
+        if (!sessionPanel.isOpen()) return;
+        const on = vscode.workspace
+            .getConfiguration("pi-bridge")
+            .get<boolean>("sessions.closeAfterAction", true);
+        if (!on) return;
+        sessionPanel.hide();
+        chatView.focusInput();
+    };
+
+    /**
+     * ★★ B35：技能面板的「动作后自动关闭」
+     *
+     * 【开关】pi-bridge.skills.closeAfterAction（默认 true ✓）
+     * 【触发】单击技能（= 注入 / 直接发送 ✓）
+     *         或点右侧反向按钮 ✓
+     *         → 落到宿主这里就是 skillInsert / skillAsCommand 两条消息 ✓
+     * 【★ 不触发】右键"查看内容 / 定位 / 隐藏" ✗ 删除 ✗
+     *   那些是"管理"动作 ✗ 用户还要接着管别的 ✓
+     */
+    const closeSkillsPanelAfterAction = (): void => {
+        if (!skillsPanel.isOpen()) return;
+        const on = vscode.workspace
+            .getConfiguration("pi-bridge")
+            .get<boolean>("skills.closeAfterAction", true);
+        if (!on) return;
+        skillsPanel.hide();
+        chatView.focusInput();
+    };
 
     // 5. 注册 VS Code 的贡献点（命令 / 视图）
 
@@ -1524,6 +1669,12 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("pi-bridge.skills") && skillsPanel.isOpen()) {
                 void refreshSkills();
+            }
+            // ★★ B35：样式配置变了 → 【设置面板自己的】字号 / 内边距要实时生效
+            //   （原来靠侧栏 chatView 推 styleVars ✗ 独立面板得自己收 ✓
+            //    见 src/settings/index.ts 的 "styleVars" 分支 ✓）
+            if (e.affectsConfiguration("pi-bridge.style") && settingsPanel.isOpen()) {
+                settingsPanel.refreshStyle();
             }
         }),
     );
@@ -1544,13 +1695,26 @@ export function activate(context: vscode.ExtensionContext): void {
 
         // ★ 命令面板 → 打开技能面板（B31 ✓）
         vscode.commands.registerCommand("pi-bridge.showSkills", () => {
-            skillsPanel.show();
+            showExclusive("skills");
             void refreshSkills();
         }),
 
         // ★ 命令面板 → 打开交互面板（B26 ✓ 没有待答请求时是空操作 ✓）
         vscode.commands.registerCommand("pi-bridge.showInteraction", () => {
             interactionPanel.show();
+        }),
+
+        // ★★ B35：命令面板 / 侧栏「☰ 会话」→ 打开会话面板
+        //   （它从侧栏搬到编辑器区了 ✗ 侧栏只留一个入口按钮 ✓）
+        vscode.commands.registerCommand("pi-bridge.showSessions", () => {
+            showExclusive("session");
+        }),
+
+        // ★★ B35：命令面板 → 打开设置面板
+        //   ★ 原来 package.json 里声明了这个命令 ✗ 但【宿主从没注册过】✓
+        //     所以之前点它会报"命令未找到"✗（设置面板没完全独立出来的最后一环 ✓）
+        vscode.commands.registerCommand("pi-bridge.showSettings", () => {
+            showExclusive("settings");
         }),
 
         // ★ ctrl+alt+n → 展开/收起通知板
@@ -2033,7 +2197,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // ★ B30：设置内容的推送逻辑已搬到 src/panels/settings-post.ts ✗
     //   用工厂把 chatView.post 依赖传进去 ✓
-    const postSettings = createSettingsPoster({ post: (k, p) => chatView.post(k, p) });
+    const postSettings = createSettingsPoster({ post: (k, p) => settingsPanel.post(k, p) });
 
     /** ★ webview 就绪 → 推模型信息（已启动用真实值 ✓ 未启动用默认值占位 ✓）*/
     /**
@@ -2506,7 +2670,9 @@ export function activate(context: vscode.ExtensionContext): void {
             `会话列表：scope=${scope} → ${list.length}/${all.length} 条` +
                 (scope === "current" ? `（当前 cwd=${cur}）` : ""),
         );
-        chatView.post("sessions", list);
+        // ★★ B35：推给【独立面板】✗ 不再走侧栏 ✓
+        //   ★ 连 currentCwd 一起给 ✗ 面板要用它把当前分组排最前 + 标「当前」✓
+        sessionPanel.post("sessionList", { list, currentCwd: cur });
     }
 
     // ★ scope 改了 → 立刻重新推列表（不用重开面板 ✓）

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="{{htmlClass}}">
+<head>
+<meta charset="UTF-8">
+<!-- CSP 同其他面板：脚本只认本次 nonce ✓ -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}'; img-src * data:;">
+<link rel="stylesheet" href="{{css}}">
+<style>{{styleVars}}</style>
+</head>
+<body>
+  <!-- ★★ 独立编辑器页面（B35 ✗ 从侧栏搬来 ✓）-->
+  <!-- ★ 侧栏那套「从按钮行下方滑出 / 点外面收起」在这里【没有意义】✗
+       它是一整页 ✓ 所以结构就是一个头 + 一个正文 ✓ -->
+  <div id="settings-head">
+    <span id="settings-title">Pi 设置</span>
+    <span id="settings-path"></span>
+    <span class="spacer"></span>
+    <button id="settings-save" disabled>保存</button>
+    <button id="settings-reload" title="丢弃修改，重新从磁盘读">重新读取</button>
+  </div>
+  <div id="settings-body"></div>
+  <div id="toast"></div>
+  <script nonce="{{nonce}}" src="{{js}}"></script>
+</body>
+</html>

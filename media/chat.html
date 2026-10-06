@@ -101,34 +101,20 @@
 
     <!-- 第 4 行起：会话面板（点 [☰ 会话] 在按钮行下方滑出）-->
     <!-- 结构：┌ 主体 ─ 左栏 + 右列表 ┐ + 底部收起热区 -->
-    <div id="session-panel" class="collapsed">
-      <!-- ★ 主体：横向 flex（左栏 + 右列表 ✓）-->
-      <div id="session-body">
-        <!-- ★ 左栏（面板【内部】✓）—— 以后可往这里加更多按钮 ✓ -->
-        <div id="session-tools">
-          <button id="btn-refresh-sessions" class="sp-tool" title="刷新：读取会话名（会读文件）">⟳</button>
-        </div>
-        <!-- 右区：列表 -->
-        <div id="session-main">
-          <div id="session-list"></div>
-          <div id="session-empty">尚无会话</div>
-        </div>
-      </div>
-      <div id="session-panel-close" title="点击收起">⌃</div>
-    </div>
+    <!-- ★★ B35：会话面板【搬到编辑器区了】✗
+         原位置：#session-panel（含 session-body / session-tools /
+         session-main / session-list / session-empty / session-panel-close ✓）
+         ⇒ 全部移到 media/session.html ✓ 这里不再留任何东西 ✓
+         （用户定的：侧栏【完全移走】✗ 不留副本 ✓）-->
 
     <!-- ★ 设置面板（B24）：与 session-panel 【平级】✓
          不能嵌在它里面 ✗ —— 否则会话面板一收起，设置面板也跟着看不见 ✓
          （实测踩到：点 ⚙ 没反应，其实面板展开了但被父级隐藏 ✗）-->
-    <div id="settings-panel" class="collapsed">
-      <div id="settings-head">
-        <span id="settings-title">设置</span>
-        <span id="settings-path"></span>
-        <button id="settings-save" disabled>保存</button>
-        <button id="settings-reload" title="丢弃修改，重新从磁盘读">重新读取</button>
-      </div>
-      <div id="settings-body"></div>
-    </div>
+    <!-- ★★ B35：设置面板【也搬到编辑器区了】✗
+         原位置：#settings-panel（含 settings-head / settings-title /
+         settings-path / settings-save / settings-reload / settings-body ✓）
+         ⇒ 全部移到 media/settings.html ✓
+         ★ 侧栏只留「⚙ 设置」那个入口按钮 ✓ -->
 
     <!-- 第 3 行起：通知列表（展开时滑出 ✓）-->
     <div id="notice-panel" class="collapsed">

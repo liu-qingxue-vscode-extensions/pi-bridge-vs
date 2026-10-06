@@ -1,28 +1,28 @@
-/* ===== ★ 设置面板（B24）=====
-   形态：从按钮行下方滑出的弹层（和通知面板 / 会话面板同一套 ✓）
-   内容：模仿 VS Code 的设置页 —— 分组 + 每项一行（标签 + 控件 ✓）*/
-#settings-panel {
-  /* ★ 必须在文档流里【也要盖过 #messages】（B24 踩的坑 ✗）
-     #messages 是 absolute + top/bottom → 它会盖住后面所有【文档流】元素 ✓
-     而 body 不是 flex ✗（会话面板靠 height 占位也能“碰巧”看到 ✗）
-     → 我们不想赌 DOM 顺序 ✓ 直接显式提升层级 ✓ */
-  position: relative;
-  z-index: 10;
-  flex-shrink: 0;
+/* =====================================================================
+   settings.css —— 设置面板（独立编辑器页面，B35 ✓）
+
+   ★ 来源：从 media/css/settings.css 整体复制 ✓
+   ★ 改了什么：
+      ① 删掉 #settings-panel 的【弹层】样式
+         （滑出 / collapsed / max-height / z-index ✗ 独立面板是一整页 ✓）
+      ② 加 body 的整页布局 ✓
+      ③ #settings-body 加 min-height: 0（否则 flex 子项不滚 ✓ FACTS 坑 8）
+      ④ 加 .spacer / #toast ✓
+   ★ 内部的行样式（.s-item / .sg-title / .s-ctl / .sp-note …）【原样保留】✓
+   ===================================================================== */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  max-height: 0;
-  transition: max-height .18s ease;
-  background: var(--vscode-sideBar-background);
-  /* ★ 边框【只在展开时才有】✗（实测踩到 ✓）
-     border 不受 max-height 影响 ✗ → 收起时还留一条细线 ✓
-     用户看到的就是“会话面板下面多了个下边框”✓ */
+  height: 100vh;
+  font-family: var(--vscode-font-family);
+  font-size: 13px;
+  color: var(--vscode-foreground);
+  background: transparent;
 }
-#settings-panel:not(.collapsed) {
-  border-bottom: 1px solid var(--vscode-panel-border, transparent);
-}
-#settings-panel:not(.collapsed) { max-height: 62vh; }
 
 #settings-head {
   display: flex;
@@ -34,6 +34,7 @@
   flex-shrink: 0;
 }
 #settings-title { font-weight: 600; }
+#settings-head .spacer { flex: 1 1 auto; }
 /* ★ 文件路径（让用户知道在改哪个文件 ✓ 这是"透明"的关键 ✓）*/
 #settings-path {
   flex: 1 1 auto;
@@ -65,6 +66,8 @@
 
 #settings-body {
   flex: 1 1 auto;
+  /* ★ 必须加 min-height: 0 ✗ 否则 flex 子项不滚（FACTS 坑 8 ✓）*/
+  min-height: 0;
   overflow-y: auto;
   padding: 4px var(--pi-settings-pad-x, 10px) 10px;
 }
