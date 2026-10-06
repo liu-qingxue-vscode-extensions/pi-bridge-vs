@@ -178,8 +178,69 @@
   display: block;
 }
 
-/* ★★ 文字兜底两种字号（B32 ✓）
-   中文 → 只取首字 ✗ 12px 够大 ✓
-   英文 → 整个词全渲染 ✗ 必须要小一号才放得下 ✓ */
-.cmd-btn.text { font-size: 12px; font-weight: 600; }
-.cmd-btn.text.wide { font-size: 9px; letter-spacing: -.02em; }
+/* ★★ 文字兜底（B33 ✗ 规则见 cmdrail.ts）
+   中文开头 → 只显示一个字（12px 够大 ✓）
+   其他    → ★ 全量渲染 ✗ 太长就缩字号（不截断 ✓）*/
+.cmd-btn.text {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.1;
+  /* ★ 全量渲染时可能要换行 ✗ 让它紧凑地断 ✓ */
+  word-break: break-all;
+  overflow: hidden;
+}
+.cmd-btn.text.sm { font-size: 10px; }
+.cmd-btn.text.tiny { font-size: 8px; }
+
+/* ══════════════ ★★ B33：横向弹层（收纳器）══════════════
+   点收纳器 → 在它右边横排弹出一排子按钮 + 最后一项「＋」✓
+
+   ★ 为什么 position: fixed + 挂在 document.body？
+     #cmd-rail 写了 overflow: hidden ✗（B32 为了隐滚动条 ✓）
+     挂它里面会被【裁掉】✗ 所以飘在外面 ✓
+
+   ★★ 风格：【跟竖条完全一致】✗（用户要求 ✓）
+     用户原话：
+       “我们这个容器的样式就是对的 ✗ 单纯一条线 ✗ 非常的简洁”
+       “把那个洽接部分边缘的线给去掉 ✗ 自然弹出，
+         然后尽头一个圆角处理就完事儿了”
+       “你这个边框是白色 ✗ 应该与我们的风格一致”
+     ⇒ ① 边框用【跟竖条同一个变量】✗ 不是白色 ✓
+        ② 衔接的那一边【不画线】✗ 自然弹出 ✓
+        ③ 只在【尽头】（右侧）收圆角 ✓
+        ④ 不要阴影（要简洁 ✓）*/
+.rail-pop {
+  position: fixed;
+  /* ★ 只需比竖条高（竖条是 z-index: 2 ✓）*/
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--pi-cmd-gap, 5px);
+  padding: 5px 8px 5px 6px;
+  /* ① 与竖条完全同一条线 ✓ */
+  border: 1px solid var(--vscode-sideBar-border, rgba(128, 128, 128, 0.18));
+  /* ② 衔接处不画线 ✗ 自然弹出 ✓ */
+  border-left: none;
+  /* ③ 只在尽头收圆角 ✓ */
+  border-radius: 0 8px 8px 0;
+  background: var(--vscode-sideBar-background);
+  /* ④ 不要阴影（用户定的：简洁 ✓）*/
+  /* ★ 子按钮很多时横向滚 ✗ 不要撑破窗口 ✓ */
+  max-width: calc(100vw - 8px);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* ★ 翻到左边时：圆角方向跟着翻 ✗ 否则圆角跑到衔接处 ✓ */
+.rail-pop.flip {
+  border-left: 1px solid var(--vscode-sideBar-border, rgba(128, 128, 128, 0.18));
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  padding: 5px 6px 5px 8px;
+}
+/* ★ 空收纳器的提示 ✓ */
+.rail-pop-hint {
+  padding: 0 4px;
+  font-size: 10px;
+  opacity: .55;
+  white-space: nowrap;
+}

@@ -132,6 +132,45 @@ export function needsInput(item: CmdItem): boolean {
     return (item.fields ?? []).length > 0;
 }
 
+// ── ★★ B33：递归工具（收纳器要靠它们 ✓）──
+
+/**
+ * ★★ 递归查找一个条目（顶层 + 所有 children ✓）
+ *
+ * 【为什么需要？】
+ *   子按钮的 id 藏在 children 里 ✗ 顶层 find 找不到 ✓
+ *   （症状：点子按钮“没反应”✗ 因为宿里 find 失败后直接 return 了 ✓）
+ */
+export function findCommand(items: CmdItem[], id: string): CmdItem | undefined {
+    for (const x of items) {
+        if (x.id === id) return x;
+        const hit = x.children ? findCommand(x.children, id) : undefined;
+        if (hit) return hit;
+    }
+    return undefined;
+}
+
+/** ★★ 递归删除（返回新数组 ✗ 不就地改 ✓）*/
+export function removeCommand(items: CmdItem[], id: string): CmdItem[] {
+    const out: CmdItem[] = [];
+    for (const x of items) {
+        if (x.id === id) continue; // ★ 扔掉它（连同它的 children ✓）
+        out.push(x.children ? { ...x, children: removeCommand(x.children, id) } : x);
+    }
+    return out;
+}
+
+/**
+ * ★★ 递归收集图标路径（删除时清文件用 ✓）
+ *   ★ 只收被删那一个会漏掉它 children 的图标 ✗ 留下垃圾文件 ✓
+ */
+export function collectIcons(item: CmdItem): string[] {
+    const out: string[] = [];
+    if (item.icon) out.push(item.icon);
+    for (const c of item.children ?? []) out.push(...collectIcons(c));
+    return out;
+}
+
 // ── 下面是最小校验（配置是用户手改得动的 ✗ 不能信 ✓）──
 
 function isCmdItem(x: unknown): x is CmdItem {

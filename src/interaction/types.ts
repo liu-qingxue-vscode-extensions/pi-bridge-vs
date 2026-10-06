@@ -10,6 +10,15 @@ export interface UiReq {
     placeholder?: string;
     prefill?: string;
     timeout?: number;
+    /**
+     * ★★ B33：来源 ✗
+     *   pi    = 扩展在提问 ✓
+     *   local = 我们自己的参数收集 ✓
+     * ★ 只用来换文案 ✗ 不影响交互逻辑 ✓
+     */
+    source?: "pi" | "local";
+    /** ★ B33：本地任务分组（只有 local 才带 ✗ 前端目前不用 ✓）*/
+    taskId?: string;
 }
 
 /** pi 认识的四种需要回复的 method ✓ */

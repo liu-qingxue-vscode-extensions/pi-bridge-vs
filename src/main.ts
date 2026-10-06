@@ -34,7 +34,7 @@ import { getAgentDir, getPackageDir, VERSION } from "@earendil-works/pi-coding-a
 import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
 import { ChatView } from "./view/chat-view.js";
-import { InteractionPanel } from "./view/interaction-panel.js";
+import { InteractionPanel, type UiReq } from "./view/interaction-panel.js";
 import { SkillsPanel } from "./view/skills-panel.js";
 // ★★ B32：自由按钮的配置页面（编辑器区独立面板 ✓）
 import { CommandPanel } from "./view/command-panel.js";
@@ -67,6 +67,10 @@ import {
     needsInput,
     isImageIcon,
     isManagedIcon,
+    newId,
+    findCommand,
+    removeCommand,
+    collectIcons,
     type CmdItem,
 } from "./panels/command-store.js";
 import { createSettingsPoster } from "./panels/settings-post.js";
@@ -289,28 +293,56 @@ export function activate(context: vscode.ExtensionContext): void {
             return;
         }
         if (kind === "commandSave") {
-            const item = (payload as { item?: Record<string, unknown> } | undefined)?.item;
+            const p = payload as
+                | { item?: Record<string, unknown>; parentId?: string }
+                | undefined;
+            const item = p?.item;
             if (!item || typeof item.label !== "string") return;
             const items = readCommands();
             const id = typeof item.id === "string" ? item.id : "";
+            const parentId = typeof p?.parentId === "string" ? p.parentId : undefined;
+            const parent = parentId ? findCommand(items, parentId) : undefined;
+
+            // ★★ B33：父亲带来的两条硬约束 ✗ 宿主侧【再校验】一遍 ✓
+            //   ★ 为什么不靠配置页？→ FACTS #5 / #12：
+            //     UI 的禁用永远不可信 ✗ 真正的约束必须在逻辑层再查一次 ✓
+            if (parent) {
+                item.type = "button"; // ① 收纳器里不能套收纳器 ✓
+                if (parent.lockCommand && parent.command) {
+                    item.command = parent.command; // ② 命令被锁死 ✓
+                }
+            }
+
             // ★ 用 command-store 的 normalize 走一遗（不信前端传来的形状 ✓）
             // ★ 图标先收进标准位置（B32 ✓）
             //   ★ 要带上【旧图标】✗ 才能把上一张清掉 ✓
-            const oldIcon = id ? readCommands().find((x) => x.id === id)?.icon : undefined;
+            const oldIcon = id ? findCommand(items, id)?.icon : undefined;
             const raw = item as { icon?: string };
             if (typeof raw.icon === "string") {
                 item.icon = materializeIcon(raw.icon, oldIcon) ?? "";
             }
             const clean = normalizeItem(item as never);
-            const idx = id ? items.findIndex((x) => x.id === id) : -1;
-            if (idx >= 0) {
-                items[idx] = clean;
-                logInfo(`修改按钮：${clean.label}`);
+
+            if (parent) {
+                // ★★ B33：塞进父亲的 children ✗（不是顶层 ✓）
+                const kids = [...(parent.children ?? [])];
+                const ki = id ? kids.findIndex((x) => x.id === id) : -1;
+                if (ki >= 0) kids[ki] = clean;
+                else kids.push(clean);
+                parent.children = kids;
+                await writeCommands(items);
+                logInfo(`保存子按钮：${clean.label} → 收纳器「${parent.label}」`);
             } else {
-                items.push(clean);
-                logInfo(`新增按钮：${clean.label}`);
+                const idx = id ? items.findIndex((x) => x.id === id) : -1;
+                if (idx >= 0) {
+                    items[idx] = clean;
+                    logInfo(`修改按钮：${clean.label}`);
+                } else {
+                    items.push(clean);
+                    logInfo(`新增按钮：${clean.label}`);
+                }
+                await writeCommands(items);
             }
-            await writeCommands(items);
             pushCommands();
             commandPanel.close();
             return;
@@ -571,11 +603,160 @@ export function activate(context: vscode.ExtensionContext): void {
      *   来源可能是编辑器面板 ✗ 也可能是侧栏的[取消]按钮 ✓
      *   不管哪种都：写 stdin → 从面板队列移除 → 刷新侧栏提示 ✓
      */
+    /**
+     * ★★ 本地参数收集任务（B33 ✓）
+     *
+     * 【它是什么】
+     *   用户点了一个“需要填参数、且选了独立窗口”的按钮 ✗
+     *   我们把它的【每个参数】转成一个 UiReq 推给交互面板 ✓
+     *   用户在面板里填完 ✗ 我们拼成命令行发出去 ✓
+     *
+     * 【★ 为什么复用交互面板？】（用户的想法 ✗ 已存档 ✓）
+     *   面板已经有 select / input 控件 ✓ 而参数只需要这两种 ✓
+     *   而且面板的“答卷模式”本来就是“一次填多题、一次性提交”✗
+     *   跟“一次填完所有参数”是【同一个形状】✓✓✓
+     *   ⇒ 差别只有一处：答复后是【回复 pi】还是【拼命令发了】✗
+     *      → 用 taskId 分流就够了 ✓
+     */
+    interface LocalTask {
+        item: CmdItem;
+        /** 已收集到的值（按 field.id ✓）*/
+        values: Record<string, string>;
+        /** ★ 还没答的 field.id */
+        need: Set<string>;
+        /** ★ 这次推出去的 request id（取消时要一并清 ✓）*/
+        reqIds: string[];
+        /**
+         * ★★ request id → field.id
+         *   ★ 为什么要这个映射？
+         *     请求 id 加了 task 前缀（防撞 ✗ 见 collectViaPanel ✓）
+         *     而 values / need 里用的是【干净的 field.id】✓
+         */
+        idToField: Map<string, string>;
+    }
+    const localTasks = new Map<string, LocalTask>();
+    /** ★ request id → taskId（答复回来时反查 ✓）*/
+    const reqToTask = new Map<string, string>();
+
+    /**
+     * ★★ 参数收集：独立窗口模式（B33 ✓）
+     *
+     * 【与串行模式的差别】
+     *   串行  → VS Code 原生 QuickPick / InputBox ✗ N 个参数弹 N 次 ✓
+     *   独立  → 面板里一目了然 ✗ 可切页、可回改 ✓ 最后统一提交 ✓
+     *   ★ 两者的【拼装】完全一致（都走 buildCommandLine ✓）
+     */
+    const collectViaPanel = (item: CmdItem): void => {
+        const values: Record<string, string> = {};
+        const reqs: UiReq[] = [];
+        const idToField = new Map<string, string>();
+        const taskId = `local-${newId()}`;
+
+        for (const f of item.fields ?? []) {
+            // ★ 固定值不问 ✗ 直接填（与串行模式一致 ✓）
+            if (f.kind === "fixed") {
+                values[f.id] = f.value ?? "";
+                continue;
+            }
+            // ★★ 请求 id 加 task 前缀 ✗
+            //   【为什么？】field.id 在配置里是稳定的 ✗
+            //     同一按钮点两次 → 两个请求同 id ✓
+            //     → 前端的 answers Map 会串（一份答案填两题 ✓）
+            const rid = `${taskId}:${f.id}`;
+            idToField.set(rid, f.id);
+            reqs.push({
+                id: rid,
+                method: f.kind === "select" ? "select" : "input",
+                title: f.label || "参数",
+                options: f.kind === "select" ? (f.options ?? []) : undefined,
+                placeholder: f.subType === "number" ? "（要数字 ✗ 可带负号/小数点）" : "",
+                prefill: "",
+                source: "local",
+                taskId,
+            });
+        }
+
+        // ★ 所有参数都是固定值 → 没什么可问的 ✗ 直接执行 ✓
+        if (reqs.length === 0) {
+            const line = buildCommandLine(item, values);
+            logInfo(`执行按钮（全固定值 ✓）：${item.label} → ${line}`);
+            chatView.post("sendText", { text: line });
+            return;
+        }
+
+        localTasks.set(taskId, {
+            item,
+            values,
+            need: new Set(idToField.values()),
+            reqIds: [...idToField.keys()],
+            idToField,
+        });
+        for (const rid of idToField.keys()) reqToTask.set(rid, taskId);
+        logInfo(`参数收集（独立窗口）：${item.label} 共 ${reqs.length} 项`);
+        interactionPanel.pushMany(reqs);
+    };
+
+    /**
+     * ★★ 本地参数收集的答复处理（B33 ✗ 不走 pi ✓）
+     *
+     * ★★ 为什么不能走 pi？
+     *   extension_ui_response 是【回应 pi 的提问】✗
+     *   而我们这是【我们自己的表单】✗ 两者只是形状像 ✓
+     *   → 所以要在 handleUiResponse 最前面分流 ✓
+     */
+    const handleLocalAnswer = (
+        taskId: string,
+        id: string,
+        r: { value?: string; confirmed?: boolean; cancelled?: boolean },
+    ): void => {
+        const task = localTasks.get(taskId);
+
+        // ★ 取消 = 整条命令不发 ✗ 并撒掉该任务剩余的请求 ✓
+        if (r.cancelled) {
+            localTasks.delete(taskId);
+            if (task) for (const rid of task.reqIds) reqToTask.delete(rid);
+            interactionPanel.dropTask(taskId);
+            logInfo(`参数收集取消：${task?.item.label ?? taskId}`);
+            return;
+        }
+
+        if (!task) {
+            reqToTask.delete(id); // 任务已作废 ✗ 忽略这条迟到答复 ✓
+            interactionPanel.resolved(id);
+            return;
+        }
+
+        const fieldId = task.idToField.get(id);
+        if (!fieldId) {
+            interactionPanel.resolved(id); // 对不上任何参数 ✗ 忽略 ✓
+            return;
+        }
+
+        task.values[fieldId] = (r.value ?? "").trim();
+        task.need.delete(fieldId);
+        interactionPanel.resolved(id);
+        if (task.need.size > 0) return; // ★ 还没填完 ✓
+
+        // ★★ 齐了 → 拼装并发送 ✓
+        localTasks.delete(taskId);
+        for (const rid of task.reqIds) reqToTask.delete(rid);
+        const line = buildCommandLine(task.item, task.values);
+        logInfo(`执行按钮（独立窗口）：${task.item.label} → ${line}`);
+        chatView.post("sendText", { text: line });
+    };
+
     const handleUiResponse = (
         id: string,
         r: { value?: string; confirmed?: boolean; cancelled?: boolean },
         from: "panel" | "sidebar",
     ): void => {
+        // ★★ B33：先分流 ✗ 本地参数收集的答复不归 pi ✓
+        const taskId = reqToTask.get(id);
+        if (taskId) {
+            handleLocalAnswer(taskId, id, r);
+            return;
+        }
+
         const res: { id: string; value?: string; confirmed?: boolean; cancelled?: boolean } = { id };
         if (r.cancelled) {
             res.cancelled = true;
@@ -605,36 +786,63 @@ export function activate(context: vscode.ExtensionContext): void {
             //   它们完全属于【我们扩展自己的界面】✗ 跟 pi 无关 ✓
             //   早拦早走 ✗ 也不会浪费后面那大堆 pi 相关的分支判断 ✓
             if (msg.kind === "commandNew") {
-                // ★★ B32 ②：改成一个【完整的配置页面】（不再是两个输入框 ✓）
-                commandPanel.open({}, true);
+                // ★★ B33：可能是【在收纳器里新建】（带 parentId ✓）
+                //   ★ 为什么要告诉配置页“父亲是谁”？
+                //     ① type 要锁死成 button（不能再套收纳 ✓）
+                //     ② 父亲勾了“强制”✗ 子按钮的 command 要锁死 ✓
+                const parentId = typeof msg.parentId === "string" ? msg.parentId : undefined;
+                const parent = parentId ? findCommand(readCommands(), parentId) : undefined;
+                commandPanel.open(
+                    parent
+                        ? {
+                              parent: {
+                                  id: parent.id,
+                                  label: parent.label,
+                                  command: parent.command,
+                                  lockCommand: parent.lockCommand === true,
+                              },
+                          }
+                        : {},
+                    true,
+                );
                 return;
             }
             if (msg.kind === "commandEdit") {
-                const item = readCommands().find((x) => x.id === msg.id);
-                if (!item) return;
+                // ★★ B33：递归搜（子按钮也要能编辑 ✓）
+                const item = findCommand(readCommands(), msg.id);
+                if (!item) {
+                    logWarn(`编辑按钮：找不到 ${msg.id}`);
+                    return;
+                }
                 commandPanel.open({ ...item }, false);
                 return;
             }
             if (msg.kind === "commandDelete") {
                 const all = readCommands();
                 // ★ 删按钮时把它的图标文件也清掉（B32 ✓ 不留垃圾）
-                removeIconFile(all.find((x) => x.id === msg.id)?.icon);
-                const items = all.filter((x) => x.id !== msg.id);
-                await writeCommands(items);
+                //   ★★ B33：递归收 ✗ 子按钮的图标也要清 ✓
+                const hit = findCommand(all, msg.id);
+                if (hit) for (const ic of collectIcons(hit)) removeIconFile(ic);
+                await writeCommands(removeCommand(all, msg.id));
                 pushCommands();
-                logInfo(`删除按钮：${msg.id}`);
+                logInfo(`删除按钮：${hit?.label ?? msg.id}`);
                 return;
             }
             if (msg.kind === "commandRun") {
-                const item = readCommands().find((x) => x.id === msg.id);
-                if (!item) return;
+                // ★★ B33：递归搜（子按钮就靠这个 ✓）
+                const item = findCommand(readCommands(), msg.id);
+                if (!item) {
+                    logWarn(`执行按钮：找不到 ${msg.id}`);
+                    return;
+                }
                 if (item.type === "group") return; // 收纳器不是用来执行的 ✓
 
-                // ★★ 有参数 → 先收集（B32 ③）
+                // ★★ 有参数 → 先收集（B32 ③ ✗ B33 补上独立窗口 ✓）
                 if (needsInput(item)) {
+                    // ★ 两条路：串行原生弹窗 / 独立窗口面板 ✓
                     if (item.inputMode === "panel") {
-                        // ★ 独立窗口模式（下一步 ✓）——先按串行走 ✗ 不报错 ✓
-                        logWarn(`按钮 ${item.label} 选了独立窗口 ✗ 还没做 ✗ 先用串行 ✓`);
+                        collectViaPanel(item); // ★ B33：真的走面板了 ✓
+                        return;
                     }
                     const line = await collectSerial(item);
                     if (!line) return; // ★ 用户取消 ✗ 什么都不发 ✓
@@ -1934,13 +2142,55 @@ export function activate(context: vscode.ExtensionContext): void {
     };
 
     /** ★ 推给前端前：把 icons/xxx 变成 webview 能加载的 URI ✓ */
-    const iconForWeb = (icon?: string): string | undefined => {
-        if (!icon || !isManagedIcon(icon)) return icon;
+    /**
+     * ★★ 图标 → 前端能用的两个地址（B33 ✗ 从 B32 的 401 演化来 ✓）
+     *
+     * 【两条路都给 ✗】
+     *   ① icon     = asWebviewUri 生成的标准地址 ✓
+     *   ② iconData = data URI（★ 兜底 ✗ 不走网络 ✗ 不经授权链 ✓）
+     *
+     * 【★ 为什么要兜底？】（B32 实测 ✗）
+     *   <img> 加载 webview 地址时返回 401 Unauthorized（from service worker ✓）
+     *   已排除：文件不存在 / 白名单 / URL 格式 / CSP / SVG 本身 ✓
+     *   ⇒ 前端失败时自动改用 iconData ✗ 图标照样出来 ✓
+     *   ★ 主路径仍然是标准做法 ✗ 万一哪天环境修好 ✗ 自动回到正轨 ✓
+     */
+    const MAX_ICON_BYTES = 128 * 1024; // ★ 上限（防用户塞大图 ✓）
+    const iconMime = (p: string): string => {
+        const m: Record<string, string> = {
+            svg: "image/svg+xml",
+            png: "image/png",
+            jpg: "image/jpeg",
+            jpeg: "image/jpeg",
+            gif: "image/gif",
+            webp: "image/webp",
+            bmp: "image/bmp",
+            ico: "image/x-icon",
+        };
+        return m[(p.split(".").pop() ?? "").toLowerCase()] ?? "application/octet-stream";
+    };
+    const iconForWeb = (icon?: string): { icon?: string; iconData?: string } => {
+        if (!icon || !isManagedIcon(icon)) return { icon }; // emoji / codicon 原样 ✓
         const abs = path.join(context.globalStorageUri.fsPath, icon);
         const uri = chatView.toWebviewUri(abs);
-        logDebug(`图标 URI: ${icon} → ${uri ? uri.slice(0, 100) : "（空 ✗ view 还没就绪）"}`);
-        logDebug(`  文件存在？${fs.existsSync(abs)}`);
-        return uri || icon;
+        let iconData: string | undefined;
+        try {
+            const size = fs.statSync(abs).size;
+            if (size <= MAX_ICON_BYTES) {
+                const b64 = fs.readFileSync(abs).toString("base64");
+                iconData = `data:${iconMime(icon)};base64,${b64}`;
+            } else {
+                logWarn(`图标 ${size} 字节 > 上限 ${MAX_ICON_BYTES} ✗ 不做兜底：${icon}`);
+            }
+        } catch (err) {
+            // ★ 文件不在 / 读不动 → 没得兜 ✗ 主路径也会失败 ✓ 先记一笔 ✓
+            logWarn(`图标读不出 ✗ 无法兜底：${icon}（${String(err)}）`);
+        }
+        logDebug(
+            `图标 ${icon}\n  uri  = ${uri ? uri.slice(0, 120) : "（空 ✗ view 未就绪）"}` +
+                `\n  data = ${iconData ? `${iconData.length} 字符 ✓` : "（无）"}`,
+        );
+        return { icon: uri || icon, iconData };
     };
 
     /**
@@ -1953,12 +2203,17 @@ export function activate(context: vscode.ExtensionContext): void {
     const pushCommands = (): void => {
         // ★★ 消息名用 railCommands ✗ 【不是 commands】✓
         //   commands 被 slash-menu 的命令补全列表占了 ✗ 同名会互相覆盖 ✓
-        // ★ 推之前把图标路径转成 webview URI（B32 ✓）
-        const mapItem = (x: CmdItem): CmdItem => ({
-            ...x,
-            icon: iconForWeb(x.icon),
-            children: x.children?.map(mapItem),
-        });
+        // ★ 推之前把图标路径转成 webview 地址（B32 ✓）+ 附上 data URI 兜底（B33 ✓）
+        type CmdItemView = CmdItem & { iconData?: string };
+        const mapItem = (x: CmdItem): CmdItemView => {
+            const { icon, iconData } = iconForWeb(x.icon);
+            return {
+                ...x,
+                ...(icon ? { icon } : {}),
+                ...(iconData ? { iconData } : {}),
+                children: x.children?.map(mapItem),
+            };
+        };
         chatView.post("railCommands", readCommands().map(mapItem));
     };
 

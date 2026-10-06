@@ -89,6 +89,14 @@ body {
   border-color: var(--vscode-focusBorder, #0078d4);
   background: var(--vscode-list-activeSelectionBackground, rgba(0,120,212,.18));
 }
+/* ★★ B33：锁定的类型卡片
+   （在收纳器里新建 → “收纳器”这一张不能选 ✓ 用户定的：不能再套 ✗）*/
+.type-card.locked {
+  opacity: .38;
+  cursor: not-allowed;
+}
+/* ★ 不给 hover 反馈 ✗ 视觉上就“不是可点的”✓ */
+.type-card.locked:hover { background: transparent; }
 .type-card .t {
   font-weight: 600;
   margin-bottom: 3px;

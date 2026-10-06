@@ -92,7 +92,13 @@ export function confirmBody(
 
     const sub = document.createElement("div");
     sub.className = "q-message";
-    sub.textContent = "检查一遍 —— 点[提交全部]会一次性发给 pi ✓";
+    // ★★ B33：本地参数收集不是“回复 pi”✗ 文案要分开 ✓
+    //   ★ 怎么判断？→ 队列里第一个请求的 source ✓
+    //     （一批里的 source 必定一致 ✗ 它们同时入队 ✓）
+    const isLocal = queue[0]?.source === "local";
+    sub.textContent = isLocal
+        ? "检查一遍 —— 点[提交全部]会把拼好的命令发出去 ✓"
+        : "检查一遍 —— 点[提交全部]会一次性发给 pi ✓";
     wrap.appendChild(sub);
 
     const list = document.createElement("div");

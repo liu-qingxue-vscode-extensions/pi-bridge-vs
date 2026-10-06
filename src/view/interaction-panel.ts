@@ -34,6 +34,20 @@ export interface UiReq {
     placeholder?: string;
     prefill?: string;
     timeout?: number;
+    /**
+     * ★★ 来源（B33 ✗）
+     *   pi    = 扩展在提问 ✗ 答完要回复 extension_ui_response ✓
+     *   local = 我们自己的参数收集 ✗ 答完要拼命令并发送 ✓
+     * ★ 两端共用这套面板 ✗ 因为形状完全一样：
+     *     “一次问几题 ✗ 最后一次性提交”✓
+     */
+    source?: "pi" | "local";
+    /**
+     * ★★ 本地任务分组（B33 ✗ 只有 local 才带 ✓）
+     *   一次参数收集 = 一个 task ✗ 它可能推好几个 UiReq（每个参数一个 ✓）
+     *   → 取消时要能把【整个任务】的剩余请求一起撒掉 ✓
+     */
+    taskId?: string;
 }
 
 export type UiRes = { value?: string; confirmed?: boolean; cancelled?: boolean };
@@ -90,6 +104,40 @@ export class InteractionPanel {
         // ★ 弹到前面并聚焦 ✗（这是“需要你动手”的窗口 ✓ 不能静静躺在后面 ✓）
         this.panel?.reveal(this.panel.viewColumn ?? this.lastColumn);
         this.sync();
+    }
+
+    /**
+     * ★★ 一次推入多个请求（B33 ✗ 本地参数收集用 ✓）
+     *
+     * 【为什么不能 for 循环调 push？】
+     *   每次 push 都会 ensure + reveal + sync ✗ N 个参数就是 N 次 ✓
+     *   ★ 虽然同步循环里前端看不到中间态 ✗ 但白跑 N 次没意义 ✓
+     *   ★★ 而 reveal 会 N 次抢焦点 ✗ 更不该 ✓
+     */
+    pushMany(reqs: UiReq[]): void {
+        if (reqs.length === 0) return;
+        this.pending.push(...reqs);
+        this.ensure();
+        this.panel?.reveal(this.panel.viewColumn ?? this.lastColumn);
+        this.sync();
+    }
+
+    /**
+     * ★★ 撒掉某个任务的待答请求（B33 ✗ 本地参数收集被取消时用 ✓）
+     *
+     * 【场景】用户点了“取消本题”✗ 整条命令就不该发了 ✓
+     *   但该任务的其他参数可能还排在队列里 ✗ 留着没意义 ✓
+     *   （答了也不会执行 ✗ 因为任务已经作废 ✓）
+     */
+    dropTask(taskId: string): void {
+        const n = this.pending.length;
+        this.pending = this.pending.filter((r) => r.taskId !== taskId);
+        if (this.pending.length === n) return; // 什么都没删 ✗ 不用重绘 ✓
+        if (this.pending.length === 0 && this.panel && this.isAutoClose()) {
+            this.closeByUs();
+        } else {
+            this.sync();
+        }
     }
 
     /** 某个请求被答复了（来源可能是面板，也可能是侧栏的[取消]✓）*/

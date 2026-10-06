@@ -13,7 +13,7 @@
   {{nonce}} {{cspSource}} {{css}} {{js}} {{styleVars}} 由扩展加载时注入（见 src/view/html-loader.ts）
 -->
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}'; img-src *;">
+      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}'; img-src * data:;">
 <link rel="stylesheet" href="{{css}}">
 <style>{{styleVars}}</style>
 </head>

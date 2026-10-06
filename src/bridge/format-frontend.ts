@@ -97,10 +97,13 @@ export type FrontendMessage =
     | { kind: "skillToInput"; content: string } // 填入输入框（本地 ✓）
     | { kind: "skillAsCommand"; name: string }
     // ★★ B32：自由按钮容器（侧栏聊天页里的那根竖条 ✓）
-    //   commandNew    → 用户点「＋」✗ 宿主去弹输入框 ✓
+    //   commandNew    → 用户点「＋」✗ 宿主去开配置页 ✓
     //   commandRun    → 点了一下按钮要执行（★ 有参数时先收集 ✓）
     //   commandDelete → 右键删除 ✓
-    | { kind: "commandNew" }
+    //
+    // ★★ B33：带 parentId = 【在收纳器里】新建 ✓
+    //   宿主据此告诉配置页“父亲是谁”✗ 以便锁死 type / command ✓
+    | { kind: "commandNew"; parentId?: string }
     // ★ commandEdit → 右键「编辑…」（B32 ②）
     | { kind: "commandEdit"; id: string }
     | { kind: "commandRun"; id: string }

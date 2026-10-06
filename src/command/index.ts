@@ -35,6 +35,30 @@ interface CmdField {
     subType?: "text" | "number";
 }
 
+/**
+ * ★★ 一个按钮 / 收纳器（B33 ✗ 只保留生成时会用到的字段 ✓）
+ *
+ * ★ 完整版在宿主端 command-store.ts ✗ 这里只是为了让 children
+ *   能读进来 / 写出去（保存时宿主会自己 normalize 一遍 ✓）
+ */
+interface CmdItem {
+    id: string;
+    label: string;
+    hint?: string;
+    icon?: string;
+    type: "button" | "group";
+    command?: string;
+    lockCommand?: boolean;
+    fields?: CmdField[];
+    inputMode?: "serial" | "panel";
+    children?: CmdItem[];
+}
+
+/** ★ 本地 id（★ 宿主保存时会 normalize ✗ 但生成时必须先有 id ✓）*/
+function newId(): string {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 /** ★ 表单状态（唯一数据源 ✗ 控件只是它的投影 ✓）*/
 interface Draft {
     id?: string;
@@ -48,6 +72,21 @@ interface Draft {
     fields: CmdField[];
     /** ★ 有参数时的收集方式 */
     inputMode: "serial" | "panel";
+    /**
+     * ★★ B33：父亲是谁（只有“在收纳器里新建”才有 ✓）
+     *
+     * 【它带来两条硬约束】
+     *   ① type 锁死 button（不能再套收纳 ✓）
+     *   ② 父亲 lockCommand=true 时 command 锁死成父亲的 ✓
+     * ★ 这两条【保存时宿主还会再校验一遍】✗
+     *   （FACTS #5：UI 的禁用永远不可信 ✗）
+     */
+    parent?: { id: string; label: string; command?: string; lockCommand: boolean };
+    /**
+     * ★★ B33：已经是它的子按钮（编辑收纳器时读进来 ✓）
+     *   ★ 模板生成的结果就直接写在这里 ✗ 保存时一起交给宿主 ✓
+     */
+    children?: CmdItem[];
 }
 
 let draft: Draft = {
@@ -165,12 +204,23 @@ function render(): void {
                 (() => {
                     const w = el("div", "withprefix");
                     w.appendChild(el("span", "pfx", "/"));
-                    w.appendChild(
-                        textInput(draft.command, draft.type === "button" ? "mode" : "（可留空）", (v) => {
+                    // ★★ B33：父亲勾了“强制”✗ 命令锁死成父亲的 ✓
+                    const locked =
+                        draft.parent?.lockCommand === true && !!draft.parent.command;
+                    if (locked) draft.command = draft.parent!.command!;
+                    const inp = textInput(
+                        draft.command,
+                        draft.type === "button" ? "mode" : "（可留空）",
+                        (v) => {
                             draft.command = v.trim().replace(/^\/+/, "");
                             validate();
-                        }),
+                        },
                     );
+                    if (locked) {
+                        inp.disabled = true;
+                        inp.title = `命令被收纳器锁死：/${draft.parent!.command}`;
+                    }
+                    w.appendChild(inp);
                     return w;
                 })(),
             ),
@@ -183,7 +233,17 @@ function render(): void {
         const c = el("div", "type-card" + (draft.type === t ? " on" : ""));
         c.appendChild(el("div", "t", title));
         c.appendChild(el("div", "d", desc));
+        // ★★ B33：在收纳器里新建 → 两种类型里【只有按钮可选】✓
+        if (draft.parent && t === "group") {
+            c.classList.add("locked");
+            c.title = "收纳器里只能放按钮 ✗ 不能再套收纳器";
+        }
         c.addEventListener("click", () => {
+            // ★★ B33：type 锁死（不能再套收纳 ✗ 用户定的 ✓）
+            if (draft.parent) {
+                if (t === "group") toast("收纳器里只能放按钮 ✗ 不能再套收纳器", true);
+                return;
+            }
             if (draft.type === t) return;
             // ★★ 先收集再重画（否则填过的内容会丢 ✓）
             draft.type = t;
@@ -229,6 +289,11 @@ function render(): void {
         );
         wrap.appendChild(txt);
         formEl.appendChild(wrap);
+
+        // ★★ B33：参数模板 + 一键穷举生成子按钮 ✓（用户的想法 ✓）
+        //   ★ 复用按钮那套参数编辑 UI ✗ 只是文案叫“模板” ✓
+        renderFields(true);
+        renderGenerator();
     }
 
     renderPreview();
@@ -254,8 +319,135 @@ function render(): void {
  *   有限值只剩一个选项 → 当固定值看 ✓
  *   （渲染时降级 ✗ 不偷改用户的数据 ✓ 保存时才规范化 ✓）
  */
-function renderFields(): void {
-    formEl.appendChild(el("div", "sect", "参数"));
+/**
+ * ★★ 把参数模板【穷举】成一堆子按钮（B33 ✓）
+ *
+ * 【用户的想法】
+ *   “收纳器里面加一个 map 清单 ✗ 就是告知它所有的参数的形式……
+ *    添加好之后 ✗ 直接重举生成 ✗ 批量生成按钮 ✓
+ *    重举到最后一个自由参数 ✗ 如果有自由参数 ✗ 那就弹窗；
+ *    如果没有的话 ✗ 就是纯注入 ✓”
+ *
+ * 【规则】
+ *   · fixed  → 写死 ✓
+ *   · select → 展开（笛卡尔积 ✓）
+ *   · any    → ★ 不参与穷举 ✗ 原样留给运行时弹窗 ✓
+ *
+ * @returns undefined = 组合数超上限（调用方要提示 ✓）
+ */
+const GEN_LIMIT = 12;
+
+function enumerateButtons(
+    cmd: string,
+    fields: CmdField[],
+    nameOf: (picks: string[]) => string,
+): CmdItem[] | undefined {
+    // ① 先算组合数（超限就早退 ✗ 别先展开再发现太多 ✓）
+    let total = 1;
+    for (const f of fields) {
+        if (f.kind === "select") total *= Math.max(1, f.options?.length ?? 0);
+        if (total > GEN_LIMIT) return undefined;
+    }
+
+    // ② 笛卡尔积（★ picks 与 fields 下标一一对应 ✓）
+    let combos: string[][] = [[]];
+    for (const f of fields) {
+        if (f.kind === "select") {
+            const opts = f.options?.length ? f.options : [""];
+            combos = combos.flatMap((c) => opts.map((o) => [...c, o]));
+        } else if (f.kind === "fixed") {
+            combos = combos.map((c) => [...c, f.value ?? ""]);
+        } else {
+            combos = combos.map((c) => [...c, ""]); // any：占位 ✗ 不展开 ✓
+        }
+    }
+
+    // ③ 每个组合 → 一个子按钮 ✓
+    return combos.map((picks) => ({
+        id: newId(),
+        label: nameOf(picks),
+        type: "button" as const,
+        command: cmd,
+        // ★ select/fixed → 在这个按钮上变成 fixed ✓
+        //   ★★ any → 原样保留 ✗ 点它时弹窗问 ✓
+        fields: fields.map((f, i) =>
+            f.kind === "any"
+                ? { ...f, id: newId() }
+                : { id: newId(), label: f.label, kind: "fixed" as const, value: picks[i] },
+        ),
+    }));
+}
+
+/** ★★ 批量生成区（B33 ✗ 只在收纳器下显示 ✓）*/
+function renderGenerator(): void {
+    formEl.appendChild(el("div", "sect", "批量生成"));
+
+    const info = el("div", "desc");
+    const n = draft.fields.length;
+    const has = (draft.children ?? []).length;
+    if (n === 0) {
+        info.textContent =
+            "上面加几个参数 ✗ 这里就能一键穷举出一批子按钮 ✓\n" +
+            "（也可以跳过这步 ✗ 直接用弹层里的「＋」手动加 ✓）";
+    } else {
+        let total = 1;
+        for (const f of draft.fields) {
+            if (f.kind === "select") total *= Math.max(1, f.options?.length ?? 0);
+        }
+        const anys = draft.fields.filter((f) => f.kind === "any").length;
+        info.textContent =
+            `将生成 ${total} 个按钮 ✓` +
+            (anys
+                ? `（有 ${anys} 个自由参数 ✗ 点按钮时会弹窗问 ✓）`
+                : "（全是固定值 ✗ 点一下直接注入 ✓）") +
+            (has ? `\n★ 已经有 ${has} 个子按钮 ✗ 生成会【整个替换】它们 ✓` : "");
+    }
+    formEl.appendChild(info);
+
+    const gen = el("button", "fadd", "⚙ 生成按钮");
+    gen.addEventListener("click", () => {
+        if (draft.fields.length === 0) {
+            toast("先在上面加参数", true);
+            return;
+        }
+        const cmd = draft.command.trim();
+        // ★★ 名字 = 各选项的【首字】用 - 连起来（B33 用户定的 ✓）
+        //   “用它们的第一个字符 ✗ 然后用减号把它们连起来”
+        //   苹果 + 红色 → 苹-红
+        //   add  + write → a-w
+        //   ★ 全部是 fixed（没有任何可选项）→ 名字会空 ✗ 由 displayName 退回 command ✓
+        const made = enumerateButtons(cmd, draft.fields, (picks) =>
+            picks
+                .filter(Boolean)
+                .map((s) => [...s][0] ?? "")
+                .join("-"),
+        );
+        if (!made) {
+            toast(`组合数超过 ${GEN_LIMIT} ✗ 减少一些选项（或手动加 ✓）`, true);
+            return;
+        }
+        // ★ 把当前选的“输入方式”带给每个生成的按钮 ✓
+        //   （只有 any 参数会在运行时弹窗 ✗ 用什么方式填就看它 ✓）
+        for (const b of made) b.inputMode = draft.inputMode;
+        draft.children = made;
+        toast(`已生成 ${made.length} 个按钮 ✓ 记得点[保存] ✓`);
+        render();
+    });
+    formEl.appendChild(gen);
+
+    if (has) {
+        const clr = el("button", "fmini danger", `✕ 清空这 ${has} 个子按钮`);
+        clr.addEventListener("click", () => {
+            draft.children = [];
+            render();
+        });
+        formEl.appendChild(clr);
+    }
+}
+
+/** @param asTemplate true = 收纳器的“参数模板”✗ 文案不同 ✓ */
+function renderFields(asTemplate = false): void {
+    formEl.appendChild(el("div", "sect", asTemplate ? "参数模板" : "参数"));
 
     // ★★ 输入方式【放到参数上面】（B32 ③ 用户要求 ✓）
     //   理由：它在下面的时候 ✗ 参数一多就要先滑下去才能看到 ✓
@@ -287,7 +479,9 @@ function renderFields(): void {
 
     if (draft.fields.length === 0 && !editing) {
         const d = el("div", "desc");
-        d.textContent = "没有参数 → 点这个按钮会直接注入命令 ✓";
+        d.textContent = asTemplate
+            ? "没有参数模板 → 批量生成用不上（但可以先保存 ✗ 再用弹层里的「＋」手动加子按钮 ✓）"
+            : "没有参数 → 点这个按钮会直接注入命令 ✓";
         formEl.appendChild(d);
     }
 
@@ -531,7 +725,17 @@ saveBtn.addEventListener("click", () => {
         });
         item.inputMode = draft.inputMode;
     }
-    vscode.postMessage({ kind: "commandSave", payload: { item } });
+    // ★★ B33：收纳器的子按钮（可能是模板生成出来的 ✓）
+    //   ★ 读进来时必须带回来 ✗ 否则保存会把旧的 children 抹掉 ✓
+    if (draft.type === "group") {
+        item.children = draft.children ?? [];
+    }
+    // ★★ B33：带上父亲 id ✗ 宿主据此把子按钮塞进 children ✓
+    //   （即使配置页被绕过 ✗ 宿主也会自己查一遍 ✓）
+    vscode.postMessage({
+        kind: "commandSave",
+        payload: { item, parentId: draft.parent?.id },
+    });
 });
 
 cancelBtn.addEventListener("click", () => {
@@ -546,6 +750,20 @@ window.addEventListener("message", (e: MessageEvent) => {
         const p = msg.payload as { draft?: Partial<Draft>; isNew?: boolean };
         const d = p.draft ?? {};
         isNew = p.isNew === true;
+        // ★★ B33：父亲信息（在收纳器里新建时才有 ✓）
+        const rawParent = (d as { parent?: unknown }).parent as
+            | { id?: unknown; label?: unknown; command?: unknown; lockCommand?: unknown }
+            | undefined;
+        const parent =
+            rawParent && typeof rawParent.id === "string"
+                ? {
+                      id: rawParent.id,
+                      label: typeof rawParent.label === "string" ? rawParent.label : "",
+                      command:
+                          typeof rawParent.command === "string" ? rawParent.command : undefined,
+                      lockCommand: rawParent.lockCommand === true,
+                  }
+                : undefined;
         draft = {
             id: typeof d.id === "string" ? d.id : undefined,
             label: typeof d.label === "string" ? d.label : "",
@@ -556,6 +774,11 @@ window.addEventListener("message", (e: MessageEvent) => {
             lockCommand: d.lockCommand === true,
             fields: Array.isArray(d.fields) ? d.fields : [],
             inputMode: d.inputMode === "panel" ? "panel" : "serial",
+            parent,
+            // ★★ B33：已有的子按钮（编辑收纳器时要带回来 ✗ 否则保存会抹掉 ✓）
+            children: Array.isArray((d as { children?: unknown }).children)
+                ? ((d as { children?: CmdItem[] }).children ?? [])
+                : [],
         };
         // ★ 重置编辑状态（换了一个按钮 ✗ 不能还停在旧的编辑里 ✓）
         editing = null;

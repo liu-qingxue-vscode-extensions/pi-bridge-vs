@@ -41,7 +41,8 @@ const confirmPage = (): number => state.history.length + state.queue.length;
 export function render(listEl: HTMLElement, h: Handlers): void {
     listEl.textContent = "";
     if (state.submitted) {
-        listEl.appendChild(info("✓ 已提交，等待 pi 关闭面板…"));
+        // ★ B33：也可能是本地参数收集 ✗ 所以不写“pi” ✓
+        listEl.appendChild(info("✓ 已提交…"));
         return;
     }
     if (totalPages() === 0) return;

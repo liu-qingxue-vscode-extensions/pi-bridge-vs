@@ -382,7 +382,10 @@ bash / python 的 str.replace ✗
    · ★ 最终靠【源码】定论 ✗（rpc-fallback.ts 的 for+await ✓）
 ```
 
-### 16. ★★ HTML/CSS/JS 三件套必须【同级同前缀】
+### 16b. ★★ HTML/CSS/JS 三件套必须【同级同前缀】
+
+> ★ 编号说明：本节与上节都曾写作 16（历史遗留 ✗ 编号重复 ✓）
+> 为免打乱后续 17–26 的引用 ✗ 这里保留为 16b ✓ 不在原处重排 ✓
 
 ```
 现象（B27）：改完 media/interaction.css ✗ 重开面板样式纹丝不动 ✓
