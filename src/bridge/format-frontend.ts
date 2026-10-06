@@ -108,6 +108,9 @@ export type FrontendMessage =
     | { kind: "commandEdit"; id: string }
     | { kind: "commandRun"; id: string }
     | { kind: "commandDelete"; id: string }
+    // ★★ B34：拖拽重排（同容器内 ✓ 跨容器是后面的事 ✓）
+    //   before=true → 插到 targetId 前面 ✗ false → 后面 ✓
+    | { kind: "commandMove"; id: string; targetId: string; before: boolean }
     // ★ B31：技能面板（独立页面）把 SKILL.md 塞进聊天输入框 ✓
     //   ★ 它和 skillToInput 的差别：这个只要【名字】✗ 宿主自己去读文件 ✓
     //     （因为面板碰不到侧栏的 textarea ✗ 只能求宿主 ✓）

@@ -45,16 +45,9 @@ interface CmdItem {
     children?: CmdItem[];
 }
 
-/**
- * ★★ 已知“主路径坏掉”的 item（B33 ✗）
- *
- * 【为什么记它？】
- *   主路径（asWebviewUri）会 401 ✗ 失败一次后没必要每次都再试 ✓
- *   → 第一次让它去碰✗ 确认坏掉 ✗ 以后直接走兜底 ✗ 不再闪 ✓
- *   ★ 这也保留了【诊断能力】✗ 日志里会有一条 warn ✓
- *     （若哪天真好了 ✗ 重新加载页面就清空了 ✓）
- */
-const useFallback = new Set<string>();
+// ★★ B34：原来这里有一个 useFallback 集合（“主路径失败过就记住”✓）
+//   用户拍了板：【直接用 data URI】✗ 所以整个降级机制不需要了 ✓
+//   （★ 以后想切回“先试主路径”✗ 把 makeBtn 里的 useData 改回判断即可 ✓）
 
 const railEl = document.getElementById("cmd-rail-list");
 
@@ -123,6 +116,8 @@ function openPopover(group: CmdItem, anchor: HTMLElement): void {
     }
 
     document.body.appendChild(el);
+    // ★★ 弹层也是容器 ✗ 落点判定挂在它身上（横向 ✓）
+    wireContainer(el, group.id, true);
 
     // ★★ 定位：跟竖条【自然衔接】✗（B33 用户要求 ✓）
     //
@@ -200,6 +195,8 @@ function displayName(item: CmdItem): string {
 function makeBtn(item: CmdItem, group?: CmdItem): HTMLButtonElement {
     const b = document.createElement("button");
     b.className = "cmd-btn";
+    // ★ B34：标记 id（恢复弹层时要按它找锚点 ✓）
+    b.dataset.id = item.id;
     if (item.type === "group") b.classList.add("group");
 
     const name = displayName(item);
@@ -209,7 +206,13 @@ function makeBtn(item: CmdItem, group?: CmdItem): HTMLButtonElement {
     //   ① 主路径不可用（空 / 不是地址 ✓）或之前失败过 → 直接用 data 兜底 ✓
     //   ② 否则先用主路径 ✓ 失败时降级（★ 保留诊断能力：日志里看得到 401 ✓）
     const primary = icon && isImageSrc(icon) ? icon : "";
-    const useData = !!item.iconData && (!primary || useFallback.has(item.id));
+    // ★★ B34：用户定的 —— 【直接用兜底】✗ 不再先试主路径 ✓
+    //   原话：“瞄了个咪的，别做降级了，直接做成这个实现吧。
+    //          我后面最后最后我会来做一个代码框架解析与优化 ✗
+    //          尝试优化 ✗ 到时候再考虑把这些东西做完美”✓
+    //   ★ 环境里主路径就是 401 ✗ 试一次只是白闪 ✓
+    //     留着主路径的代码 ✗ 以后环境好了改一行就能切回来 ✓
+    const useData = !!item.iconData;
     const src = useData ? item.iconData! : primary;
 
     if (src) {
@@ -219,21 +222,12 @@ function makeBtn(item: CmdItem, group?: CmdItem): HTMLButtonElement {
         // ★ alt 留空：图片加载不出来时不要蹦出一行文字（踩过 ✗）
         img.alt = "";
         img.addEventListener("error", () => {
-            // ★★ B33：主路径 401 时自动降级成 data URI ✓
+            // ★★ B34：现在默认就走 data ✗ 还能失败就说明兜底也没拿到 ✓
             const who = item.label || item.command || "?";
-            if (!useFallback.has(item.id) && item.iconData) {
-                useFallback.add(item.id);
-                log.warn(
-                    `图标主路径失败 → 改用 data 兜底：${who}\n` +
-                        `  src = ${img.src.slice(0, 120)}`,
-                );
-                img.src = item.iconData;
-                return;
-            }
             log.error(
-                `图标加载失败（无可用兜底）：${who}\n` +
-                    `  src = ${img.src.slice(0, 160)}\n` +
-                    `  （常见原因：文件不在 / 白名单没设 / 401 ✓）`,
+                `图标加载失败：${who}\n` +
+                    `  src = ${img.src.slice(0, 120)}\n` +
+                    `  （宿主没给出 data 兜底？看输出的 iconForWeb 日志 ✓）`,
             );
         });
         b.appendChild(img);
@@ -293,13 +287,206 @@ function makeBtn(item: CmdItem, group?: CmdItem): HTMLButtonElement {
     // ★★ 事件一起挂上 ✗ 调用方就不会漏（B33 ✓）
     wireClick(b, item);
     wireMenu(b, item);
+    wireDrag(b, item, group?.id ?? ""); // ★ B34：拖拽 ✓
 
     return b;
+}
+
+// ══════════════ ★★ B34：拖拽（分三步 ✗ 先做「同容器内重排」✓）══════════════
+
+/**
+ * 【★ 为什么要有这个全局状态？】
+ *   拖拽是【跨元素】的 ✗
+ *     ① dragstart 在【被拖的按钮】上
+ *     ② dragover / drop 在【途经 / 目标按钮】上
+ *   三件事分属不同元素的处理器 ✗ 必须有个共享的“当前在拖什么”✓
+ */
+interface DragState {
+    /** 正在拖的条目 id ✓ */
+    id: string;
+    /** ★ 它的父亲（"" = 顶层竖条 ✗ 否则是收纳器 id ✓）*/
+    parentId: string;
+    /** ★★ 它的 DOM 元素（B34 ✗ 算“是否等于原地”要用 ✓）*/
+    el: HTMLElement;
+    /**
+     * ★★ 同级【其他】按钮的未变换中点（dragstart 快照 ✗ 之后不再重算 ✓）
+     *
+     * 【★ 为什么必须快照？】（B34 用户实测报的“不一致”✓）
+     *   让开动画用的是 transform ✗ 而 getBoundingClientRect() 【会反映 transform】✓
+     *   → 元素一让开 ✗ 判定基准就跟着偏 ✓
+     *   → 鼠标指的地方 和 系统判定的地方 就错位了 ✓✓✓
+     *   ★ 症状：“明明不会进入他俩之间 ✗ 他俩仍然让开位置”✓
+     *
+     * 【★ 为什么排除自己？】
+     *   后端 moveCommand 是【先把源珊出来 ✗ 再插进去】✓
+     *   前端要从同一个语义出发 ✗ 否则又是“动画与实际不一”✓
+     */
+    others: { el: HTMLElement; mid: number }[];
+    /** ★ 轴：竖条用 y ✗ 弹层用 x ✓ */
+    horizontal: boolean;
+    /** ★ 当前落点索引（在 others 里 ✗ == length 表示末尾 ✓ -1 = 还没算 ✓）*/
+    slot: number;
+}
+let drag: DragState | null = null;
+/** ★ 探针：第一条日志能出现就说明 webview 支持 HTML5 拖拽（B34 ✓）*/
+let dragProbeLogged = false;
+/**
+ * ★★ 刚刚拖过（B34 ✓）
+ *   drop 之后浏览器会再补一个 click ✗ 用它吃掉那一次 ✓
+ *   ★ 为什么用标志而不是事件时间差？
+ *     click 紧跟 drop ✗ 时间差极小 ✓ 标志最直接可靠 ✓
+ */
+let justDragged = false;
+
+/** ★ 清掉所有落点标记（只可能有一对 ✗ 但全清最简单 ✓）*/
+function clearDropMarks(): void {
+    document
+        .querySelectorAll(".drop-before, .drop-after, .shift-up, .shift-down")
+        .forEach((e) => e.classList.remove("drop-before", "drop-after", "shift-up", "shift-down"));
+}
+
+/**
+ * ★★ 画出“空位”（B34 ✓）
+ *
+ * 【规则】插到 others[i] 【之前】✗
+ *   → others[i] 往后让（它自己就该被这东西顶开 ✓）
+ *   → others[i-1] 往前让（另一侧 ✓）
+ *   ★ 两边一起 ✗ 中间的空位才看得出来（用户要求“两个一起移动”✓）
+ *   ★★ 末尾（i == length）→ 只让最后一个往前让 ✓
+ */
+function paintSlot(): void {
+    clearDropMarks();
+    if (!drag) return;
+    const { others, slot } = drag;
+    const after = others[slot]; // 插到它之前 ✓（可能 undefined = 末尾）
+    const prev = others[slot - 1]; // 它前面那个 ✓
+
+    if (after) after.el.classList.add("drop-before");
+    if (prev && after) prev.el.classList.add("shift-up");
+    if (!after && prev) prev.el.classList.add("drop-after");
+}
+
+/** ★★ 在快照里找落点索引（第一个 mid > pos 的就在它前面 ✓）*/
+function findSlot(others: { mid: number }[], pos: number): number {
+    for (let i = 0; i < others.length; i++) {
+        if (pos < others[i].mid) return i;
+    }
+    return others.length; // 比所有中点都靠后 → 末尾 ✓
+}
+
+/**
+ * ★★ 给【容器】挂拖拽落点（B34 ✗ 这一步是成败关键 ✓）
+ *
+ * 【★★ 为什么必须挂容器而不是按钮？】（踩过 ✗ 用户报“成功率低”✓）
+ *   原来挂在每个按钮上 ✗ 而且开头对【拖动源自己】直接 return ✓
+ *   但拖起来时鼠标【正下方就是源】✗
+ *   → 那个位置既不 preventDefault ✗ 也不接 drop ✓
+ *   → 必须“挪到别的按钮上”才能落 ✗ 成功率当然低 ✓✓✓
+ *   ⇒ 挂容器：只要在容器范围内 ✗ 哪都能落 ✓
+ *
+ * 【判定算法（不动 ✓）】
+ *   快照里每个中点就是分割线 ✗ 第一个 mid > 鼠标位置的就是落点 ✓
+ *   用户说的“半个按钮 + 半个间距”✗ 数学上就是这个中点分界 ✓
+ *   而且它是【动态的】✗ 但基准是【快照】✗ 不被自己的动画带偏 ✓
+ */
+function wireContainer(el: HTMLElement, parentId: string, horizontal: boolean): void {
+    el.addEventListener("dragover", (e) => {
+        if (!drag || drag.parentId !== parentId) return;
+        e.preventDefault(); // ★ 容器级：整个区域都能落 ✓
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+
+        const pos = horizontal ? e.clientX : e.clientY;
+        const slot = findSlot(drag.others, pos);
+        if (slot === drag.slot) return; // ★ 没变就不重画（不抖 ✓）
+        drag.slot = slot;
+        paintSlot();
+    });
+
+    el.addEventListener("drop", (e) => {
+        if (!drag || drag.parentId !== parentId) return;
+        e.preventDefault();
+        e.stopPropagation();
+
+        // ★★ 从【快照索引】换算成宿主认识的 (targetId, before) ✗
+        //   ★ 消息格式不变 ✗ 后端 moveCommand 已经是“先珊后插”✓
+        const { others, slot } = drag;
+        const i = slot < 0 ? others.length : slot;
+        const at = others[i]; // 插到它之前 ✓
+        const prev = others[i - 1]; // 末尾时用最后一个 + before=false ✓
+        const src = drag;
+
+        clearDropMarks();
+        drag = null;
+        justDragged = true; // ★ 吃掉紧接着的那次 click ✓
+
+        const targetId = at ? at.el.dataset.id : prev?.el.dataset.id;
+        if (!targetId) return; // 同级只剩自己 ✗ 没得排 ✓
+        const before = !!at;
+        log.info(`拖拽重排：${src.id} → ${before ? "前" : "后"}插到 ${targetId}`);
+        vscode.postMessage({ kind: "commandMove", id: src.id, targetId, before });
+    });
+}
+
+/** ★★ 给按钮挂拖拽（B34 ✗ 只负责“起拖 / 收拖”✓）*/
+function wireDrag(b: HTMLButtonElement, item: CmdItem, parentId: string): void {
+    b.draggable = true;
+
+    b.addEventListener("dragstart", (e) => {
+        // ★★ B34：先快照（此时还没任何 transform ✗ 位置是干净的 ✓）
+        const horizontal = parentId !== "";
+        const sibs = [...(b.parentElement?.children ?? [])] as HTMLElement[];
+        const others = sibs
+            .filter((x) => x.classList.contains("cmd-btn") && x !== b)
+            .map((x) => {
+                const r = x.getBoundingClientRect();
+                return { el: x, mid: horizontal ? r.left + r.width / 2 : r.top + r.height / 2 };
+            });
+        drag = { id: item.id, parentId, el: b, others, horizontal, slot: -1 };
+
+        b.classList.add("dragging");
+        if (e.dataTransfer) {
+            e.dataTransfer.setData("text/plain", item.id);
+            e.dataTransfer.effectAllowed = "move";
+            // ★★ 换成【缩小的拖拽图像】（用户要的“拖动出来的图标变小”✓）
+            //   ★ 必须在这个时机同步 append ✗ 之后才能移除 ✓
+            const ghost = b.cloneNode(true) as HTMLElement;
+            ghost.className = "cmd-btn cmd-ghost";
+            document.body.appendChild(ghost);
+            const gr = ghost.getBoundingClientRect();
+            e.dataTransfer.setDragImage(ghost, gr.width / 2, gr.height / 2);
+            setTimeout(() => ghost.remove(), 0);
+        }
+        if (!dragProbeLogged) {
+            dragProbeLogged = true;
+            log.info("★ 拖拽探针：dragstart 触发了 ✓（webview 支持 HTML5 DnD ✓）");
+        }
+    });
+
+    b.addEventListener("dragend", () => {
+        b.classList.remove("dragging");
+        clearDropMarks();
+        drag = null;
+        // ★ 没触发 drop（拖到空白处）也要吃掉随后的 click ✓
+        if (!justDragged) {
+            justDragged = true;
+            setTimeout(() => {
+                justDragged = false;
+            }, 0);
+        }
+    });
 }
 
 /** ★ 挂点击（顶层收纳=展开 ✗ 其余=执行 ✓）*/
 function wireClick(btn: HTMLButtonElement, item: CmdItem): void {
     btn.addEventListener("click", () => {
+        // ★★ B34：拖拽结束后的那一次 click 要忽略 ✗
+        //   症状（用户报的）：“拖拽完结束之后 ✗ 它会收起来 ✗
+        //     自动 ✗ 也就是似乎完成了一次点击事件的意味了”✓
+        //   ★ 原因：浏览器在 drop 后还会补一个 click ✓
+        if (justDragged) {
+            justDragged = false;
+            return;
+        }
         if (item.type === "group") {
             openPopover(item, btn); // ★ B33：横向弹层 ✓
             return;
@@ -337,7 +524,14 @@ function wireMenu(btn: HTMLButtonElement, item: CmdItem): void {
 
 function render(): void {
     if (!railEl) return;
-    // ★ 重建列表 → 弹层的锚点没了 ✗ 必须先关 ✓（B33）
+    // ★★ B34：重绘后要【恢复】之前打开的弹层 ✗
+    //
+    //   【为什么？】拖拽会触发宿主 pushCommands → 前端 setRailCommands → render ✓
+    //     而 render 原来第一件事就是 closePopover ✗✗✗
+    //     → 用户看到的就是：“拖拽完结束之后 ✗ 它会收起来”✓
+    //     （他归因为“似乎完成了一次点击”✗ 其实点击也有一份 ✓ 两个 bug 叠了）
+    //   ⇒ 先把“之前开着谁”记下来 ✗ 重绘完再展开 ✓
+    const reopen = popoverFor;
     closePopover();
     railEl.textContent = "";
 
@@ -353,6 +547,13 @@ function render(): void {
     add.title = "新建一个自由按钮（先起名字 ✗ 命令后面再补 ✓）";
     add.addEventListener("click", () => void addByPrompt());
     railEl.appendChild(add);
+
+    // ★ 恢复弹层（找新的那个按钮当锚点 ✓）
+    if (reopen) {
+        const g = items.find((x) => x.id === reopen);
+        const anchor = railEl.querySelector<HTMLButtonElement>(`[data-id="${reopen}"]`);
+        if (g && g.type === "group" && anchor) openPopover(g, anchor);
+    }
 }
 
 // ── 新建（B32 ① 先用输入框顶上 ✗ 完整的配置页在 ② ✓）──
@@ -408,6 +609,9 @@ export function setupCmdRail(): void {
     // ★ 捕获阶段 ✗ 任何滚动容器都能触发 ✓
     window.addEventListener("scroll", closePopover, true);
     window.addEventListener("resize", closePopover);
+
+    // ★★ B34：竖条是顶层容器 ✗ 落点判定挂在它身上（纵向 ✓）
+    wireContainer(railEl, "", false);
 
     render(); // 先画一个空态（免得竖条里空荡荡 ✓）
 }

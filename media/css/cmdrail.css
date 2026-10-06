@@ -113,8 +113,72 @@
    ★ 先做成【正方形图标按钮】✗ 名字走悬停提示 ✓
      因为 42px 宽放不下"图标 + 文字"两行 ✓
    （以后如果加宽，可以改成"图标在上、文字在下"✓）*/
+/* ══════════════ ★★ B34：小光标 + 拖拽动画 ══════════════
+
+   【① 自定义小光标】（用户要求 ✓）
+     原话：“鼠标好大呀 ✗ 相比较于里面的按钮 ✗ 里面按钮本来就不咋地大 ✗
+            这鼠标还挺大一个 ✗ 能不能做到一个自定义的鼠标 ✗
+            让它进来的时候鼠标变小？”✓
+     ★ 做法：内联 SVG（data URI ✗ 不用额外文件 ✓）
+     ★★ 限制：光标图【最大 32×32】✗ 而且必须给【热点坐标】✓
+        格式：url(...) <x> <y>, <回退光标> ✓
+     ★★★ 拖动时那个“大手”是浏览器画的 ✗ 改不了 ✓
+         —— 但可以把【指到按钮上】的光标换小 ✓ */
+.cmd-btn,
+.cmd-btn.add {
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 13 13"><path d="M1 1 L1 10.5 L3.6 7.8 L5.8 12.4 L7.4 11.6 L5.2 7.2 L9 7.2 Z" fill="%23ffffff" stroke="%23000000" stroke-width="1"/></svg>') 1 1, pointer;
+}
+
+/* ② ★ 正在拖的那个：缩小 + 半透明（B34 ✗ 用户要的“变小”✓）*/
+.cmd-btn.dragging {
+  opacity: .3;
+  transform: scale(.75);
+}
+
+/* ★★ 拖拽图像（幕后 clone ✗ 缩到 .62 ✓）
+   用户要的：“拖动出来的图标变小一点”✓
+   ★ position: fixed + 移出屏外 ✗ 只为了能被 setDragImage 拿到 ✓ */
+.cmd-ghost {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  transform: scale(.62);
+  opacity: .9;
+  pointer-events: none;
+}
+
+/* ③ ★★ 落点标记：脉冲（快点 ✗ 0.45s ✓）*/
+@keyframes pi-drop-pulse {
+  0%, 100% { opacity: .5; }
+  50% { opacity: 1; }
+}
+
+/* ④ ★★ 落点：【两侧一起让开】✗ 空位看得清清楚楚（用户要求 ✓）
+
+   【为什么两个都要动？】
+     用户：“移动的时候只有一个在移动 ✗ 没有两个一起移动”✓
+     只动一个 → 看不出“空位在哪”✗
+     两侧分别往两边让 ✗ 中间就真的空出来 ✓
+
+   【方向】竖条用 y ✗ 弹层用 x ✓
+     插到它前面 → 它往下让 ✗ 它前面那个往上让 ✓
+     插到它后面 → 它往上让 ✗ 它后面那个往下让 ✓ */
+.cmd-btn.drop-before { transform: translateY(8px); }
+.cmd-btn.drop-after { transform: translateY(-8px); }
+.cmd-btn.shift-up { transform: translateY(-8px); }
+.cmd-btn.shift-down { transform: translateY(8px); }
+
+.rail-pop .cmd-btn.drop-before { transform: translateX(8px); }
+.rail-pop .cmd-btn.drop-after { transform: translateX(-8px); }
+.rail-pop .cmd-btn.shift-up { transform: translateX(-8px); }
+.rail-pop .cmd-btn.shift-down { transform: translateX(8px); }
+
 .cmd-btn {
   flex: 0 0 auto;
+  /* ★★ B34：落点标记用伪元素定位 ✗ 需要它是定位上下文 ✓ */
+  position: relative;
+  /* ★ 平移让开要平滑 ✓ */
+  transition: transform .14s ease-out;
   width: var(--pi-cmd-btn-size, 28px);
   height: var(--pi-cmd-btn-size, 28px);
   display: flex;
@@ -237,6 +301,44 @@
   border-radius: 8px 0 0 8px;
   padding: 5px 6px 5px 8px;
 }
+/* ══════════════ ★★ B34：拖拽反馈 ══════════════
+   ① 正在拖的那个 → 半透明（让人看到它在动 ✓）
+   ② 落点 → 一条高亮线（插到哪一目了然 ✓）
+
+   ★★ 两个方向：
+     竖条里是【纵向】✗ 标记画成横线 ✓
+     弹层里是【横向】✗ 标记画成竖线 ✓
+     （判断靠 .rail-pop 祖先 ✗ 不用 JS ✓）*/
+.cmd-btn.dragging { opacity: .35; }
+
+.cmd-btn.drop-before::before,
+.cmd-btn.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  height: 2px;
+  background: var(--vscode-focusBorder, #0078d4);
+  border-radius: 1px;
+  z-index: 1;
+  animation: pi-drop-pulse .45s ease-in-out infinite;
+}
+.cmd-btn.drop-before::before { top: -3px; }
+.cmd-btn.drop-after::after { bottom: -3px; }
+
+/* ★ 弹层里的：把横线转成竖线 ✓ */
+.rail-pop .cmd-btn.drop-before::before,
+.rail-pop .cmd-btn.drop-after::after {
+  left: auto;
+  right: auto;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  height: auto;
+}
+.rail-pop .cmd-btn.drop-before::before { left: -3px; }
+.rail-pop .cmd-btn.drop-after::after { right: -3px; }
+
 /* ★ 空收纳器的提示 ✓ */
 .rail-pop-hint {
   padding: 0 4px;

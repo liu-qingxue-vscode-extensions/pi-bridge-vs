@@ -71,6 +71,7 @@ import {
     findCommand,
     removeCommand,
     collectIcons,
+    moveCommand,
     type CmdItem,
 } from "./panels/command-store.js";
 import { createSettingsPoster } from "./panels/settings-post.js";
@@ -826,6 +827,20 @@ export function activate(context: vscode.ExtensionContext): void {
                 await writeCommands(removeCommand(all, msg.id));
                 pushCommands();
                 logInfo(`删除按钮：${hit?.label ?? msg.id}`);
+                return;
+            }
+            // ★★ B34：拖拽重排（同容器内 ✓ 跨容器是后面的事 ✓）
+            if (msg.kind === "commandMove") {
+                const items = readCommands();
+                const ok = moveCommand(items, msg.id, msg.targetId, msg.before === true);
+                if (!ok) {
+                    // ★ 不同容器 / 找不到 → 什么都不写 ✓（前端已经会回弹 ✓）
+                    logWarn(`拖拽重排未生效：${msg.id} → ${msg.targetId}（第一步只允许同容器 ✓）`);
+                    return;
+                }
+                await writeCommands(items);
+                pushCommands();
+                logInfo(`拖拽重排：${msg.id} → ${msg.before ? "前" : "后"}插到 ${msg.targetId}`);
                 return;
             }
             if (msg.kind === "commandRun") {

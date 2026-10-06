@@ -171,6 +171,55 @@ export function collectIcons(item: CmdItem): string[] {
     return out;
 }
 
+/**
+ * ★★ 在【同级】里重排一个条目（B34 拖拽 ✓）
+ *
+ * 【★ 为什么要先找“它俩共同的父数组”？】
+ *   拖拽可能发生在顶层 ✗ 也可能在某个收纳器的 children 里 ✓
+ *   → 先在整棵树里找到【同时含这两个 id 的那个数组】✗ 在里面移动 ✓
+ *   ★ 同时含 ⇒ 它俩本来就同级 ✗ 所以这就是“同容器内重排”✓
+ *     （跨容器是 B34 第二 / 三步 ✓ 不在这里 ✓）
+ *
+ * @returns false = 没找到 / 不同容器（调用方不要写回配置 ✓）
+ */
+export function moveCommand(
+    items: CmdItem[],
+    id: string,
+    targetId: string,
+    before: boolean,
+): boolean {
+    const arr = findSiblingArray(items, id, targetId);
+    if (!arr) return false;
+
+    const from = arr.findIndex((x) => x.id === id);
+    if (from < 0) return false;
+    const [moved] = arr.splice(from, 1); // ★ 先拿出来 ✗ 再插进去 ✓
+
+    let to = arr.findIndex((x) => x.id === targetId);
+    if (to < 0) {
+        arr.splice(from, 0, moved); // ★ 找不到目标 → 原位放回（别把东西弄丢 ✓）
+        return false;
+    }
+    if (!before) to += 1;
+    arr.splice(to, 0, moved);
+    return true;
+}
+
+/** ★ 找同时包含 a 和 b 的那个数组（递归 ✗ 顶层命中就返回 ✓）*/
+function findSiblingArray(
+    items: CmdItem[],
+    a: string,
+    b: string,
+): CmdItem[] | undefined {
+    if (items.some((x) => x.id === a) && items.some((x) => x.id === b)) return items;
+    for (const x of items) {
+        if (!x.children) continue;
+        const hit = findSiblingArray(x.children, a, b);
+        if (hit) return hit;
+    }
+    return undefined;
+}
+
 // ── 下面是最小校验（配置是用户手改得动的 ✗ 不能信 ✓）──
 
 function isCmdItem(x: unknown): x is CmdItem {
