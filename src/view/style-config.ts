@@ -155,6 +155,8 @@ export function readStyleVars(): Record<string, string> {
     const fold = cfg.get<string[]>("toolFold", []);
     if (Array.isArray(fold) && fold.length) // ★★ 分隔符必须用【逗号】✗ 分号在 CSS 里是声明结束符 ✗ 变量值会被截断
     vars["--pi-tool-fold"] = fold.join(",");
+    // ★★ B41：代码过宽自动缩放（1/0 ✗ 前端读它决定要不要量宽度）
+    vars["--pi-code-autofit"] = cfg.get<boolean>("codeAutoFit", true) ? "1" : "0";
     return vars;
 }
 

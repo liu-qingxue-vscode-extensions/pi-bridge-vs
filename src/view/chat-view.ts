@@ -8,6 +8,8 @@
  * 【迭代方向】
  * 随着调试板里的数据被逐个"消灭"，这里会逐步长出真正的 UI 渲染。
  */
+import { logInfo } from "../logger.js";
+import { openToolInEditor } from "../panels/editor-open.js";
 import * as vscode from "vscode";
 import { loadWebviewHtml } from "./html-loader.js";
 import { readStyleVars, styleVarsToCss, classNamesFromVars, onStyleChange } from "./style-config.js";
@@ -133,6 +135,21 @@ export class ChatView implements vscode.WebviewViewProvider {
                 //   为什么放回调而不是这里？→ 它要读 settings.json / 问 pi ✓
                 //   这两个都是【main.ts 的职责】✗（chat-view 只该管显示 ✓）
                 this.onReady?.();
+                return;
+            }
+
+            // ★★ B41：前端要把某个工具块"送去编辑器"（按钮 / 右键触发）
+            //   按 callId 从 chatState 取原始块 ✗ 再交给 editor-open 分派
+            //   （★ 数据从宿主取而不是从 webview DOM 抠 —— 宿主的数据更完整：
+            //     details.patch / resultParts 都在 ✓ 而且不必解析 HTML ✗）
+            if (kind === "openInEditor") {
+                const callId = (msg as { callId?: unknown }).callId;
+                logInfo(`★ 宿主收到 openInEditor：callId=${String(callId)}`);
+                if (typeof callId === "string") {
+                    const blk = this.chatState.findToolBlock(callId);
+                    logInfo(`  找到块：${blk ? `${blk.toolName}（args=${JSON.stringify(blk.args)?.slice(0, 60)}）` : "★没找到"}`);
+                    void openToolInEditor(blk);
+                }
                 return;
             }
 

@@ -95,7 +95,11 @@
 }
 
 /* 代码本体：只有底色 ✗ 语法高亮以后再说 ✓ */
+/* ★ B41：过宽的代码自动缩放（scale 由 code-fit.ts 量出来 ✗ 默认 1 ⇒ 不生效）
+   ★ 只影响 .code-block（read/write 的代码 / MD 代码块）
+     bash 输出(.part-text) 和 diff(.diff-lc) 是折行的 ✗ 不走这条 */
 .code-block pre {
+  font-size: calc(100% * var(--code-scale, 1));
   margin: 0;
   padding: 10px 12px;
   overflow-x: auto;

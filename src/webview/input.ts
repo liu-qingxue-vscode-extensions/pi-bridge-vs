@@ -5,6 +5,7 @@
  * 【发送按钮双重身份】空闲 = 发送（↑）；工作中 = 转圈，点击 = 中断 ✓
  *   （转圈本身就表示"正在跑"，点击它天然对应"中断" ✓）
  */
+import { setCodeAutoFit } from "./code-fit.js";
 import { vscode } from "./vscode-api.js";
 import { inputEl, sendBtn, messagesEl, inputAreaEl, footCwd, btnReload } from "./dom.js";
 import { ui } from "./state.js";
@@ -99,6 +100,8 @@ export function applyStyleVars(vars?: Record<string, string>): void {
     ui.defaultThinkCollapsed = !!vars && vars["--pi-think-collapsed"] === "on";
     ui.defaultToolCollapsed = !!vars && vars["--pi-tool-collapsed"] === "on";
     ui.noticeAutoOpen = !!vars && vars["--pi-notice-auto-open"] === "on";
+    // ★ B41：代码过宽自动缩放（默认开 ✗ 只有显式 "0" 才关）
+    setCodeAutoFit(!vars || vars["--pi-code-autofit"] !== "0");
 
     // ★★ B38：工具气泡的两个滚动开关已删（现在没有内滚动 ✗ 长内容交给折叠 ✓）
 

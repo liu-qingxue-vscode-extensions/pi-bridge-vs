@@ -13,10 +13,16 @@ import { messagesEl } from "./dom.js";
 import { ui } from "./state.js";
 import { createHead, makeActions, scrollToBottom } from "./bubbles.js";
 import { highlightShellInto, LANG_ALIAS } from "./highlight.js";
-// ★★ B38：复用【公共渲染能力】✗ 而不是去借正文模块的私有函数
 import { renderMarkdown, scheduleHighlight } from "./render-kit.js";
 import { applyFold, planFold } from "./tool-fold.js";
 import { LEVEL_COLOR, levelOf } from "./cmd-levels.js";
+// ★ B41 新增：送去编辑器（fitCodeBlocks=代码缩放 / showContextMenu=右键菜单 / log,vscode=发消息）
+import { fitCodeBlocks } from "./code-fit.js";
+import { showContextMenu } from "./context-menu.js";
+import { log, vscode } from "./vscode-api.js";
+
+/** ★ B41：把工具块送去编辑器的按钮文字（用户定的：不用图标 —— 图标的语义说不清）*/
+const TEXT_OPEN = "编辑器";
 
 /** 新建工具气泡（外框 + 上半调用 + 下半结果占位）
  *
@@ -38,6 +44,41 @@ export function createToolBubble(callId: string, toolName?: string): HTMLElement
 
     // 折叠头：左=工具名串 ✗ 右=操作区
     const head = createHead("🔧 " + (toolName || "tool"), () => toggleTool(div));
+
+    // ★★ B41：把内容送去左边的编辑器区显示（按钮 + 右键两个入口）
+    //   为什么做成【通用动作】而不是只服务 diff：将来任何工具块都该能"扔过去看"
+    //   ⇒ 宿主侧按 toolName 分派（read/write→真文件 ✗ edit→diff 视图 ✗ 其余→虚拟文档）
+    const open = (): void => {
+        // ★ 前端这里 vscode 必须来自 vscode-api（曾经漏了 import ⇒ 点击静默失败）
+        log.info(`★ 送去编辑器：callId=${callId} tool=${toolName || "?"}`);
+        vscode.postMessage({ kind: "openInEditor", callId });
+    };
+    const actions = head.querySelector(".head-actions");
+    if (actions) {
+        const openBtn = document.createElement("button");
+        openBtn.className = "head-action";
+        openBtn.title = "在编辑器中打开";
+        // ★ 用【文字】而不是图标：图标的语义说不清（跳转？外部打开？）
+        //   「编辑器」直接告诉你"点它内容会去左侧编辑器区" ✓
+        openBtn.textContent = TEXT_OPEN;
+        openBtn.addEventListener("click", (e) => {
+            e.stopPropagation(); // ★ 别把点击传给顶栏（否则顺手折叠了）
+            open();
+        });
+        actions.appendChild(openBtn);
+    }
+    div.addEventListener("contextmenu", (e) => {
+        showContextMenu(e, [
+            { label: "在编辑器中打开", onClick: open },
+            {
+                label: "复制内容",
+                onClick: () => {
+                    const t = (div.querySelector(".tool-body") as HTMLElement | null)?.innerText ?? "";
+                    void navigator.clipboard.writeText(t);
+                },
+            },
+        ]);
+    });
 
     // ★★ B38：整块点击 = 折叠/展开
     //   ① 点按钮（顶栏折叠钮 / 以后的 diff 钮）→ 不管
@@ -315,6 +356,8 @@ function refold(bubble: HTMLElement): void {
     const body = (bubble.querySelector(".tool-body") as HTMLElement | null) ?? bubble;
     body.classList.toggle("fold-collapsed", collapsed);
     applyFold(body, bubble.dataset.tool ?? "", collapsed);
+    // ★ B41：代码块过宽就缩字号（★ 收起版和展开版都要量 ✗ 两者的宽度不同）
+    fitCodeBlocks(body);
 }
 
 /** 工具状态：转圈（running）/ 勾（ok）/ 叉（error） */

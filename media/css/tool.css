@@ -233,3 +233,31 @@
 .fold-peek .code-block { margin-bottom: 0; }
 .fold-peek { display: none; }
 .fold-collapsed .fold-peek { display: block; }
+
+/* ═══ B41：工具块顶栏的"送去编辑器"按钮 ═══
+   跟折叠按钮同排（head-actions 区）✗ 平时淡出，hover 工具块才明显
+   ★ 用透明度而不是 display:none —— 后者会让顶栏宽度跳动 ✓ */
+.head-action {
+  background: none;
+  border: none;
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  /* ★ 常驻可见（不做 hover 才出现 —— 那样用户根本不知道有这个功能）*/
+  opacity: .75;
+  transition: opacity .12s ease, background .12s ease;
+}
+.bubble.tool:hover .head-action { opacity: .9; }
+.head-action:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .22));
+}
+/* ★ 文字按钮（不是图标）✗ 字号跟顶栏其它文字一致 */
+.head-action {
+  font-size: 11px;
+  font-family: inherit;
+  line-height: 1;
+}

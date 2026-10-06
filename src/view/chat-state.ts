@@ -251,7 +251,8 @@ export class ChatState {
     }
 
     /** 按 callId 在所有气泡的内容块里找工具块 */
-    private findToolBlock(callId: string): Block | undefined {
+    /** ★ B41：公开给 editor-open 用（按 callId 取工具块 ⇒ 送去编辑器）*/
+    findToolBlock(callId: string): Block | undefined {
         for (const bubble of this.bubbles) {
             for (const blk of bubble.blocks) {
                 if (blk.type === "tool" && blk.toolCallId === callId) return blk;

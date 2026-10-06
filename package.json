@@ -376,6 +376,11 @@
                         ],
                         "markdownDescription": "工具块**收起时显示多少**（折叠规则）。每项一条：`工具名:头行数:尾行数`\n\n· `bash:1:0` → 只留命令行（命令行算 1 行）\n· `read:3:2` → 头 3 行 + 尾 2 行（**行**，不是单元）\n· `0:0` → 全折（只留顶栏和摘要行）· `all` → 不折\n· `*` → 兜底（所有没写到的工具，含扩展工具）\n\n★ 没写到的工具 → 全折"
                     },
+                    "pi-bridge.style.codeAutoFit": {
+                        "type": "boolean",
+                        "default": true,
+                        "markdownDescription": "代码块过宽时**自动缩小字号**（避免横向滚动条）。\n\n★ 只影响 **read / write 的代码**（以及 Markdown 里的代码块）\n· bash 输出和 edit 的 diff 是**折行**的 ✗ 不受影响\n· 缩放下限 75% ✗ 比这还宽就仍然横向滚\n\n关掉 → 保持横向滚动条。"
+                    },
                     "pi-bridge.style.gapToolToText": {
                         "type": "number",
                         "default": 4,
@@ -584,7 +589,7 @@
     },
     "activationEvents": [],
     "scripts": {
-        "compile": "node scripts/check-html.mjs && node scripts/check-style-vars.mjs && node scripts/bundle-css.mjs && node scripts/sync-katex.mjs && tsc -p ./ && tsc -p tsconfig.webview.json --noEmit && node scripts/build-webview.mjs",
+        "compile": "node scripts/check-html.mjs && node scripts/check-style-vars.mjs && node scripts/bundle-css.mjs && node scripts/sync-katex.mjs && tsc -p ./ && node scripts/check-patch-reverse.mjs && tsc -p tsconfig.webview.json --noEmit && node scripts/build-webview.mjs",
         "watch": "tsc --watch -p ./",
         "vscode:prepublish": "npm run compile",
         "watch:webview": "node scripts/build-webview.mjs --watch",

@@ -36,6 +36,7 @@ import { setSessionTitle } from "./sessions.js";
 // ★★ B32：自由按钮容器
 import { setRailCommands } from "./cmdrail.js";
 import { setFoldRules } from "./tool-fold.js";
+import { fitCodeBlocks } from "./code-fit.js";
 
 /**
  * 气泡快照的形状（对应插件端 Bubble ✓）
@@ -349,6 +350,18 @@ function findTool(callId: string): HTMLElement | null {
 const cmdCache = new Map<string, string[]>();
 
 export function setupHostBridge(): void {
+    // ★ B41：面板/窗口宽度变化 ⇒ 代码块要重新定字号（不然缩放比例还是旧的）
+    //   节流到下一帧 ✗ resize 会连续触发几十次 ✓
+    let fitPending = false;
+    new ResizeObserver(() => {
+        if (fitPending) return;
+        fitPending = true;
+        requestAnimationFrame(() => {
+            fitPending = false;
+            fitCodeBlocks(messagesEl);
+        });
+    }).observe(messagesEl);
+
     window.addEventListener("message", (event) => {
         const data = (event.data ?? {}) as { kind?: string; payload?: unknown };
 

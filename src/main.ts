@@ -24,6 +24,7 @@
  * 本地日志走 LogOutputChannel（输出面板，VS Code 自动落盘）；
  * 调试板只接收 pi 的真数据 —— 两者不混，避免污染后端数据的类型空间。
  */
+import { createVirtualDocProvider } from "./view/virtual-docs.js";
 import * as vscode from "vscode";
 import os from "node:os";
 import path from "node:path";
@@ -81,6 +82,8 @@ import { readPiDefaults, shortIdOf } from "./panels/misc-utils.js";
 
 export function activate(context: vscode.ExtensionContext): void {
     // 0. 日志（LogOutputChannel：VS Code 自动落盘 + 分级 + 轮转）
+    // ★★ B41：虚拟文档（"送去编辑器"用 —— 不落盘的内容也能在编辑器里显示/做 diff）
+    context.subscriptions.push(createVirtualDocProvider());
     context.subscriptions.push(initLogger());
     logInfo("pi-bridge-vs 激活");
 
