@@ -149,7 +149,8 @@ export type ChatPatch =
     | { kind: "toolExecStart"; callId: string; name: string }
     // ★ parts 是【累积全文】→ 前端替换渲染（不是追加 ✗）
     | { kind: "toolExecUpdate"; callId: string; parts: unknown[] }
-    | { kind: "toolExecEnd"; callId: string; isError: boolean }
+    // ★★ B38：details 里有 edit 的 diff/patch（前端渲染差异用 ✓）
+    | { kind: "toolExecEnd"; callId: string; isError: boolean; details?: unknown }
     // 任务级状态（agent_start / agent_settled）—— 不进气泡列表，直接驱动状态条/按钮
     | { kind: "agentState"; state: "working" | "idle" }
     // ★ 重连提示（auto_retry_start / auto_retry_end）—— 【不进文件】的字段

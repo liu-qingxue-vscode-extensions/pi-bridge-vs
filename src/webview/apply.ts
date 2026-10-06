@@ -21,7 +21,9 @@ import { setQueueing, showInserting } from "./inserting.js";
 import { appendSegment, endSegment } from "./segments.js";
 import { appendMarkdown, finishMarkdown, setHighlightTheme } from "./markdown.js";
 import { createThinkingBubble, markThinkDone } from "./thinking.js";
-import { createToolBubble, ensureResultHost, markStreamingDone, renderArgs, renderResultParts, setToolState } from "./tool.js";
+import { createToolBubble, ensureResultHost, renderArgs, renderResultParts, setToolState } from "./tool.js";
+import { showCmdChips } from "./tool.js";
+import { renderDiffDetails } from "./tool.js";
 import { appendStopNote, showRetryNotice } from "./notices.js";
 import { showCompactionEnd, showCompactionStart } from "./compact.js";
 import { setModelInfo, showModelPicker, showThinkingPicker } from "./model-picker.js";
@@ -33,6 +35,7 @@ import { applyStyleVars, autoGrow, setAgentState, showCwd, syncPadding } from ".
 import { setSessionTitle } from "./sessions.js";
 // ★★ B32：自由按钮容器
 import { setRailCommands } from "./cmdrail.js";
+import { setFoldRules } from "./tool-fold.js";
 
 /** 气泡快照的形状（对应插件端 Bubble ✓） */
 interface SnapBlock {
@@ -226,10 +229,16 @@ function applyPatch(p: Record<string, unknown>): void {
             else showCompactionEnd(p as never);
             return;
 
-        case "toolStart":
+        case "toolStart": {
             removePending();
-            setToolState(createToolBubble(p.callId as string, p.name as string), "running");
+            const b = createToolBubble(p.callId as string, p.name as string);
+            setToolState(b, "running");
+            // ★★ B38：命令摘要是先到的（重放时）→ 现在补填
+            // ★ 常驻表：气泡会因配置变化【重画】✗ 摘要必须能补回来
+            const saved = cmdCache.get(String(p.callId));
+            if (saved) showCmdChips(b, saved);
             return;
+        }
 
         case "thinkStart":
             removePending();
@@ -262,7 +271,6 @@ function applyPatch(p: Record<string, unknown>): void {
             if (bubble) {
                 renderResultParts(bubble, p.parts as unknown[], p.isError === true, false);
                 setToolState(bubble, p.isError ? "error" : "ok");
-                markStreamingDone(bubble);
             }
             return;
         }
@@ -290,9 +298,13 @@ function applyPatch(p: Record<string, unknown>): void {
         case "toolExecEnd": {
             const bubble = findTool(p.callId as string);
             if (bubble) {
-                markStreamingDone(bubble);
+                // ★ B38：markStreamingDone 已删（只设了没人读的 dataset ✗）
                 // 状态先按 exec 的 isError 定；若随后 toolResult 到达会再覆盖一次 ✓
                 setToolState(bubble, p.isError ? "error" : "ok");
+                // ★★ B38：edit 的 diff 在 details 里（不是 content）→ 单独渲染
+                if (bubble.dataset.tool === "edit" && p.details) {
+                    renderDiffDetails(bubble, p.details);
+                }
             }
             return;
         }
@@ -322,6 +334,13 @@ function findTool(callId: string): HTMLElement | null {
 }
 
 /** 绑定宿主消息监听（入口调用一次 ✓） */
+/**
+ * ★★ B38：命令摘要的【暂存表】
+ *   重放时宿主先推 cmdSummary（异步算的）✗ 而气泡是收到 snapshot 后才建的 ✓
+ *   ⇒ 顺序不定 ✗ 找不到气泡就先存着 ✗ 建气泡时再填 ✓
+ */
+const cmdCache = new Map<string, string[]>();
+
 export function setupHostBridge(): void {
     window.addEventListener("message", (event) => {
         const data = (event.data ?? {}) as { kind?: string; payload?: unknown };
@@ -336,6 +355,7 @@ export function setupHostBridge(): void {
                 return;
             case "styleVars":
                 applyStyleVars(data.payload as Record<string, string>);
+                setFoldRules((data.payload as Record<string, string>)?.["--pi-tool-fold"] ?? "");
                 autoGrow(); // ★ 配置变了（如行数/字号）→ 重新算高度与留白
                 // ★ 再按新配置重画已渲染内容（否则行为类参数改了不起作用 ✗）
                 //   空闲时立即生效；流式中会延后到 agent_settled ✓
@@ -344,8 +364,21 @@ export function setupHostBridge(): void {
             case "modelLimits":
                 ui.modelLimits = (data.payload ?? {}) as Record<string, number>;
                 return;
+            // ★★ B38：宿主解析好的命令主体 → 填摘要行
+            case "cmdSummary": {
+                const p = (data.payload ?? {}) as { callId?: string; commands?: string[] };
+                const b = p.callId ? findTool(p.callId) : null;
+                log.info(`★ 收到 cmdSummary：${JSON.stringify(p)} → 气泡${b ? "找到" : "★没找到"}`);
+                if (Array.isArray(p.commands) && p.commands.length) {
+                    if (cmdCache.size > 800) cmdCache.clear(); // 防无限增长
+                    cmdCache.set(p.callId ?? "", p.commands);
+                    if (b) showCmdChips(b, p.commands);
+                    else cmdCache.set(p.callId ?? "", p.commands); // 气泡还没建 → 先存
+                }
+                return;
+            }
             case "cwd":
-                showCwd(String(data.payload ?? ""));
+                showCwd(data.payload as never);
                 // ★★ B35：不再 setCurrentCwd ✗
                 //   会话面板已搬到编辑器区 ✓ 它自己有 currentCwd
                 //   （宿主在 sessionList 消息里一起给 ✓）

@@ -70,9 +70,14 @@ export function setAgentState(state: string): void {
 }
 
 /** 工作目录（输入区下方极简栏；完整路径放 title ✓） */
-export function showCwd(p: string): void {
-    footCwd.textContent = shortenPath(p, 40);
-    footCwd.title = p;
+export function showCwd(p: string | { path?: string; short?: string }): void {
+    const path = typeof p === "string" ? p : (p.path ?? "");
+    const short = typeof p === "string" ? p : (p.short ?? path);
+    footCwd.textContent = shortenPath(path, 40);
+    footCwd.title = path;
+    // ★★ B38：存一份给 bash 终端提示符用
+    ui.cwd = path;
+    ui.cwdShort = short;
 }
 
 /**
@@ -95,28 +100,9 @@ export function applyStyleVars(vars?: Record<string, string>): void {
     ui.defaultToolCollapsed = !!vars && vars["--pi-tool-collapsed"] === "on";
     ui.noticeAutoOpen = !!vars && vars["--pi-notice-auto-open"] === "on";
 
-    // ★ 工具气泡的两个滚动开关（切类 ✓ CSS 没有布尔变量 ✗）
-    root.classList.toggle("no-arg-scroll", !!vars && vars["--pi-tool-arg-scroll"] === "off");
-    root.classList.toggle(
-        "no-result-scroll",
-        !!vars && vars["--pi-tool-result-scroll"] === "off",
-    );
+    // ★★ B38：工具气泡的两个滚动开关已删（现在没有内滚动 ✗ 长内容交给折叠 ✓）
 
-    // ★ 工具结果“洏几行”：格式 "头:尾"（如 "3:2"）；解析失败 → 置空（不启用 ✓）
-    ui.toolPeek = parsePeek(vars?.["--pi-tool-peek-lines"]);
-}
-
-/**
- * 解析 "3:2" → { head: 3, tail: 2 }
- * 宽容处理："3" → { head: 3, tail: 0 }；空/非法 → null ✓
- */
-function parsePeek(raw?: string): { head: number; tail: number } | null {
-    if (!raw) return null;
-    const [h, t] = String(raw).split(":");
-    const head = Math.max(0, Math.floor(Number(h) || 0));
-    const tail = Math.max(0, Math.floor(Number(t) || 0));
-    if (head === 0 && tail === 0) return null; // 都是 0 → 不启用 ✓
-    return { head, tail };
+    // ★★ B38：toolPeekLines 已删（行级折叠改由 toolFold 管 ✓）
 }
 
 /** 绑定输入区交互（入口调用一次 ✓） */

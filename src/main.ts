@@ -32,6 +32,8 @@ import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
 import { getPackageDir, VERSION } from "@earendil-works/pi-coding-agent";
 import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
+// ★★ B38：命令主体提取（宿主侧用 bash-parser 出 AST ✗ 不占前端包）
+import { extractCommands } from "./panels/cmd-summary.js";
 import { ChatView } from "./view/chat-view.js";
 import { SessionPanel } from "./view/session-panel.js";
 import { SettingsPanel } from "./view/settings-panel.js";
@@ -181,6 +183,22 @@ export function activate(context: vscode.ExtensionContext): void {
         //   （B25 踩到：我把分流写在 log 之前 ✗ → 需要回复的 4 个请求
         //     【调试板完全看不到】✓ 导出数据里也没有 ✓）
         debugPanel.log(event);
+
+        // ★★ B38：bash 一开跑 → 解析出主体命令 ✗ 推给前端填摘要行
+        //   （宿主侧做：解析器不进前端包 ✓ 失败也不影响渲染 ✓）
+        if (event.type === "tool_execution_start") {
+            const ev = event as {
+                toolName?: string;
+                toolCallId?: string;
+                args?: { command?: unknown };
+            };
+            if (ev.toolName === "bash" && ev.toolCallId && typeof ev.args?.command === "string") {
+                void extractCommands(ev.args.command).then((commands) => {
+                    logInfo(`★ bash 命令主体：${JSON.stringify(commands)}（callId=${ev.toolCallId}）`);
+                    if (commands.length) chatView.post("cmdSummary", { callId: ev.toolCallId, commands });
+                });
+            }
+        }
 
         // ★★ 扩展交互【回复桥】（B25）
         //
@@ -966,7 +984,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 await pi.reload();
                 chatState.reset();
                 chatState.clearNotices();
-                chatView.post("cwd", pi.getCwd());
+                chatView.post("cwd", { path: pi.getCwd(), short: compactHome(pi.getCwd()) });
                 chatView.post("noticesCleared", true);
                 chatView.post("snapshot", chatState.snapshot());
                 void vscode.window.showInformationMessage(
@@ -1047,7 +1065,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 // ★ 通知清掉（那是上一个进程生命周期的事 ✓）
                 chatState.clearNotices();
                 chatView.post("noticesCleared", true);
-                chatView.post("cwd", pi.getCwd());
+                chatView.post("cwd", { path: pi.getCwd(), short: compactHome(pi.getCwd()) });
                 chatView.post("snapshot", chatState.snapshot());
                 // ★★ B35：会话列表走独立面板 ✗
                 void sessionActions.list();
@@ -1531,6 +1549,40 @@ export function activate(context: vscode.ExtensionContext): void {
             // ★ 走 ChatState.apply：与实时流同一条渲染路径 ✓
             chatState.apply(patch as never);
         }
+        // ★★ B38：历史里的 bash 命令也要解析（不需要缓存 ✗ 重算一遍即可 ✓
+        //   bash-parser 一条 1~5ms ✗ 几十个工具块也就百毫秒级 ✗ 可忽 ✓）
+        void repushCmdSummaries(messages);
+    }
+
+    /**
+     * ★★ B38：把历史里每条 bash 调用的【命令主体】算出来推给前端
+     * ★ 命令原文就在会话消息里（toolCall.arguments.command）✗ 所以重算可行 ✓
+     * ★ 不写会话文件 ✗ 不建缓存库 ✗ 每次重算（成本可忽略 ✓）
+     */
+    async function repushCmdSummaries(messages: ReplayMessage[]): Promise<void> {
+        let found = 0;
+        for (const m of messages) {
+            const content = m.content;
+            if (!Array.isArray(content)) continue;
+            for (const part of content) {
+                const p = part as {
+                    type?: string;
+                    name?: string;
+                    id?: string;
+                    arguments?: { command?: unknown };
+                };
+                if (p?.type !== "toolCall" || p.name !== "bash" || !p.id) continue;
+                const cmd = p.arguments?.command;
+                if (typeof cmd !== "string") continue;
+                const commands = await extractCommands(cmd);
+                found++;
+                logInfo(`★ 重放命令摘要：${JSON.stringify(commands)}（cmd=${cmd.slice(0, 40)}…）`);
+                if (commands.length) {
+                    chatView.post("cmdSummary", { callId: p.id, commands });
+                }
+            }
+        }
+        logInfo(`★ 重放命令摘要：共找到 ${found} 个 bash 工具调用`);
     }
 
     // ★ 把【当前会话的名字】推给前端标题区（按钮行中间 ✓）

@@ -36,6 +36,7 @@ import {
 import type { ChatState } from "../view/chat-state.js";
 import { logDebug, logError, logInfo, logWarn } from "../logger.js";
 import { toErrorMessage } from "../utils.js";
+import { compactHome } from "../util/paths.js";
 
 export interface SessionActionsDeps {
     /** pi 子进程客户端（启动 / 切换 / 分叉都靠它 ✓）*/
@@ -236,7 +237,7 @@ export function createSessionActions(deps: SessionActionsDeps): SessionActions {
             // ★ 通知【跟着会话走】：切了会话就是另一个上下文了 ✓
             //   （用户定的：切换会话应该清通知 ✓）
             chatState.clearNotices();
-            deps.postChat("cwd", pi.getCwd());
+            deps.postChat("cwd", { path: pi.getCwd(), short: compactHome(pi.getCwd()) });
             deps.postChat("noticesCleared", true);
             deps.postChat("snapshot", chatState.snapshot());
             // ★★ B35：会话列表走独立面板 ✗
@@ -296,7 +297,7 @@ export function createSessionActions(deps: SessionActionsDeps): SessionActions {
             chatState.reset();
             await deps.replay();
             chatState.clearNotices();
-            deps.postChat("cwd", pi.getCwd());
+            deps.postChat("cwd", { path: pi.getCwd(), short: compactHome(pi.getCwd()) });
             deps.postChat("noticesCleared", true);
             deps.postChat("snapshot", chatState.snapshot());
             // ★ 列表要重扫：新文件刚生成 ✓

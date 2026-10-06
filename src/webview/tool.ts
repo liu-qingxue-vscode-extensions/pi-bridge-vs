@@ -10,7 +10,12 @@
  */
 import { messagesEl } from "./dom.js";
 import { ui } from "./state.js";
-import { CARET_SVG, createHead, makeActions, scrollToBottom } from "./bubbles.js";
+import { createHead, makeActions, scrollToBottom } from "./bubbles.js";
+import { highlightShellInto, LANG_ALIAS } from "./highlight.js";
+// ★★ B38：复用【公共渲染能力】✗ 而不是去借正文模块的私有函数
+import { renderMarkdown, scheduleHighlight } from "./render-kit.js";
+import { applyFold, planFold } from "./tool-fold.js";
+import { LEVEL_COLOR, levelOf } from "./cmd-levels.js";
 
 /** 新建工具气泡（外框 + 上半调用 + 下半结果占位）
  *
@@ -25,24 +30,48 @@ export function createToolBubble(callId: string, toolName?: string): HTMLElement
     const div = document.createElement("div");
     div.className = "bubble tool";
     div.dataset.callId = callId;
+    // ★★ B38：记住工具名 ✗ 渲染时要按工具分派 ✓
+    //   （目前只有 bash 走专用分支 ✗ 其余走通用键值对 ✓）
+    div.dataset.tool = toolName ?? "";
     div.dataset.open = ui.defaultToolCollapsed ? "false" : "true";
 
-    // 折叠头：左=工具名串（按钮）· 右=操作区（未来放复制等）
-    const head = createHead("🔧 " + (toolName || "tool"), () => {
-        div.dataset.open = div.dataset.open === "true" ? "false" : "true";
+    // 折叠头：左=工具名串 ✗ 右=操作区
+    const head = createHead("🔧 " + (toolName || "tool"), () => toggleTool(div));
+
+    // ★★ B38：整块点击 = 折叠/展开
+    //   ① 点按钮（顶栏折叠钮 / 以后的 diff 钮）→ 不管
+    //   ② 有选中文字 → 不管（要复制）
+    //   ③ ★ 按下与松手位置差得远（>4px）= 在拖选 ✗ 不是点击
+    //      （没这条的话：在空白处拖一下会因“没选到字”而被当成点击 → block 自己折了）
+    let downX = 0;
+    let downY = 0;
+    div.addEventListener("mousedown", (e) => {
+        downX = e.clientX;
+        downY = e.clientY;
+    });
+    div.addEventListener("click", (e) => {
+        const t = e.target as HTMLElement | null;
+        if (t?.closest("button")) return;
+        if (window.getSelection()?.toString()) return;
+        if (Math.abs(e.clientX - downX) > 4 || Math.abs(e.clientY - downY) > 4) return;
+        toggleTool(div);
     });
 
     // 内容体（可折叠）：上半调用参数 · 下半结果（结果可能晚到，用 callId 填回）
     const body = document.createElement("div");
-    body.className = "tool-body";
-    const call = document.createElement("div");
+    body.className = "tool-body";    const call = document.createElement("div");
     call.className = "tool-call";
     const args = document.createElement("div");
     args.className = "tool-args";
     call.appendChild(args);
     body.appendChild(call);
 
+    // ★★ B38：摘要行（顶栏下面一行 ✗ 各渲染器自己填 ✗ 空则不占高度）
+    //   bash → 命令主体（待做）· read/write → 路径
+    const meta = document.createElement("div");
+    meta.className = "tool-meta";
     div.appendChild(head);
+    div.appendChild(meta);
     div.appendChild(body);
     wrap.appendChild(div);
     // ★ 动作区（用户实测报的：工具气泡也要有克隆/分叉 ✓）
@@ -54,10 +83,237 @@ export function createToolBubble(callId: string, toolName?: string): HTMLElement
     return div;
 }
 
-/** 结束"执行中…"状态（头部标签恢复成"结果"） */
-export function markStreamingDone(bubble: HTMLElement): void {
-    const host = bubble.querySelector(".tool-result") as HTMLElement | null;
-    if (host) host.dataset.streaming = "false";
+/**
+ * 折叠 / 展开（顶栏按钮 + 整块点击共用）
+ */
+function toggleTool(bubble: HTMLElement): void {
+    bubble.dataset.open = bubble.dataset.open === "true" ? "false" : "true";
+    refold(bubble);
+}
+
+/**
+ * ★★ B38：read / write → 路径进【摘要行】✗ 内容区只放内容
+ * ★ write 的内容在【参数】里（不在结果里）→ 顺便画到结果区
+ */
+function renderPathLine(bubble: HTMLElement, args: unknown): void {
+    const path = (args as { path?: unknown } | null)?.path;
+    if (typeof path !== "string") return;
+    bubble.dataset.path = path; // 结果区渲染要用
+
+    setToolMeta(bubble, "📄 " + path);
+
+    // 参数区不显示任何东西（路径已在摘要行）
+    const call = bubble.querySelector(".tool-call") as HTMLElement | null;
+    if (call) call.hidden = true;
+
+    if (bubble.dataset.tool === "write") {
+        const content = (args as { content?: unknown } | null)?.content;
+        if (typeof content === "string") renderFileBody(bubble, content, false);
+    }
+    refold(bubble);
+}
+
+/** 写摘要行（字符串 或 一串元素 ✗ 空则不占高度）*/
+export function setToolMeta(bubble: HTMLElement, content: string | HTMLElement[]): void {
+    const el = bubble.querySelector(".tool-meta") as HTMLElement | null;
+    if (!el) return;
+    el.textContent = "";
+    if (typeof content === "string") {
+        el.textContent = content;
+        if (content) el.title = content;
+        return;
+    }
+    for (const c of content) el.appendChild(c);
+}
+
+/** 结果区渲染：read 用结果、write 用参数（已在 renderPathLine 里做完）*/
+function renderFileResult(bubble: HTMLElement, parts: unknown[], isError: boolean): void {
+    if (bubble.dataset.tool === "write" && !isError) return; // 已经画过了
+    renderFileBody(bubble, textOf(parts), isError);
+}
+
+/** 建一个 code-block（行号从 startLine 开始编 ✗ 尾部片段要接真实行号）*/
+function makeCodeBlock(text: string, lang: string, startLine: number): HTMLElement {
+    const block = document.createElement("div");
+    block.className = "code-block with-ln";
+    if (startLine !== 1) block.style.setProperty("--ln-start", String(startLine - 1));
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    code.className = "language-" + lang;
+    // ★ 空文本要用空格占位：否则 shiki 不生成 .line ⇒ 连行号都没有 ⇒ 一个空框
+    code.textContent = text === "" ? " " : text;
+    pre.appendChild(code);
+    const label = document.createElement("span");
+    label.className = "code-lang"; // 隐藏着 ✗ highlightBlock 靠它认语言
+    label.textContent = lang;
+    block.append(pre, label);
+    return block;
+}
+
+/**
+ * 可折叠的代码块（行级 ✗ 两版都高亮）
+ * ★ 每次喂给 shiki 的都是【完整行】⇒ token 不会被切碎 ✓
+ * ★ 尾部片段接真实行号（--ln-start）✓
+ */
+function buildFoldCode(bubble: HTMLElement, text: string, lang: string): HTMLElement {
+    const body = text.replace(/\n$/, "");
+    const lines = body.split("\n");
+    const tool = bubble.dataset.tool ?? "";
+    const plan = planFold(tool, lines.length, true, tool === "bash");
+
+    const host = document.createElement("div");
+    // ★ 注意：不带 .fold-unit ✗ 它自己管行级（带了两套折叠会打架：
+    //   外层 applyFold 会把它整个藏掉 ✗ 内部的 peek 就白做了）
+    host.className = "fold-code";
+
+    // 不用裁 → 就一版
+    if (plan.hidden === 0) {
+        host.appendChild(makeCodeBlock(body, lang, 1));
+        return host;
+    }
+
+    // 全文版
+    const full = makeCodeBlock(body, lang, 1);
+    full.classList.add("fold-full");
+    host.appendChild(full);
+
+    // 收起版：头 N 行 + 提示 + 尾 M 行
+    const peek = document.createElement("div");
+    peek.className = "fold-peek";
+    if (plan.lineHead > 0) {
+        peek.appendChild(makeCodeBlock(lines.slice(0, plan.lineHead).join("\n"), lang, 1));
+    }
+    const more = document.createElement("div");
+    more.className = "peek-more";
+    more.textContent = `…（已折叠 ${plan.hidden} 行 · 点顶栏展开）`;
+    peek.appendChild(more);
+    if (plan.lineTail > 0) {
+        const start = lines.length - plan.lineTail + 1;
+        peek.appendChild(makeCodeBlock(lines.slice(-plan.lineTail).join("\n"), lang, start));
+    }
+    host.appendChild(peek);
+    return host;
+}
+
+/** 把一段文本按【文件扩展名】选渲染方式画进结果区 */
+function renderFileBody(bubble: HTMLElement, text: string, isError: boolean): void {
+    const host = ensureResultHost(bubble);
+    host.classList.toggle("error", !!isError);
+    const body = host.querySelector(".result-body") as HTMLElement;
+    body.innerHTML = "";
+    const filePath = isError ? "" : (bubble.dataset.path ?? "");
+
+    // ① Markdown → 直接复用正文渲染器
+    if (/\.(md|markdown|mdx)$/i.test(filePath)) {
+        const el = document.createElement("div");
+        el.className = "md-in-tool fold-unit";
+        body.appendChild(el);
+        renderMarkdown(el, text);
+    } else {
+        // ② 认得出语言 → 构造正文同款 code-block（scheduleHighlight 会自动上色）
+        const lang = isError ? "" : langFromPath(filePath);
+        if (lang) {
+            body.appendChild(buildFoldCode(bubble, text, lang));
+            scheduleHighlight();
+        } else {
+            // ③ 其他 / 出错 → 等宽纯文本
+            body.appendChild(buildTextPart(text, bubble.dataset.tool ?? ""));
+        }
+    }
+    refold(bubble);
+    scrollToBottom();
+}
+
+/** 取 parts 里的第一段文本 */
+function textOf(parts: unknown[]): string {
+    for (const p of parts ?? []) {
+        if ((p as { type?: string })?.type === "text") return (p as { text?: string }).text ?? "";
+    }
+    return "";
+}
+
+/** 路径 → shiki 语言 id（认不出就返回扩展名 ✗ 交给注册表兜底）*/
+function langFromPath(p: string): string {
+    const m = /\.([A-Za-z0-9]+)$/.exec(p);
+    if (!m) return "";
+    const ext = m[1].toLowerCase();
+    return LANG_ALIAS[ext] ?? ext;
+}
+
+/**
+ * ★★ B38：edit → 用 pi 给的 unified diff（details.patch）
+ * ★ 数据里还有 details.diff（紧凑版）和 firstChangedLine ✗ 我们用 patch（有删除行 ✓）
+ */
+export function renderDiffDetails(bubble: HTMLElement, details: unknown): void {
+    const patch = (details as { patch?: unknown } | null)?.patch;
+    if (typeof patch !== "string" || !patch.trim()) return;
+
+    const host = ensureResultHost(bubble);
+    const body = host.querySelector(".result-body") as HTMLElement;
+    body.textContent = "";
+
+    const box = document.createElement("div");
+    box.className = "diff-box";
+
+    // 逐行解析：--- / +++ 文件头丢掉（路径已在摘要行）
+    //   @@ -a,b +c,d @@  → hunk 头
+    //   + / - / 空格      → 增 / 删 / 上下文（行号自己算 ✓）
+    let hunk: HTMLElement | null = null;
+    let newLine = 0;
+    let oldLine = 0;
+
+    for (const raw of patch.replace(/\n$/, "").split("\n")) {
+        if (raw.startsWith("--- ") || raw.startsWith("+++ ")) continue; // 文件头 ✗ 不要
+
+        const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+        if (m) {
+            oldLine = Number(m[1]);
+            newLine = Number(m[2]);
+            hunk = document.createElement("div");
+            hunk.className = "diff-hunk fold-unit";
+            const head = document.createElement("div");
+            head.className = "diff-hunk-head";
+            head.textContent = raw;
+            hunk.appendChild(head);
+            box.appendChild(hunk);
+            continue;
+        }
+
+        const kind = raw.startsWith("+") ? "add" : raw.startsWith("-") ? "del" : "ctx";
+        const line = document.createElement("div");
+        line.className = "diff-line " + kind;
+        const ln = document.createElement("span");
+        ln.className = "diff-ln";
+        if (kind === "add") {
+            ln.textContent = String(newLine++);
+        } else if (kind === "del") {
+            ln.textContent = String(oldLine++);
+        } else {
+            ln.textContent = String(newLine++);
+            oldLine++;
+        }
+        const lc = document.createElement("span");
+        lc.className = "diff-lc";
+        lc.textContent = raw;
+        line.append(ln, lc);
+        (hunk ?? box).appendChild(line);
+    }
+
+    body.appendChild(box);
+    bubble.dataset.hasDiff = "1"; // 让后面的 toolResult 不要覆盖它
+    refold(bubble);
+    scrollToBottom();
+}
+
+/**
+ * 按折叠规则重画内容区（每次渲染后调 ✗ 幂等）
+ * ★ .fold-unit = 固定单元（命令行 / 参数行）✗ .part-text 自己管行级裁剪
+ */
+function refold(bubble: HTMLElement): void {
+    const collapsed = bubble.dataset.open !== "true";
+    const body = (bubble.querySelector(".tool-body") as HTMLElement | null) ?? bubble;
+    body.classList.toggle("fold-collapsed", collapsed);
+    applyFold(body, bubble.dataset.tool ?? "", collapsed);
 }
 
 /** 工具状态：转圈（running）/ 勾（ok）/ 叉（error） */
@@ -79,6 +335,24 @@ export function setToolState(bubble: HTMLElement, state: string): void {
  * （比一坨原始 JSON 字符串好读得多）
  */
 export function renderArgs(bubble: HTMLElement, args: unknown): void {
+    // ★★ B38：bash → 画成【终端命令行】（★ 不走通用键值对 ✓）
+    //   实测依据：bash 的参数【只有一个 command】
+    //     {"command": "ls --color=always -la …"} ✓
+    //   ⇒ 走通用 grid 会渲染成 `command │ ls …` ✗ 一点都不像终端 ✓
+    if (bubble.dataset.tool === "bash") {
+        renderBashCall(bubble, args);
+        return;
+    }
+    // ★★ B38：read / write / edit → 参数区就是一张【路径行】（不是键值对）
+    if (
+        bubble.dataset.tool === "read" ||
+        bubble.dataset.tool === "write" ||
+        bubble.dataset.tool === "edit"
+    ) {
+        renderPathLine(bubble, args);
+        return;
+    }
+
     const host = bubble.querySelector(".tool-args") as HTMLElement | null;
     if (!host) return;
     host.innerHTML = "";
@@ -94,29 +368,79 @@ export function renderArgs(bubble: HTMLElement, args: unknown): void {
     }
     for (const [k, v] of entries) {
         const row = document.createElement("div");
-        row.className = "arg-row";
-        row.dataset.open = "true";
+        row.className = "arg-row fold-unit"; // 每个参数 = 一个折叠单元
 
-        // ★ 箭头 + 参数名 = 一个按钮（点它收起该参数 → 只显示第一行）
-        const toggle = document.createElement("button");
-        toggle.className = "arg-toggle";
-        toggle.insertAdjacentHTML("beforeend", CARET_SVG);
+        // ★ B38：不再做每行的折叠箭头 ✗ 折叠统一交给顶栏（用户定的）
         const key = document.createElement("span");
         key.className = "arg-key";
         key.textContent = k;
-        toggle.appendChild(key);
-        toggle.addEventListener("click", () => {
-            row.dataset.open = row.dataset.open === "true" ? "false" : "true";
-        });
 
         const val = document.createElement("span");
         val.className = "arg-val";
         val.textContent = typeof v === "string" ? v : JSON.stringify(v, null, 2);
 
-        row.appendChild(toggle);
-        row.appendChild(val);
+        row.append(key, val);
         host.appendChild(row);
     }
+    refold(bubble);
+}
+
+/**
+ * ★★ B38：bash → 终端命令行（不走通用键值对）
+ *   实测：bash 参数只有一个 command ✗ 通用 grid 会画成 `command │ ls -la`
+ * ★ 提示符的目录用【前端记的当前 cwd】✗ 数据包里没有 cwd
+ *   后果：切会话 / 改目录后，往上翻旧气泡的提示符是"现在的目录"
+ */
+function renderBashCall(bubble: HTMLElement, args: unknown): void {
+    const host = bubble.querySelector(".tool-args") as HTMLElement | null;
+    if (!host) return;
+    host.innerHTML = "";
+
+    const cmd = (args as { command?: unknown } | null)?.command;
+    if (typeof cmd !== "string") {
+        // 兜底：形状不对就退回纯 JSON
+        host.textContent = JSON.stringify(args ?? null, null, 2);
+        return;
+    }
+
+    // 命令行 = 一个折叠单元（提示符 + 命令同一行）
+    const unit = document.createElement("div");
+    unit.className = "fold-unit";
+    const line = document.createElement("div");
+    line.className = "term-line";
+    const prompt = document.createElement("span");
+    prompt.className = "term-prompt";
+    prompt.textContent = (ui.cwdShort || "~") + " ❯";
+    const code = document.createElement("span");
+    code.className = "term-cmd";
+    code.textContent = cmd;
+    line.append(prompt, code);
+    unit.appendChild(line);
+    host.appendChild(unit);
+
+    void highlightShellInto(code, cmd); // 异步上色，失败保持纯文本
+    // ★★ B38：摘要行的命令主体由【宿主】解析后推来（见 showCmdChips）
+    refold(bubble);
+}
+
+/**
+ * 填摘要行：命令主体（等级色 + emoji）
+ * ★ 命令数组由宿主用 bash-parser 解析好推来 ✗ 前端不碰语法
+ */
+export function showCmdChips(bubble: HTMLElement, commands: string[]): void {
+    if (!commands.length) return;
+    setToolMeta(
+        bubble,
+        commands.map((name) => {
+            const { level, emoji } = levelOf(name);
+            const span = document.createElement("span");
+            span.className = "cmd-chip";
+            span.style.color = LEVEL_COLOR[level];
+            span.textContent = `${emoji} ${name}`;
+            span.title = `${name}（${level}）`;
+            return span;
+        }),
+    );
 }
 
 /** 在工具气泡上【取得或创建】结果区（含可折叠头部） */
@@ -125,22 +449,11 @@ export function ensureResultHost(bubble: HTMLElement): HTMLElement {
     if (host) return host;
     host = document.createElement("div");
     host.className = "tool-result";
-    host.dataset.open = "true";
 
-    // 可折叠头部（箭头 + 标签，标签文字由 CSS 变量控制）
-    const head = document.createElement("button");
-    head.className = "result-toggle";
-    head.insertAdjacentHTML("beforeend", CARET_SVG);
-    head.insertAdjacentHTML("beforeend", '<span class="result-label"></span>');
-    head.addEventListener("click", () => {
-        host!.dataset.open = host!.dataset.open === "true" ? "false" : "true";
-    });
-
-    // 内容体
+    // ★ B38：不再建"结果"折叠头 ✗ 折叠统一由顶栏控（见 refold）
     const body = document.createElement("div");
     body.className = "result-body";
 
-    host.appendChild(head);
     host.appendChild(body);
     // ★ 必须加进 .tool-body（直接加在 .bubble 上会跑到 padding 之外 ✗）
     (bubble.querySelector(".tool-body") || bubble).appendChild(host);
@@ -161,14 +474,23 @@ export function renderResultParts(
     isError: boolean,
     streaming?: boolean,
 ): void {
+    // ★★ B38：read / write 走专用渲染（按扩展名选 Markdown / 代码高亮 / 纯文本）
+    const tool = bubble.dataset.tool ?? "";
+    if (tool === "read" || tool === "write") {
+        renderFileResult(bubble, parts, !!isError);
+        return;
+    }
+    // ★★ B38：edit 的 diff 在 details 里（toolExecEnd 时渲染）
+    //   它的 content 只是一句 "Successfully replaced…" → 不要覆盖 diff
+    if (tool === "edit" && bubble.dataset.hasDiff) return;
+
     const host = ensureResultHost(bubble);
     host.classList.toggle("error", !!isError && !streaming);
     const body = host.querySelector(".result-body") as HTMLElement;
-    body.innerHTML = "";
-    for (const p of parts || []) {
+    body.innerHTML = "";    for (const p of parts || []) {
         const t = (p as { type?: string } | null)?.type;
         if (t === "text") {
-            body.appendChild(buildTextPart((p as { text?: string }).text ?? ""));
+            body.appendChild(buildTextPart((p as { text?: string }).text ?? "", bubble.dataset.tool ?? ""));
         } else if (t === "image") {
             const img = document.createElement("img");
             img.className = "part-image";
@@ -184,36 +506,33 @@ export function renderResultParts(
             body.appendChild(pre);
         }
     }
-    // 决定这个结果区“收起时能不能露几行”
-    //   ★ 只要【有一个 part 建了精简版】就标记上 → CSS 靠它决定收起时是否显示 ✓
-    host.dataset.peek = body.querySelector('.part-text[data-peek="true"]') ? "true" : "false";
+    // 决定这个结果区“有精简版”（CSS 靠 .part-text[data-peek] 判断 ✓）
+    //   ★ B38：不再往 .tool-result 上写 dataset.peek ✗ 没人读了
 
     // 流式中还没输出（第 1 个 update 是空的）→ 留空，不要显示"（无输出）"✗
     if (!body.childElementCount) body.textContent = streaming ? "" : "（无输出）";
+    refold(bubble);
     scrollToBottom();
 }
 
 /**
- * ★ 建一个文本 part
+ * 建一个文本 part
  *
- * 【为什么要建“两份 DOM”？】
- *   配置了 toolPeekLines（如 "3:2"）时，收起状态要显示：
- *     开头 3 行 + （已折叠 N 行）+ 末尾 2 行
- *   而展开状态要显示【完整文本】。
- *   CSS 只能“裁掉”不能“把裁掉的中间补回来”✗
- *   → 存两份最简单 ✓（文本量不大，代价可忽）
- *
- * 【未配置 / 行数不够】→ 只存一份全文 ✓（与旧行为一致）
+ * ★ B38 行级折叠：收起时只显示头 N 行 + 尾 M 行（规则由 toolFold 给）
+ *   用【两份 DOM】而不是重新渲染 —— 切换时只是 CSS 切显示
+ *   ★ 它不进 .fold-unit ✗ 自己管自己（见 applyFold 的注释）
  */
-function buildTextPart(text: string): HTMLElement {
+function buildTextPart(text: string, tool: string): HTMLElement {
     const el = document.createElement("div");
     el.className = "part-text";
 
-    const peek = ui.toolPeek;
-    const lines = text.split("\n");
+    // ★ 去掉【末尾那一个换行】—— 否则 split 会多出一个空元素
+    //   ⇒ 尾 3 行实际只显示 2 行（用户实测报的）
+    const lines = text.replace(/\n$/, "").split("\n");
+    const plan = planFold(tool, lines.length, true, tool === "bash");
 
-    // 不启用精简（未配置，或行数不够折叠）→ 单一全文 ✓
-    if (!peek || lines.length <= peek.head + peek.tail + 1) {
+    // 不需要裁（行数不够 / 规则是 all）→ 就一份全文
+    if (plan.hidden === 0) {
         el.textContent = text;
         return el;
     }
@@ -223,29 +542,25 @@ function buildTextPart(text: string): HTMLElement {
     full.className = "part-full";
     full.textContent = text;
 
-    // ── 精简版（收起时用）：头 + 折叠提示 + 尾 ──
-    const short = document.createElement("div");
-    short.className = "part-peek";
-    const hidden = lines.length - peek.head - peek.tail;
-
-    // 头（可能是 0 行 → 不建这个节点 ✓）
-    if (peek.head > 0) {
-        const head = document.createElement("div");
-        head.textContent = lines.slice(0, peek.head).join("\n");
-        short.appendChild(head);
+    // ── 精简版（收起时用）：头 + 提示 + 尾 ──
+    const peek = document.createElement("div");
+    peek.className = "part-peek";
+    if (plan.lineHead > 0) {
+        const h = document.createElement("div");
+        h.textContent = lines.slice(0, plan.lineHead).join("\n");
+        peek.appendChild(h);
     }
     const more = document.createElement("div");
     more.className = "peek-more";
-    more.textContent = `…（已折叠 ${hidden} 行）`;
-    short.appendChild(more);
-    // 尾
-    if (peek.tail > 0) {
-        const tail = document.createElement("div");
-        tail.textContent = lines.slice(-peek.tail).join("\n");
-        short.appendChild(tail);
+    more.textContent = `…（已折叠 ${plan.hidden} 行 · 点顶栏展开）`;
+    peek.appendChild(more);
+    if (plan.lineTail > 0) {
+        const t = document.createElement("div");
+        t.textContent = lines.slice(-plan.lineTail).join("\n");
+        peek.appendChild(t);
     }
 
-    el.dataset.peek = "true"; // ★ CSS 靠它判断“这个 part 有精简版” ✓
-    el.append(full, short);
+    el.dataset.peek = "true"; // CSS 靠它决定“收起时显示 peek”
+    el.append(full, peek);
     return el;
 }

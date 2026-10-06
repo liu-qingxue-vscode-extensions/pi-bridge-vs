@@ -61,7 +61,6 @@ export const ui = {
      *   null = 不启用（走 CSS 的 line-clamp，全部折成一行 ✓）
      *   { head, tail } = 分别露开头 / 末尾的行数 ✓
      */
-    toolPeek: null as { head: number; tail: number } | null,
 
     // ── 顶栏 ──
     /** modelId → contextWindow（宿主推送；查不到则电池显示 "?"） */
@@ -74,4 +73,8 @@ export const ui = {
     panelExpanded: false,
     /** 未读数（收起状态下新到的通知数） */
     noticeUnread: 0,
+    /** ★★ B38：当前工作目录（bash 终端提示符用，宿主推来）*/
+    cwd: "",
+    /** ★★ B38：缩略形式（~/Projects/…，宿主算好）*/
+    cwdShort: "",
 };

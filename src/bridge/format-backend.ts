@@ -162,9 +162,15 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
         };
     },
     tool_execution_end: (raw) => {
-        const ev = raw as { toolCallId?: unknown; isError?: unknown };
+        const ev = raw as { toolCallId?: unknown; isError?: unknown; result?: { details?: unknown } };
         if (typeof ev.toolCallId !== "string") return undefined;
-        return { kind: "toolExecEnd", callId: ev.toolCallId, isError: ev.isError === true };
+        // ★★ B38：带上 details ✗ edit 的 diff/patch 就在里面（以前被丢掉 ✓）
+        return {
+            kind: "toolExecEnd",
+            callId: ev.toolCallId,
+            isError: ev.isError === true,
+            details: ev.result?.details,
+        };
     },
 
     /** 消息结束 → 封口气泡（工具结果不需要，它已在 message_start 填回去了） */

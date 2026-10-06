@@ -26,56 +26,14 @@
   word-break: break-all;
 }
 .bubble.tool .head { color: var(--vscode-charts-orange); }
-.bubble.tool .tool-call {
-  background: var(--pi-bg-tool-call, var(--vscode-textBlockQuote-background));
-}
-/* 折叠：收起时隐藏整个内容体 */
-.bubble.tool[data-open="false"] .tool-body { display: none; }
+/* ★ B38：整个内容区一个背景（不再分调用/结果两半）*/
+.bubble.tool .tool-body { background: var(--vscode-textBlockQuote-background); }
+/* ★ B38：分区背景已删（统一在 .tool-body）*/
+/* ★ B38：折叠由顶栏控 ✗ 不再整体隐藏 */
 .bubble.tool .tool-result {
-  background: var(--pi-bg-tool-result, var(--vscode-textBlockQuote-background));
-  /* ★★ 结果区的左侧色条（B32 修 ✗）
-     发现方式：scripts/check-style-vars.mjs 报“--pi-rail-color-result 没人消费”✓
-     ⇒ 用户配了 railColorResult 却【完全没反应】✗ 就是个摆设 ✓
-     修法：用 inset box-shadow 画一条内嵌的竖线 ✗
-       · 不占布局（外框那条 border-left 不会被挤走 ✓）
-       · 两端自然止于结果区的上下边界 ✓（不像 border 会拉满整高 ✓）
-     ★ 默认跟工具调用区分开：调用=橙 ✗ 结果=绿 ✓ */
-  box-shadow: inset var(--pi-rail-width, 2px) 0 0
-    var(--pi-rail-color-result, var(--vscode-charts-green));
-  /* ★ 结果区限高 → 超出滚动 ✓（用户可关：见文件末尾的开关规则 ✓）*/
-  max-height: var(--pi-tool-result-max, 220px);
-  overflow-y: auto;
+  background: transparent;
 }
-.bubble.tool .tool-result .result-toggle {
-  /* ★★ 关键：标题行【固定住】（sticky）—— 否则内容一滚，标题就看不到了 ✗
-     用户明确要求：“第一行也就是标题行不要被滑块给滑走，固定住”✓ */
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  /* ★ 必须给【不透明背景】✗ 否则滚动的文字会从标题下面穿过去 ✓ */
-  background: var(--pi-bg-tool-result, var(--vscode-textBlockQuote-background));
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  margin-bottom: 3px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--vscode-charts-orange);
-  font: inherit;
-  font-size: 10px;
-  letter-spacing: 1px;
-  text-align: left;
-}
-/* ★ 结果区标题文字可配置（留空则不显示）*/
-.result-label::before { content: var(--pi-result-label, "结果"); }
-/* ★ 执行中 → 头部标签变成“执行中…”（比“结果”更准确 ✓）*/
-.bubble.tool .tool-result[data-streaming="true"] .result-label::before { content: "执行中…"; }
-.bubble.tool .tool-result.error .result-toggle { color: var(--vscode-charts-red); }
-.bubble.tool .tool-result.error .result-label::before { content: var(--pi-result-label, "结果") "（出错）"; }
-/* 收起结果 → 隐藏内容体 */
-.bubble.tool .tool-result[data-open="false"] .result-body { display: none; }
+/* ★ B38：结果区不再有自己的折叠头 */
 
 /* ===== 结果区“收起时洏几行”（配置 toolPeekLines，如 "3:2"）=====
    part-text 里存两份 DOM：
@@ -85,17 +43,10 @@
 .part-text .part-peek { display: none; }
 
 /* ★ 启用了精简版（data-peek=true）且【收起】→ 全文隐藏、精简版显示 ✓ */
-.tool-result[data-open="false"] .part-text[data-peek="true"] .part-full { display: none; }
-.tool-result[data-open="false"] .part-text[data-peek="true"] .part-peek { display: block; }
+.fold-collapsed .part-text[data-peek="true"] .part-full { display: none; }
+.fold-collapsed .part-text[data-peek="true"] .part-peek { display: block; }
 
-/* ★ 收起时结果区整体默认是隐藏的（上面那条 ✓）——
-   但只要“有精简版”，就要把 body 显出来（里面只显 part-peek ✓） */
-.tool-result[data-open="false"][data-peek="true"] .result-body { display: block; }
-
-/* 没有精简版的 part（如纯 JSON / 短文本）→ 收起时仍整体隐藏 ✓ */
-.tool-result[data-open="false"][data-peek="true"] .part-text:not([data-peek="true"]) {
-  display: none;
-}
+/* ★ B38：下面两条 data-open 规则已删（peek 开关改成 .fold-collapsed）*/
 
 /* 折叠提示行（…已折叠 N 行）—— 弱化色，不抢戏 ✓ */
 .peek-more {
@@ -115,56 +66,14 @@
      其 baseline 会取【第一个 item（SVG）】的 baseline → 名字被抬高 ✗ */
   align-items: start;
 }
-/* 箭头 + 参数名 = 一个按钮（点它收起该参数，只显示第一行）*/
-.arg-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-/* 所有可折叠头 → 统一的 hover 反馈：文字下划线 ✓ */
-.head-toggle:hover .head-label,
-.result-toggle:hover .result-label,
-.arg-toggle:hover .arg-key { text-decoration: underline; }
 .arg-key { color: var(--vscode-charts-orange); }
 .arg-key::after { content: ":"; }
 .arg-val {
   white-space: pre-wrap;
   word-break: break-word;
-  /* ★ 每个参数的值【自己带滑块】（用户定的 ✓）
-     理由：一个参数可能很长（如 write 的 content），会撑爆整个气泡 ✗
-     ★ 参数名在【同一行左侧】→ 它不会被滑走 ✓（天然固定 ✓）*/
-  max-height: var(--pi-tool-arg-max, 180px);
-  overflow-y: auto;
 }
-/* 收起参数 → 只显示第一行 */
-.arg-row[data-open="false"] .arg-val {
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  max-height: none; /* ★ 收起态不需要滑块（就一行 ✓）*/
-}
+/* ★ B38：参数行不再能单独折叠（箭头已删）→ data-open 那条规则已删 */
 
-/* ===== ★ 两个滚动开关（用户要求 ✓）=====
-   :root 上挂类 → 关掉就全展开（屏幕大时舒服 ✓）
-     .no-arg-scroll    → 参数值不限高（全部展开 ✓）
-     .no-result-scroll → 结果区不限高（全部展开 ✓）
-   为什么用类而不是布尔 CSS 变量？→ CSS 没有布尔变量 ✗ 切换类最直接 ✓ */
-:root.no-arg-scroll .arg-val {
-  max-height: none;
-  overflow: visible;
-}
-:root.no-result-scroll .tool-result {
-  max-height: none;
-  overflow: visible;
-}
 
 /* ===== 工具：结果部分（按 type 分发）===== */
 .part-text { white-space: pre-wrap; word-break: break-word; }
@@ -189,3 +98,138 @@
 }
 .tool-state.ok { color: var(--vscode-charts-green, #4caf50); }
 .tool-state.error { color: var(--vscode-charts-red, #f44336); }
+
+/* ===== ★★ B38：bash 工具块 → 终端 =====
+   命令行和输出画成一整块黑底，像终端一样连续 */
+.bubble.tool[data-tool="bash"] .tool-body {
+  background: var(--pi-bash-bg, #000000);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.55;
+}
+/* 两半都不另起底色 / 内边距 / 色条（由 .tool-body 统一给，才连成一整块）*/
+.bubble.tool[data-tool="bash"] .tool-call,
+.bubble.tool[data-tool="bash"] .tool-result {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.term-line { white-space: pre-wrap; word-break: break-all; margin-bottom: 4px; }
+.term-prompt { color: #7ee787; user-select: none; margin-right: 6px; }
+.term-cmd .line { display: inline; }
+.term-cmd { color: #e6edf3; }
+.bubble.tool[data-tool="bash"] .part-text { color: #e6edf3; background: transparent; }
+.bubble.tool[data-tool="bash"] .peek-more { color: #8b949e; }
+
+/* ===== ★★ B38：折叠单元（tool-fold.ts 控制）===== */
+.fold-unit.fold-hidden { display: none; }
+.fold-more { color: var(--vscode-descriptionForeground); font-size: 11px; padding: 2px 0; opacity: .8; }
+/* 行级折叠的显示切换：收起 → 精简版；展开 → 全文 */
+.part-text[data-peek="true"] .part-peek { display: none; }
+.fold-collapsed .part-text[data-peek="true"] .part-full { display: none; }
+.fold-collapsed .part-text[data-peek="true"] .part-peek { display: block; }
+
+/* ★★ B38：整块可点折叠 → 统一手型（不要 I 型；选字仍然可用）*/
+.bubble.tool,
+.bubble.tool .tool-body { cursor: pointer; user-select: text; }
+.bubble.tool button { cursor: pointer; }
+
+/* ===== ★★ B38：read / write 的文件渲染 ===== */
+/* 路径行（固定单元）：等宽 + 可选中 */
+.path-line {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  word-break: break-all;
+}
+/* 工具里的 markdown 正文容器（复用正文渲染器的样式，只清掉额外外边距）*/
+.md-in-tool > :first-child { margin-top: 0; }
+.md-in-tool > :last-child { margin-bottom: 0; }
+
+/* 行号：靠 shiki 自带的 .line 元素 + CSS 计数器（不动它的 token 结构）*/
+.code-block.with-ln { counter-reset: ln var(--ln-start, 0); }
+.code-block.with-ln code { display: block; }
+.code-block.with-ln .line { display: block; }
+.code-block.with-ln .line::before {
+  counter-increment: ln;
+  content: counter(ln);
+  display: inline-block;
+  width: 2.6em;
+  margin-right: .8em;
+  text-align: right;
+  color: var(--vscode-editorLineNumber-foreground, #6e7681);
+  user-select: none;   /* 行号不要被选中 */
+}
+/* 高亮还没跑完时（纯文本阶段）也给个左侧留白，避免编号出现后跳动 */
+.code-block.with-ln:not([data-hl-done]) code { padding-left: 0; }
+/* 工具里的代码块：去掉正文那种下外边距（否则底部多一截空）*/
+.tool-result .code-block:last-child { margin-bottom: 0; }
+
+/* ===== ★★ B38：摘要行（顶栏下面一行，各工具自己填）===== */
+.tool-meta {
+  padding: 1px 12px 3px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  word-break: break-all;
+}
+.tool-meta:empty { display: none; }   /* 空 = 不占高度 */
+
+/* 工具里的语言标签隐藏（★ 只隐藏不删 —— highlightBlock 要靠它识别语言）*/
+.tool-result .code-lang { display: none; }
+
+/* ===== ★★ B38：摘要行里的命令主体（chip）===== */
+.tool-meta .cmd-chip { margin-right: 8px; }
+
+/* ★★ B38：行级折叠的代码块（两版都高亮 ✗ 只切显示）*/
+.fold-code .fold-peek { display: none; }
+.fold-collapsed .fold-code .fold-full { display: none; }
+.fold-collapsed .fold-code .fold-peek { display: block; }
+
+/* ===== ★★ B38：edit 的 diff ===== */
+.diff-box {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.diff-hunk { margin-bottom: 6px; }
+.diff-hunk-head {
+  color: var(--vscode-descriptionForeground);
+  opacity: .8;
+  padding: 2px 0;
+}
+.diff-line { display: flex; padding: 0 4px; border-radius: 2px; }
+.diff-ln {
+  flex: 0 0 auto;
+  width: 3em;
+  margin-right: .8em;
+  text-align: right;
+  color: var(--vscode-editorLineNumber-foreground, #6e7681);
+  user-select: none;
+}
+.diff-lc { white-space: pre-wrap; word-break: break-all; }
+.diff-line.add { background: rgba(76, 175, 80, .15); }
+.diff-line.add .diff-lc { color: #7ee787; }
+.diff-line.del { background: rgba(244, 67, 54, .15); }
+.diff-line.del .diff-lc { color: #ff7b72; }
+
+/* ===== ★★ B38：收起版代码块【视觉缝合】=====
+   头片段 + 折叠提示 + 尾片段 本来是三个独立块 ✗ 看起来"断开" ✓
+   → 去掉相邻处的边框/圆角，让它们连成一块 */
+.fold-peek .code-block:first-child { border-bottom: none; border-radius: 6px 6px 0 0; }
+.fold-peek .code-block:last-child { border-top: none; border-radius: 0 0 6px 6px; }
+.fold-peek .peek-more {
+  margin: 0;
+  padding: 3px 10px;
+  border-left: 1px solid var(--vscode-panel-border, rgba(128,128,128,.3));
+  border-right: 1px solid var(--vscode-panel-border, rgba(128,128,128,.3));
+  background: var(--vscode-textCodeBlock-background, rgba(128,128,128,.1));
+}
+/* 只有头片段（没有尾）时，头片段要自己收底 */
+.fold-peek .code-block:only-of-type { border-radius: 6px; border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,.3)); }
+/* 缝合：去掉片段自带的 margin（否则两框之间留一道缝）*/
+.fold-peek .code-block { margin-bottom: 0; }
+.fold-peek { display: none; }
+.fold-collapsed .fold-peek { display: block; }

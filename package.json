@@ -357,15 +357,24 @@
             {
                 "title": "pi-bridge：气泡：工具气泡",
                 "properties": {
-                    "pi-bridge.style.bgToolCall": {
+                    "pi-bridge.style.bashBg": {
                         "type": "string",
-                        "default": "",
-                        "markdownDescription": "工具气泡**上半部分（调用）**的背景色。\n\n可把它和下半部调成不同色 → 视觉上区分调用与结果。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                        "default": "#000000",
+                        "markdownDescription": "★ bash 工具块的**终端底色**。\n\n★ 命令行和输出会被画成**一整块终端**（黑底 + 提示符 + 命令高亮）✓\n★ 默认纯黑 ✗ 这是“像终端”的关键 ✓\n★ **清空 = 跟随 VS Code 主题** ✓"
                     },
-                    "pi-bridge.style.bgToolResult": {
-                        "type": "string",
-                        "default": "",
-                        "markdownDescription": "工具气泡**下半部分（结果）**的背景色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
+                    "pi-bridge.style.toolFold": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": [
+                            "bash:1:0",
+                            "edit:0:0",
+                            "read:0:0",
+                            "write:0:0",
+                            "*:2:1"
+                        ],
+                        "markdownDescription": "工具块**收起时显示多少**（折叠规则）。每项一条：`工具名:头行数:尾行数`\n\n· `bash:1:0` → 只留命令行（命令行算 1 行）\n· `read:3:2` → 头 3 行 + 尾 2 行（**行**，不是单元）\n· `0:0` → 全折（只留顶栏和摘要行）· `all` → 不折\n· `*` → 兜底（所有没写到的工具，含扩展工具）\n\n★ 没写到的工具 → 全折"
                     },
                     "pi-bridge.style.gapToolToText": {
                         "type": "number",
@@ -386,11 +395,6 @@
                         "default": "",
                         "markdownDescription": "工具气泡左侧线的颜色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
                     },
-                    "pi-bridge.style.railColorResult": {
-                        "type": "string",
-                        "default": "",
-                        "markdownDescription": "工具结果部分的左侧线颜色。\n\n**留空 = 跟随 VS Code 主题**（推荐，换主题自动适配）"
-                    },
                     "pi-bridge.style.borderTool": {
                         "type": "string",
                         "default": "",
@@ -400,40 +404,6 @@
                         "type": "boolean",
                         "default": false,
                         "markdownDescription": "工具气泡**默认收起**（只显示头部，点一下展开）。默认 false。"
-                    },
-                    "pi-bridge.style.resultLabel": {
-                        "type": "string",
-                        "default": "结果",
-                        "markdownDescription": "工具结果区的**标题文字**。默认 `结果`。\n\n可改成英文（如 `Result`）或符号（如 `›`）。**留空则不显示标题**。"
-                    },
-                    "pi-bridge.style.toolPeekLines": {
-                        "type": "string",
-                        "default": "",
-                        "markdownDescription": "工具结果【收起】时露几行，格式 `\"头:尾\"`（如 `\"3:2\"` = 开头 3 行 + 末尾 2 行）。\n\n· 留空 / `0:0` → 不启用（收起时折成一行 ✓）\n· 只写 `\"3\"` → 开头 3 行（末尾 0 行）\n\n★ 只影响【结果文本】，不影响参数（参数保持每行单独可折叠 ✓）"
-                    },
-                    "pi-bridge.style.toolArgsScroll": {
-                        "type": "boolean",
-                        "default": true,
-                        "description": "工具参数的值是否限高滚动（关掉 = 全部展开，屏幕大时更舒服）。"
-                    },
-                    "pi-bridge.style.toolResultScroll": {
-                        "type": "boolean",
-                        "default": true,
-                        "description": "工具结果区是否限高滚动（关掉 = 全部展开）。"
-                    },
-                    "pi-bridge.style.toolArgMaxHeight": {
-                        "type": "number",
-                        "default": 180,
-                        "minimum": 40,
-                        "maximum": 2000,
-                        "description": "单个参数值的最大高度（px），超过则滚动。"
-                    },
-                    "pi-bridge.style.toolResultMaxHeight": {
-                        "type": "number",
-                        "default": 220,
-                        "minimum": 40,
-                        "maximum": 3000,
-                        "description": "工具结果区的最大高度（px），超过则滚动。"
                     }
                 }
             },
@@ -631,6 +601,7 @@
         "typescript": "^7.0.2"
     },
     "dependencies": {
+        "bash-parser": "^0.5.0",
         "katex": "^0.18.10",
         "marked": "^18.0.14",
         "marked-footnote": "^1.4.0",

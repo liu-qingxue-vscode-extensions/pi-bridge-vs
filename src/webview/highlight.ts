@@ -65,7 +65,7 @@ import make from "shiki/langs/make.mjs";
 import powershell from "shiki/langs/powershell.mjs";
 
 /** ★ 语言别名 → shiki 的 id（用户/模型写什么都尽量认 ✓）*/
-const LANG_ALIAS: Record<string, string> = {
+export const LANG_ALIAS: Record<string, string> = {
     js: "javascript",
     jsx: "javascript",
     mjs: "javascript",
@@ -177,13 +177,27 @@ function getHighlighter(): Promise<HighlighterCore | undefined> {
     return hlPromise;
 }
 
-/**
- * ★ 高亮一个已经存在的代码块（把 <code> 的 innerHTML 换掉 ✓）
- *
- * 【为什么不直接在 marked renderer 里做？】
- *   renderer 是【同步】的 ✗ 而 shiki 初始化是【异步】的 ✓
- *   → 只能"先出好 DOM ✗ 高亮好了再替换内层"✓
- */
+/* ★★ B38：shell 命令行就地高亮（bash 工具块用）。
+   ★ 只高亮命令行 ✗ 不高亮输出（输出可能几万字符 ✗ 会卡）*/
+export async function highlightShellInto(el: HTMLElement, code: string): Promise<void> {
+    if (!code.trim()) return;
+    const hl = await getHighlighter();
+    if (!hl || !hl.getLoadedLanguages().includes("shellscript")) return;
+    try {
+        const html = hl.codeToHtml(code, { lang: "shellscript", theme: "dark-plus" });
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const inner = doc.querySelector("code");
+        if (!inner) return;
+        el.innerHTML = inner.innerHTML;
+        // 只抄前景色 ✗ 背景留给我们的 CSS
+        const color = doc.querySelector("pre")?.style.color;
+        if (color) el.style.color = color;
+    } catch {
+        // 静默：高亮失败就用纯文本
+    }
+}
+
+/** ★ 高亮一个已经存在的代码块（把 <code> 的 innerHTML 换掉）*/
 export async function highlightBlock(block: HTMLElement): Promise<void> {
     const codeEl = block.querySelector("code");
     if (!codeEl) return;

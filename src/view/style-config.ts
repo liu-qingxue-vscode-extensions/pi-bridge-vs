@@ -62,28 +62,15 @@ export function readStyleVars(): Record<string, string> {
     // ★ 通知自动下拉：通知到达时自动展开面板（默认关 ✓）
     vars["--pi-notice-auto-open"] = cfg.get<boolean>("noticeAutoOpen", false) ? "on" : "off";
 
-    // ★ 工具结果“洏几行”：格式 "头:尾"（如 "3:2"）
-    //   空 / 根头是 0 → 不启用（收起时靠 CSS line-clamp 全部折成一行 ✓）
-    const peek = cfg.get<string>("toolPeekLines", "");
-    if (typeof peek === "string" && peek.trim() !== "") {
-        vars["--pi-tool-peek-lines"] = peek.trim();
-    }
+    // ★★ B38：toolPeekLines 已删（收起显示多少改由 toolFold 管 ✓）
 
     // ★ 限高值也可以配（不想被写死在 CSS 里 ✓）
-    num("toolArgMaxHeight", "--pi-tool-arg-max");
-    num("toolResultMaxHeight", "--pi-tool-result-max");
 
     // 默认折叠开关（同样用特殊值传，webview 自己处理）
     vars["--pi-think-collapsed"] = cfg.get<boolean>("thinkCollapsed", false) ? "on" : "off";
     vars["--pi-tool-collapsed"] = cfg.get<boolean>("toolCollapsed", false) ? "on" : "off";
 
-    // 结果区标题文字（留空则不显示）
-    const resultLabel = cfg.get<string>("resultLabel");
-    if (typeof resultLabel === "string" && resultLabel.trim() !== "") {
-        vars["--pi-result-label"] = `"${resultLabel.trim()}"`; // CSS content 需要引号
-    } else if (resultLabel === "") {
-        vars["--pi-result-label"] = '""'; // 显式置空
-    }
+    // ★★ B38：resultLabel 已删（结果区那个头没了 ✓）
 
     // ★★ 自由按钮容器（B32 ✓）—— 气泡区左侧那根竖排快捷命令条
     //
@@ -124,8 +111,6 @@ export function readStyleVars(): Record<string, string> {
 
     // ★ 工具气泡的两个滚动开关（用户要求 ✓）
     //   关掉 → 全部展开（屏幕大时舒服 ✓）
-    vars["--pi-tool-arg-scroll"] = cfg.get<boolean>("toolArgsScroll", true) ? "on" : "off";
-    vars["--pi-tool-result-scroll"] = cfg.get<boolean>("toolResultScroll", true) ? "on" : "off";
 
     // ★★ B35：会话面板的高度 / 底色【已删】✗
     //   面板搬到编辑器区了 ✗ 它是一整页 ✓ 没有“高度占比”这回事 ✓
@@ -152,7 +137,6 @@ export function readStyleVars(): Record<string, string> {
     num("railWidth", "--pi-rail-width");
     raw("railColorThinking", "--pi-rail-color-thinking");
     raw("railColorTool", "--pi-rail-color-tool");
-    raw("railColorResult", "--pi-rail-color-result");
 
     // 边框
     raw("borderBubble", "--pi-border-bubble");
@@ -163,9 +147,14 @@ export function readStyleVars(): Record<string, string> {
     raw("bgUser", "--pi-bg-user");
     raw("bgThinking", "--pi-bg-thinking");
     raw("bgText", "--pi-bg-text");
-    raw("bgToolCall", "--pi-bg-tool-call");
-    raw("bgToolResult", "--pi-bg-tool-result");
-
+    // ★★ B38：bash 工具块的【终端底色】（默认纯黑 ✗ 清空则跟随主题 ✓）
+    raw("bashBg", "--pi-bash-bg");
+    // ★★ B38：工具折叠规则（一行字符串 → 前端自己解析）
+    //   为什么用一个字符串而不是数组？→ CSS 变量只能装字符串，数组要转义，难写难调
+    // ★★ B38：数组（VS Code 设置里是"添加项"UI ✓）→ 用 ; 拼成 CSS 变量
+    const fold = cfg.get<string[]>("toolFold", []);
+    if (Array.isArray(fold) && fold.length) // ★★ 分隔符必须用【逗号】✗ 分号在 CSS 里是声明结束符 ✗ 变量值会被截断
+    vars["--pi-tool-fold"] = fold.join(",");
     return vars;
 }
 
@@ -193,9 +182,7 @@ export function classNamesFromVars(vars: Record<string, string>): string[] {
     const has = (k: string, v: string): boolean => vars[k] === v;
 
     if (has("--pi-centered-mode", "on")) out.push("centered");
-    // ★ 这两个是“off 才加类”
-    if (has("--pi-tool-arg-scroll", "off")) out.push("no-arg-scroll");
-    if (has("--pi-tool-result-scroll", "off")) out.push("no-result-scroll");
+    // ★★ B38：no-arg-scroll / no-result-scroll 已删（没有内滚动了）
     return out;
 }
 
