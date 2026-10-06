@@ -28,9 +28,8 @@ import * as vscode from "vscode";
 import os from "node:os";
 import path from "node:path";
 import fs, { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
-import { getAgentDir, getPackageDir, VERSION } from "@earendil-works/pi-coding-agent";
+import { getPackageDir, VERSION } from "@earendil-works/pi-coding-agent";
 import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
 import { ChatView } from "./view/chat-view.js";
@@ -41,25 +40,16 @@ import { SkillsPanel } from "./view/skills-panel.js";
 // ★★ B32：自由按钮的配置页面（编辑器区独立面板 ✓）
 import { CommandPanel } from "./view/command-panel.js";
 import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
-import {
-    readSettings,
-    patchSettings,
-    resolveSessionRoot,
-    settingsPath,
-} from "./pi/settings.js";
-import { listAuth, removeAuth, setApiKey } from "./pi/auth.js";
+import { readSettings, resolveSessionRoot } from "./pi/settings.js";
 import { checkPiVersion } from "./pi/version-check.js";
-import { SETTINGS_GROUPS, getByPath, setByPath } from "./pi/settings-schema.js";
 import { toChatPatch } from "./bridge/format-backend.js";
 import { messagesToPatches, type ReplayMessage } from "./bridge/replay.js";
-import { SessionStore, deleteSessionFile, sessionDirForCwd, validateSessionFile } from "./pi/session-store.js";
+import { SessionStore } from "./pi/session-store.js";
 import { ChatState } from "./view/chat-state.js";
 import { toErrorMessage } from "./utils.js";
 import { compactHome, expandHome } from "./util/paths.js";
-import { getEnabledModels, readModelCatalog, sortCatalog, type ModelEntry } from "./panels/model-catalog.js";
+import { getEnabledModels, readModelCatalog, sortCatalog } from "./panels/model-catalog.js";
 import { readInstalledExtensions } from "./panels/extensions-scan.js";
-import { defaultForKind, needsRestartHint } from "./panels/settings-utils.js";
-import { readSkills } from "./panels/skill-scan.js";
 // ★★ B32：自由按钮容器的数据层
 import {
     readCommands,
@@ -77,6 +67,14 @@ import {
     type CmdItem,
 } from "./panels/command-store.js";
 import { createSettingsPoster } from "./panels/settings-post.js";
+// ★★ B36：面板的消息路由 + 动作（从 main.ts 搬出 ✓）
+import { createCommandHost } from "./panels/command-host.js";
+import { createSessionActions } from "./panels/session-actions.js";
+import { createSessionHost } from "./panels/session-host.js";
+import { createSettingsActions } from "./panels/settings-actions.js";
+import { createSettingsHost } from "./panels/settings-host.js";
+import { createSkillsActions } from "./panels/skills-actions.js";
+import { createSkillsHost } from "./panels/skills-host.js";
 import { readPiDefaults, shortIdOf } from "./panels/misc-utils.js";
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -290,315 +288,121 @@ export function activate(context: vscode.ExtensionContext): void {
      * ★ 它的消息走【自己的私有通道】✗ 不经过 chatView ✓
      *   （跟 skillsPanel 一样 ✓ 因为它们是编辑器区的独立面板 ✓）
      */
-    const commandPanel = new CommandPanel(context.extensionUri, async (kind, payload) => {
-        if (kind === "commandCancel") {
-            commandPanel.close();
-            return;
-        }
-        if (kind === "commandSave") {
-            const p = payload as
-                | { item?: Record<string, unknown>; parentId?: string }
-                | undefined;
-            const item = p?.item;
-            if (!item || typeof item.label !== "string") return;
-            const items = readCommands();
-            const id = typeof item.id === "string" ? item.id : "";
-            const parentId = typeof p?.parentId === "string" ? p.parentId : undefined;
-            const parent = parentId ? findCommand(items, parentId) : undefined;
-
-            // ★★ B33：父亲带来的两条硬约束 ✗ 宿主侧【再校验】一遍 ✓
-            //   ★ 为什么不靠配置页？→ FACTS #5 / #12：
-            //     UI 的禁用永远不可信 ✗ 真正的约束必须在逻辑层再查一次 ✓
-            if (parent) {
-                item.type = "button"; // ① 收纳器里不能套收纳器 ✓
-                if (parent.lockCommand && parent.command) {
-                    item.command = parent.command; // ② 命令被锁死 ✓
-                }
-            }
-
-            // ★ 用 command-store 的 normalize 走一遗（不信前端传来的形状 ✓）
-            // ★ 图标先收进标准位置（B32 ✓）
-            //   ★ 要带上【旧图标】✗ 才能把上一张清掉 ✓
-            const oldIcon = id ? findCommand(items, id)?.icon : undefined;
-            const raw = item as { icon?: string };
-            if (typeof raw.icon === "string") {
-                item.icon = materializeIcon(raw.icon, oldIcon) ?? "";
-            }
-            const clean = normalizeItem(item as never);
-
-            if (parent) {
-                // ★★ B33：塞进父亲的 children ✗（不是顶层 ✓）
-                const kids = [...(parent.children ?? [])];
-                const ki = id ? kids.findIndex((x) => x.id === id) : -1;
-                if (ki >= 0) kids[ki] = clean;
-                else kids.push(clean);
-                parent.children = kids;
-                await writeCommands(items);
-                logInfo(`保存子按钮：${clean.label} → 收纳器「${parent.label}」`);
-            } else {
-                const idx = id ? items.findIndex((x) => x.id === id) : -1;
-                if (idx >= 0) {
-                    items[idx] = clean;
-                    logInfo(`修改按钮：${clean.label}`);
-                } else {
-                    items.push(clean);
-                    logInfo(`新增按钮：${clean.label}`);
-                }
-                await writeCommands(items);
-            }
-            pushCommands();
-            commandPanel.close();
-            return;
-        }
-    });
-
-    const skillsPanel = new SkillsPanel(context.extensionUri, (kind, payload) => {
-        if (kind === "openSkills") {
-            void refreshSkills();
-            return;
-        }
-        if (kind === "skillDetail") {
-            const name = (payload as { name?: string } | undefined)?.name;
-            if (name) void pushSkillDetail(name);
-        }
-        // ★ B31：在 VS Code 编辑器里打开 SKILL.md（★ 直接编辑磁盘文件 ✗ 无暂存问题 ✓）
-        if (kind === "skillOpenFile") {
-            const p = payload as { name?: string; reveal?: boolean } | undefined;
-            void openSkillFile(p?.name ?? "", p?.reveal === true);
-        }
-        if (kind === "skillDelete") {
-            const name = (payload as { name?: string } | undefined)?.name;
-            if (name) void deleteSkill(name);
-        }
-        if (kind === "skillHide") {
-            const name = (payload as { name?: string } | undefined)?.name;
-            if (name) void hideSkill(name);
-        }
-        // ★ 新建（B31 ✓ 要弹输入框 ✗ 只有宿主能做 ✓）
-        if (kind === "skillCreate") {
-            void createSkill();
-            return;
-        }
-        // ★★ 这两个【必须在这里接】✗（B31 修 ✗）
-        //   技能面板是【独立页面】✗ 它发的消息走 panel 自己的通道 ✓
-        //   不会进 chatView 那个 onMessage ✗（那条是聊天页面的 ✓）
-        //   ★ 之前漏了这两个 → 点技能"没反应"✓
-        if (kind === "skillInsert") {
-            // ★★ B35：技能面板「动作后自动关闭」（用户定的 ✓ 配置可关 ✓）
-            //
-            // ★★ 必须【在这里】调 ✗ 不能加进 handleFrontendMessage ✓
-            //     技能面板是【独立页面】✗ 它的消息走下面这个回调 ✓
-            //     和聊天页那条 handleFrontendMessage 是【两条路】✓
-            //     （第一版就加错了地方 ✗ 用户实测：“注入 / 发送都没关闭”✓）
-            closeSkillsPanelAfterAction();
-            const name = (payload as { name?: string } | undefined)?.name;
-            if (name) {
-                const hit = readSkills().skills.find((x) => x.name === name);
-                if (hit?.path) {
-                    try {
-                        chatView.post("insertToInput", { text: fs.readFileSync(hit.path, "utf8") });
-                        logInfo(`技能注入输入框：${name}`);
-                    } catch (err) {
-                        logError(`读技能内容失败：${toErrorMessage(err)}`);
-                    }
-                }
-            }
-            return;
-        }
-        if (kind === "skillAsCommand") {
-            // ★★ B35：同上 ✗ 注入 / 发送两个动作都关 ✓
-            closeSkillsPanelAfterAction();
-            const name = (payload as { name?: string } | undefined)?.name;
-            if (name) {
-                logInfo(`技能作为命令发送：/skill:${name}`);
-                // ★★ 必须带斜杠（B31 修 ✗）
-                //   pi 文档：“Run one through the `prompt` command by
-                //           prefixing its name with `/`” ✓
-                //   少了它 → pi 把它当成【普通消息】✗ 技能不会执行 ✓
-                chatView.post("sendText", { text: `/skill:${name}` });
-            }
-            return;
-        }
-    });
-
-    /** ★ 扫技能并推给面板（顺带把"单击行为"配置一起发 ✗ 前端要用 ✓）*/
-    const refreshSkills = async (): Promise<void> => {
-        try {
-            const data = readSkills();
-            const cfg = vscode.workspace.getConfiguration("pi-bridge");
-            const clickAction = cfg.get<string>("skills.clickAction", "insert");
-            // ★ 过滤掉被隐藏的（B31 ✓）
-            const hidden = new Set(cfg.get<string[]>("skills.hidden", []));
-            const visible = data.skills.filter((x) => !hidden.has(x.name));
-            skillsPanel.post("skills", { ...data, skills: visible, clickAction });
-        } catch (err) {
-            logError(`扫技能失败: ${toErrorMessage(err)}`);
-        }
-    };
-
-    /** ★ 推某条技能的正文 ✓ */
-    const pushSkillDetail = async (name: string): Promise<void> => {
-        const hit = readSkills().skills.find((x) => x.name === name);
-        if (!hit?.path) {
-            logWarn(`技能详情：找不到 ${name}`);
-            return;
-        }
-        try {
-            skillsPanel.post("skillDetail", {
-                name: hit.name,
-                path: hit.path,
-                content: fs.readFileSync(hit.path, "utf8"),
-            });
-        } catch (err) {
-            logError(`读技能内容失败: ${toErrorMessage(err)}`);
-        }
-    };
-
     /**
-     * ★ 在 VS Code 编辑器里打开技能的 SKILL.md（B31 ✓）
+     * ★★ B36：命令配置页的【保存】动作（从那个匿名回调里抽出来的 ✓）
      *
-     * 【★ 为什么不用"我们的弹层"编辑？】
-     *   用户定的：“临时去拿还能理解 ✗ 我这边修改完保存好了 ✗ 用到的就是最新的 ✓”
-     *   → ★ 用原生编辑器打开【磁盘上那个文件本身】✗ 保存即落盘 ✓
-     *   → 没有暂存 / 没有同步问题 ✓✓✓
+     * 【★ 为什么抽成具名函数？】
+     *   匿名回调里出异常时栈里只有 "(anonymous)" ✗ 很难查 ✓
+     *   而且"路由"（哪个 kind 调什么）和"动作"（怎么存）混在一起 ✓
+     *   ⇒ B36：路由归 panels/command-host.ts ✗
+     *     动作留在这儿（它要用图标系统 ✗ 那是另一摊事 ✓）
      *
-     * @param reveal true = 只在文件管理器里定位（不打开编辑器 ✓）
+     * 【★ 父亲带来的两条硬约束】（B33 ✓）
+     *   ① 收纳器里不能套收纳器 ✗ type 锁成 button ✓
+     *   ② 父亲勾了"强制"→ 子按钮的 command 被锁死 ✓
+     *   ★ 为什么配置页已经做了还要再查一遍？
+     *     FACTS #5 / #12：UI 的禁用【永远不可信】✗ 逻辑层必须再查 ✓
      */
-    const openSkillFile = async (name: string, reveal: boolean): Promise<void> => {
-        const hit = readSkills().skills.find((x) => x.name === name);
-        if (!hit?.path) {
-            logWarn(`打开技能文件：找不到 ${name}`);
-            return;
-        }
-        const uri = vscode.Uri.file(hit.path);
-        if (reveal) {
-            await vscode.commands.executeCommand("revealFileInOS", uri);
-            return;
-        }
-        // ★★ 只读技能 → 打开成【未命名文档】✗（用户要求 ✓）
-        //   ★ 为什么？→ 扩展包里的技能改了会被下次装包覆盖 ✗ 不如不给改 ✓
-        //   ★★ 未命名文档的物理特性 ✗：
-        //     你改了想保存 ✗ VS Code 会弹"另存为"✗ 不会覆盖原文件 ✓✓✓
-        //     （不需要 FileSystemProvider 那套重活 ✓）
-        if (!hit.mine) {
-            const doc = await vscode.workspace.openTextDocument({
-                content: fs.readFileSync(hit.path, "utf8"),
-                language: "markdown",
-            });
-            await vscode.window.showTextDocument(doc, { preview: false });
-            void vscode.window.showInformationMessage(
-                `这是只读预览（扩展包提供的技能 ✗ 改了会被下次安装覆盖 ✓）。原文件：${hit.path}`,
-            );
-            return;
-        }
-        await vscode.window.showTextDocument(uri, { preview: false });
-    };
+    const saveCommandDraft = async (
+        item: Record<string, unknown>,
+        parentId?: string,
+    ): Promise<void> => {
+        const items = readCommands();
+        const id = typeof item.id === "string" ? item.id : "";
+        const parent = parentId ? findCommand(items, parentId) : undefined;
 
-    /**
-     * ★ 删除一个技能（B31 ✗ 删整个目录 ✓）
-     *
-     * 【★ 只允许删用户自己的】
-     *   扩展包提供的技能是【包的一部分】✗ 删了下次装包又回来 ✓
-     *   → 直接拒绝 ✓（前端也不会给入口 ✓ 这里是第二道防线 ✓）
-     */
-    const deleteSkill = async (name: string): Promise<void> => {
-        const hit = readSkills().skills.find((x) => x.name === name);
-        if (!hit?.path || !hit.mine) {
-            skillsPanel.post("skillToast", { text: "只读技能不能删除 ✓", err: true });
-            return;
+        if (parent) {
+            item.type = "button"; // ① 收纳器里不能套收纳器 ✓
+            if (parent.lockCommand && parent.command) {
+                item.command = parent.command; // ② 命令被锁死 ✓
+            }
         }
-        // ★ 二次确认（删目录不可逆 ✗ 虽然会进回收站 ✓）
-        const ok = await vscode.window.showWarningMessage(
-            `删除技能「${name}」？（整个目录会进回收站）`,
-            { modal: true },
-            "删除",
-        );
-        if (ok !== "删除") return;
-        const dir = path.dirname(hit.path);
-        const r = await deleteSessionFile(dir);
-        if (r.ok) {
-            logInfo(`删除技能：${name}（${r.method}）`);
-            skillsPanel.post("skillToast", { text: `已删除：${name}` });
+
+        // ★ 用 command-store 的 normalize 走一遍（不信前端传来的形状 ✓）
+        // ★ 图标先收进标准位置（B32 ✓）
+        //   ★ 要带上【旧图标】✗ 才能把上一张清掉 ✓
+        const oldIcon = id ? findCommand(items, id)?.icon : undefined;
+        const raw = item as { icon?: string };
+        if (typeof raw.icon === "string") {
+            item.icon = materializeIcon(raw.icon, oldIcon) ?? "";
+        }
+        const clean = normalizeItem(item as never);
+
+        if (parent) {
+            // ★★ B33：塞进父亲的 children ✗（不是顶层 ✓）
+            const kids = [...(parent.children ?? [])];
+            const ki = id ? kids.findIndex((x) => x.id === id) : -1;
+            if (ki >= 0) kids[ki] = clean;
+            else kids.push(clean);
+            parent.children = kids;
+            await writeCommands(items);
+            logInfo(`保存子按钮：${clean.label} → 收纳器「${parent.label}」`);
         } else {
-            logError(`删除技能失败：${r.error}`);
-            skillsPanel.post("skillToast", { text: `删除失败：${r.error}`, err: true });
+            const idx = id ? items.findIndex((x) => x.id === id) : -1;
+            if (idx >= 0) {
+                items[idx] = clean;
+                logInfo(`修改按钮：${clean.label}`);
+            } else {
+                items.push(clean);
+                logInfo(`新增按钮：${clean.label}`);
+            }
+            await writeCommands(items);
         }
-        await refreshSkills();
+        pushCommands();
+        commandPanel.close();
     };
+
+    const commandPanel = new CommandPanel(
+        context.extensionUri,
+        createCommandHost({
+            closePanel: () => commandPanel.close(),
+            save: saveCommandDraft,
+        }),
+    );
 
     /**
-     * ★ 隐藏一个技能（B31 ✗ 不删 ✗ 只是不显示 ✓）
+     * ★★ B36：技能面板的【消息路由】+【动作】都搬去模块了 ✗
      *
-     * 【为什么需要它？】
-     *   有些技能是别人包的 ✗ 删不掉 ✓ 但又不想天天看见 ✓
-     *   → 加进隐藏清单 ✓（VS Code 配置里一个字符串数组 ✓）
+     * 【搬去哪了】
+     *   src/panels/skills-host.ts     消息 → 动作（7 个 kind ✓）
+     *   src/panels/skills-actions.ts  动作的实现（读盘 / 写盘 / 弹窗 ✓）
+     *
+     * 【★★ 为什么必须搬】
+     *   这个回调曾经是"技能面板消息的唯一入口"✓ 但它和
+     *   handleFrontendMessage 的区别【只写在注释里】✗
+     *   ⇒ B35 我把"动作后关面板"加错了地方 ✗ 静默失效 ✓
+     *   ⇒ 现在技能面板的消息只可能在 skills-host.ts 里被接 ✓
+     *     结构上不会再踩那个坑 ✓
+     *
+     * 【★ 顺序说明】
+     *   下面 skillsActions 里用箭头【延迟取】skillsPanel / chatView ✓
+     *   它们都在后面才创建 ✗ 而箭头体只在真正收到消息时才执行 ✓
      */
-    const hideSkill = async (name: string): Promise<void> => {
-        const cfg = vscode.workspace.getConfiguration("pi-bridge");
-        const cur = cfg.get<string[]>("skills.hidden", []);
-        if (cur.includes(name)) return;
-        await cfg.update("skills.hidden", [...cur, name], vscode.ConfigurationTarget.Global);
-        skillsPanel.post("skillToast", { text: `已隐藏：${name}（可在设置里恢复 ✓）` });
-        await refreshSkills();
-    };
+    const skillsActions = createSkillsActions({
+        post: (kind, payload) => skillsPanel.post(kind, payload),
+        postChat: (kind, payload) => chatView.post(kind, payload),
+    });
+
+    const skillsPanel = new SkillsPanel(
+        context.extensionUri,
+        createSkillsHost({
+            actions: skillsActions,
+            closePanelAfterAction: () => closeSkillsPanelAfterAction(),
+        }),
+    );
 
     /**
-     * ★★ 新建技能（B31 ✓）
+     * ★★ B36：技能领域的那 6 个动作函数【全搬走了】✗
      *
-     * 【流程】输入名字 → 校验 → 建目录 + 写模板 → 直接用编辑器打开 ✓
+     * 【原来在这里】refreshSkills / pushSkillDetail / openSkillFile /
+     *   deleteSkill / hideSkill / createSkill —— 共约 180 行 ✓
+     * 【现在在】src/panels/skills-actions.ts ✓
+     * 【为什么搬】main.ts 只该管【接线】✗
+     *   不该管"怎么删一个技能 / 怎么写模板"✓
      *
-     * 【为什么要模板？】
-     *   SKILL.md 必须带 YAML front-matter（name / description ✓）
-     *   否则不会被识别 ✗ 也不能只给它一个空文件 ✓
-     *   → 给一个能直接开写的骨架 ✗ 用户改两行就好了 ✓
+     * ★ 顺带删掉的死代码：pushSkillDetail
+     *   （面板前端【从不发】skillDetail ✗ 它一直没人调 ✓）
      */
-    const createSkill = async (): Promise<void> => {
-        const root = path.join(getAgentDir(), "skills");
-        const name = await vscode.window.showInputBox({
-            title: "新建技能",
-            prompt: "起个名字（当目录名 ✗ 建议用英文小写 + 连字符 ✓）",
-            placeHolder: "my-skill",
-            // ★ 校验（防路径穿越 ✗ 防重名 ✓）
-            validateInput: (v) => {
-                const t = v.trim();
-                if (!t) return "名字不能为空";
-                if (!/^[A-Za-z0-9._-]+$/.test(t)) return "只能用字母 / 数字 / . _ -（别用空格和斜杠 ✓）";
-                if (t === "." || t === "..") return "这个名字不合法";
-                if (fs.existsSync(path.join(root, t))) return `已存在同名技能：${t}`;
-                return undefined;
-            },
-        });
-        if (!name) return;
-
-        const dir = path.join(root, name.trim());
-        const file = path.join(dir, "SKILL.md");
-        try {
-            fs.mkdirSync(dir, { recursive: true });
-            fs.writeFileSync(
-                file,
-                [
-                    "---",
-                    `name: ${name.trim()}`,
-                    "description: （一句话说明这个技能是干什么的 ✗ 会显示在技能列表里 ✓）",
-                    "---",
-                    "",
-                    `# ${name.trim()}`,
-                    "",
-                    "（在这里写指令 ✗ 模型读到的就是这段内容 ✓）",
-                    "",
-                ].join("\n"),
-                "utf8",
-            );
-            logInfo(`新建技能：${file}`);
-            // ★ 直接打开让它开写 ✓
-            await vscode.window.showTextDocument(vscode.Uri.file(file), { preview: false });
-            skillsPanel.post("skillToast", { text: `已创建：${name.trim()}（改完保存即可 ✓）` });
-            await refreshSkills();
-        } catch (err) {
-            logError(`新建技能失败：${toErrorMessage(err)}`);
-            skillsPanel.post("skillToast", { text: `新建失败：${toErrorMessage(err)}`, err: true });
-        }
-    };
 
     /** ★ 侧栏提示条内容（B26）：只报告“有没有待答 + 当前问题标题” ✓ */
     const pushHint = (): void => {
@@ -905,43 +709,11 @@ export function activate(context: vscode.ExtensionContext): void {
             }
             // ★ 新建会话（点 ＋）
             //
-            // 【★ 这是“伪新建”】（实测确认 ✓ 用户点出来的）
-            //   pi 的行为：new_session 只是换一个【预定路径】✓
-            //   ★ 文件【不在磁盘上创建】✗ —— 真正发第一句话才落盘 ✓
-            //   → 所以我们【不刷新会话列表】（文件还没建，列表里本来就不该有 ✓）
-            //     它会在你发第一句话之后，下次刷新时才出现 ✓
+            // ★★ B36：动作搬去了 src/panels/session-actions.ts（newSession ✓）
+            //   （"这是伪新建 / 不发列表"那几条说明也跟着搬了 ✓）
+            //   ★ 侧栏的「＋」也会发这个 kind ✗ 两边落到【同一个动作】✓
             if (msg.kind === "newSession") {
-                // ★★ B35：绘画面板「点了就关」（点击即关 ✗ 不等结果 ✓）
-                closeSessionPanelAfterAction();
-                try {
-                    const r = (await pi.sendRaw({ type: "new_session" })) as {
-                        success?: boolean;
-                        error?: string;
-                        data?: { cancelled?: boolean };
-                    };
-                    logInfo(
-                        `新建会话：success=${r.success} cancelled=${r.data?.cancelled}` +
-                            (r.error ? ` error=${r.error}` : ""),
-                    );
-                    if (!r.success || r.data?.cancelled) {
-                        void vscode.window.showErrorMessage(
-                            `新建会话未成功：${r.error ?? "已取消"}`,
-                        );
-                        return;
-                    }
-
-                    // ★ 清空界面（新会话是空的 ✓）+ 清通知（旧进程周期的事 ✓）
-                    chatState.reset();
-                    chatState.clearNotices();
-                    chatView.post("noticesCleared", true);
-                    chatView.post("snapshot", chatState.snapshot());
-                    // ★ 标题更新：新会话还没名字 ✓
-                    void pushCurrentSessionTitle("");
-                    logInfo("新建会话完成（文件将在首条消息时创建 ✓）");
-                } catch (err) {
-                    logError(`新建会话失败: ${toErrorMessage(err)}`);
-                    void vscode.window.showErrorMessage(`新建会话失败：${toErrorMessage(err)}`);
-                }
+                void sessionActions.newSession();
                 return;
             }
 
@@ -961,162 +733,54 @@ export function activate(context: vscode.ExtensionContext): void {
             //   它原来由【侧栏展开】触发 ✓ 而列表改为面板自己的 sessionReady 拉 ✓
 
             // ★ 给【当前会话】改名（点按钮行中间的标题区 ✓）
+            //   ★★ B36：动作搬去了 src/panels/session-actions.ts（rename ✓）
             if (msg.kind === "renameSession") {
-                try {
-                    const st = (await pi.sendRaw({ type: "get_state" })) as {
-                        data?: { sessionFile?: unknown };
-                    };
-                    const file = st?.data?.sessionFile;
-                    if (typeof file !== "string" || !file) {
-                        throw new Error("拿不到当前会话文件（pi 还没启动？）");
-                    }
-                    const old = await sessionStore.findName(file);
-                    const name = await vscode.window.showInputBox({
-                        title: "修改会话名",
-                        prompt: "给这个会话起个名字（留空或取消 = 不改）",
-                        value: old ?? "",
-                    });
-                    if (name === undefined) return; // 取消 ✓
-                    const trimmed = name.trim();
-                    if (!trimmed) return; // 空 → 不改 ✓
-
-                    await pi.sendRaw({ type: "set_session_name", name: trimmed });
-
-                    // ★ 只更新缓存（不重读文件 ✓ 用户定的 ✓）
-                    await sessionStore.setName(file, trimmed);
-                    // ★★ B35：统一走 postSessionList ✗（它会推给独立面板 ✓）
-                    void postSessionList();
-                    void pushCurrentSessionTitle(trimmed);
-                    logInfo(`会话已改名：${trimmed}`);
-                } catch (err) {
-                    logError(`改名失败: ${toErrorMessage(err)}`);
-                    void vscode.window.showErrorMessage(`改名失败：${toErrorMessage(err)}`);
-                }
+                void sessionActions.rename();
                 return;
             }
 
             // ★★ B35：侧栏「☰ 会话」→ 打开独立面板 ✓
-            //   ★ 原来还有个 listSessions ✗ 那是侧栏展开时要列表用的 ✓
-            //     现在列表由面板自己的 sessionReady 拉 ✗ 不再用它 ✓
+            //   ★★ B36：它现在只是一句转发 ✗ 实现在 session-actions.open()
+            //     （= 走三面板互斥协调器 + 顺带刷一下顶栏的会话名 ✓）
             if (msg.kind === "openSessions") {
-                // ★★ B35：走互斥协调器 ✗ 打开它 = 关掉设置 / 技能 ✓
-                showExclusive("session");
-                // ★ 顺便刷新【顶栏的会话名】（原来在 listSessions 里做 ✓）
-                void pushCurrentSessionTitle();
+                sessionActions.open();
                 return;
             }
 
-            // ★ 刷新会话信息（★ 第二级 IO：读文件补名字 / 标异常 ✓）
-            //   维护边界 = 用户点【刷新】的那一刻 ✓
-            if (msg.kind === "refreshSessions") {
-                const stat = await sessionStore.refresh();
-                // ★★ B35：统一走 postSessionList ✗（它会推给独立面板 ✓）
-                void postSessionList();
-                logInfo(
-                    `会话刷新完成：${stat.total} 个（${stat.named} 有名字 / ${stat.broken} 异常）`,
-                );
-                return;
-            }
-
-            // ★ 切换会话
-            //
-            // 【交互约定（用户定的 ✓）】
-            //   · 同 cwd → 直接 switch_session（不重载 ✓）
-            //   · 跨 cwd → ★ 先改 cwd + reload，再 switch_session ✓
-            //     （cwd 是启动参数 → 必须重启子进程才能变 ✓）
-            if (msg.kind === "switchSession") {
-                // ★★ B35：绘画面板「点了就关」（同 newSession ✓）
-                closeSessionPanelAfterAction();
-                const list = await sessionStore.listEntries();
-                const info = list.find((s) => s.path === msg.path);
-                if (!info) {
-                    void vscode.window.showErrorMessage("找不到该会话文件");
-                    return;
-                }
-                if (info.broken) {
-                    void vscode.window.showErrorMessage(`该会话文件有问题：${info.broken}`);
-                    return;
-                }
-
-                try {
-                    if (info.cwd && info.cwd !== pi.getCwd()) {
-                        logInfo(`跨目录切会话：${pi.getCwd()} → ${info.cwd}`);
-                        pi.setCwd(info.cwd);
-                        await pi.reload(); // 用新 cwd 重启
-                    }
-                    logInfo(`切换会话：${msg.path}`);
-                    await pi.sendRaw({
-                        type: "switch_session",
-                        sessionPath: msg.path,
-                    });
-
-                    // ★ 清空当前界面 + ★ 重放该会话的历史消息 ✓
-                    //   （否则切过去是一片空白 ✗）
-                    chatState.reset();
-                    await replaySessionMessages();
-                    // ★ 通知【跟着会话走】：切了会话就是另一个上下文了 ✓
-                    //   （用户定的：切换会话应该清通知 ✓）
-                    chatState.clearNotices();
-                    chatView.post("cwd", pi.getCwd());
-                    chatView.post("noticesCleared", true);
-                    chatView.post("snapshot", chatState.snapshot());
-                    // ★★ B35：会话列表走独立面板 ✗
-                    void postSessionList();
-                    // ★ 标题也要更新（用户报的 bug ✓）
-                    void pushCurrentSessionTitle();
-                    void vscode.window.showInformationMessage(
-                        `已切换到会话 ${info.name ?? info.id.slice(0, 8)}`,
-                    );
-                } catch (err) {
-                    logError(`切换会话失败: ${toErrorMessage(err)}`);
-                    void vscode.window.showErrorMessage(`切换会话失败：${toErrorMessage(err)}`);
-                }
-                return;
-            }
+            // ★★ B36：refreshSessions / switchSession 搬去 session-host ✓
+            //   （两组注释也一起搬进了 session-actions.ts ✓）
 
             // ★ 克隆 / 分叉（B19）—— 都是本地处理（不走 formatMap ✓）
             //
-            // 【为什么要在宿主侧做而不是前端直接发？】
-            //   ① 分叉需要【先取 get_fork_messages】拿到 entryId ✗
-            //      → 前端不知道 entryId ✓（get_messages 不返回 id ✓ 实测确认 ✓）
-            //   ② 切完会话要【重放历史 + 刷新列表 + 改标题】✗ 这些都是宿主能力 ✓
+            // ★★ B36：动作搬去了 src/panels/session-actions.ts（branch ✓）
+            //   （"为什么要宿主做"的两条理由也跟着去了 ✓）
+            //   ★ 这是【聊天页气泡下那把"刀"】发的 ✗ 会话面板不发它 ✓
             if (msg.kind === "cloneSession" || msg.kind === "forkSession") {
-                await doSessionBranch(msg);
+                const isFork = msg.kind === "forkSession";
+                void sessionActions.branch({
+                    isFork,
+                    userIndex: isFork ? msg.payload.userIndex : undefined,
+                });
                 return;
             }
 
-            // ★ 删除会话（B21）
+            // ★★ B36：会话面板专属的五个消息【搬去 session-host 了】✗
             //
-            // 【为什么【没有】走 pi 的 RPC？】
-            //   查过官方源码：不存在 delete_session 命令 ✗
-            //   而 TUI 里能删 ✓ → 它是【前端自己删文件】✓
-            //   （dist/modes/interactive/components/session-selector.js:541 ✓）
+            //   refreshSessions / switchSession / deleteSession /
+            //   exportSession / importSession
+            //   ⇒ src/panels/session-host.ts     消息路由 ✓
+            //   ⇒ src/panels/session-actions.ts  动作实现 ✓
             //
-            // 【为什么照拄它而不是直接 unlink？】
-            //   ① ★ 先试 `trash` CLI → 文件夹进回收站 ✓【可恢复】✓
-            //      失败（没装 trash）才回落 unlink（永删 ⚠）
-            //   ② 屏幕报回方法（trash / unlink ✓）让用户知道能不能找回 ✓
+            // 【★ 为什么它们不该在这里】
+            //   它们【只有会话面板会发】✗ 聊天页从不发 ✓
+            //   ⇒ 长在聊天页那个大函数里是错位 ✓
             //
-            // 【两个保护（官方也有 ✓）】
-            //   · 不能删【当前会话】✗（删了 pi 进程还抱着它 ✓ 会出怪事 ✓）
-            //   · 必须二次确认 ✗（用原生 modal ✗ 而不是自绘 ✓ 更不容错 ✓）
-            if (msg.kind === "deleteSession") {
-                await doDeleteSession(msg.path, msg.name);
-                return;
-            }
-
-            // ★ 导出会话（B21）：把文件复制到用户选定的位置 ✓
-            //   注意：导出【不动】原文件 ✓ 只是复制 ✓
-            if (msg.kind === "exportSession") {
-                await doExportSession(msg.path, msg.name);
-                return;
-            }
-
-            // ★ 导入会话（B21）：外部 .jsonl → 当前 cwd 的会话目录 ✓
-            if (msg.kind === "importSession") {
-                await doImportSession();
-                return;
-            }
+            // 【★ 现在"会话消息"的两条路】（B36 的成果 ✓）
+            //   聊天页发的（＋新建 / 改名 / 打开面板 / 克隆分叉 4 个）
+            //     → 还在下面几行 ✗ 但只剩【转发到 actions】一句 ✓
+            //   面板发的（上面那 5 个 + sessionReady）
+            //     → src/panels/session-host.ts ✓
+            //   ★ 两条路【都落到同一个 sessionActions】✗ 实现只有一份 ✓
 
             // ★ 拉模型候选（B23）—— 本地处理 ✓
             //
@@ -1199,7 +863,7 @@ export function activate(context: vscode.ExtensionContext): void {
             if (msg.kind === "openSkills") {
                 // ★★ B35：走互斥协调器 ✓
                 showExclusive("skills");
-                await refreshSkills();
+                await skillsActions.refresh();
                 return;
             }
 
@@ -1215,131 +879,29 @@ export function activate(context: vscode.ExtensionContext): void {
             //   ⇒ 静默失效 ✓（我自己就这么踩了一次 ✗ 用户实测“注入 / 发送都不关”✓）
             //   消息类型也一并从 format-frontend.ts 删了 ✗ 更不容易踩 ✓
 
-            // ★ 供应商凭据（B24）：增加 api key / 删除凭据 ✓
+            // ★★ B36：设置领域的四个消息【搬去模块了】✗
             //
-            // 【为什么走这里而不是 settings 保存？】
-            //   它们写的是【另一个文件】auth.json ✗（不是 settings.json ✓）
-            //   → 单独的消息 ✓ 不混进 saveSettings 的批量提交流 ✓
-            if (msg.kind === "addApiKey") {
-                try {
-                    setApiKey(msg.provider, msg.key);
-                    postSettings(); // ★ 回读重绘 ✓
-                    void vscode.window.showInformationMessage(
-                        `已保存 ${msg.provider} 的 API key ✓` +
-                            "（如果 pi 已在运行，需要重启 pi 才生效 ✗）",
-                    );
-                } catch (err) {
-                    logError(`保存 API key 失败: ${toErrorMessage(err)}`);
-                    void vscode.window.showErrorMessage(`保存失败：${toErrorMessage(err)}`);
-                }
-                return;
-            }
-            if (msg.kind === "removeAuth") {
-                try {
-                    // ★ 二次确认（不可逆 ✗）
-                    const pick = await vscode.window.showWarningMessage(
-                        `确定删除「${msg.provider}」的凭据？（= 登出 ✗）`,
-                        { modal: true, detail: "删掉后 pi 就不能再用这个供应商了 ✓" },
-                        "删除",
-                    );
-                    if (pick !== "删除") return;
-                    removeAuth(msg.provider);
-                    postSettings();
-                    void vscode.window.showInformationMessage(`已删除 ${msg.provider} 的凭据 ✓`);
-                } catch (err) {
-                    logError(`删除凭据失败: ${toErrorMessage(err)}`);
-                    void vscode.window.showErrorMessage(`删除失败：${toErrorMessage(err)}`);
-                }
-                return;
-            }
+            //   addApiKey / removeAuth / reloadSettings / saveSettings
+            //   ⇒ src/panels/settings-host.ts     消息路由 ✓
+            //   ⇒ src/panels/settings-actions.ts  动作实现 ✓
+            //
+            // 【★ 为什么它们能搬走？】
+            //   它们【不是聊天页专属】✗ 设置面板自己也发同样这几个 ✓
+            //   ⇒ 两边都落到【同一份实现】✗ 才不会出现两套保存逻辑 ✓
+            //   （搬走之前是靠"设置面板把消息转交给这个大函数"凑合的 ✓
+            //     那是隐式的 ✗ 现在显式成 actions ✓）
+            //
+            // 【★ 顺带删掉的东西】
+            //   原来这四段里有注释解释"为什么走这里而不是 settings 保存"✗
+            //   那些解释已经跟着代码去了 settings-actions.ts ✓
 
-            // ★ 设置面板（B24）：打开 / 重新读取（本地文件操作 ✓）
+            // ★ 设置面板（B24）：打开 / 切到面板（本地文件操作 ✓）
             if (msg.kind === "openSettings") {
-                // ★★ B35：侧栏的 ⚙ 现在只是【入口】✗ 真正显示交回宿主 ✓
+                // ★★ B35：侧栏的 ⚙ 只是【入口】✗ 真正显示交回宿主 ✓
                 //   ★ 走互斥协调器 ✗ 打开它 = 关掉会话 / 技能 ✓
                 //   ★ 面板【新开】时会自己发 settingsReady → 再拉一次数据 ✓
                 //     所以这里【不需要】推数据 ✓
-                showExclusive("settings");
-                return;
-            }
-
-            // ★★ B35：面板里的「重新读取」→ 重读磁盘 + 重推 ✓
-            //   ★ 为什么不直接复用 openSettings？
-            //     它现在的语义是“把面板叫到前面来”✗ 不推数据 ✓
-            //     而面板已经开着时 show() 是空转 ✗ 前端就永远收不到新数据 ✓
-            //     → 所以【另一个 kind】把两个语义分开 ✓
-            if (msg.kind === "reloadSettings") {
-                postSettings();
-                return;
-            }
-
-            // ★ 保存设置（B24）：★ 读-改-写 ✗ 只动我们改过的字段 ✓
-            if (msg.kind === "saveSettings") {
-                try {
-                    const patch: Record<string, unknown> = {};
-                    for (const [k, v] of Object.entries(msg.values ?? {})) {
-                        // ★★ 分流（B31 ✓）：`pi-bridge.*` 是【我们扩展自己的 VS Code 配置】✗
-                        //   不能写进 pi 的 settings.json ✓
-                        //   （用前缀判断就够 ✗ pi 的字段不可能以 pi-bridge. 开头 ✓）
-                        //   ★ 例如 pi-bridge.skills.clickAction（技能单击行为 ✓）
-                        if (k.startsWith("pi-bridge.")) {
-                            await vscode.workspace
-                                .getConfiguration()
-                                .update(k, v, vscode.ConfigurationTarget.Global);
-                            continue;
-                        }
-                        // ★★ defaultModel 是【合成字段】✗（界面上的值是 "provider/id" ✓）
-                        //   要拆回 pi 认的【两个】字段 ✓（B24 合并决定 ✓）
-                        //
-                        // 【之前这段没生效的教训】✗
-                        //   我用 python 的 str.replace 改的 ✗ 没匹配上也不报错 ✓
-                        //   → 看起来“改完了”✗ 实际没改 ✓ 结果保存时把 "mock/mock"
-                        //     直接写进了 defaultModel ✓ 而 defaultProvider 没动 ✓
-                        //     → 文件里成了 provider=ollama + model=mock/mock（错配 ✗）
-                        //     → 前端拼出 "ollama/mock/mock" → 下拉里没这个选项 → 显示空 ✓
-                        //   ★ 教训：改代码用 edit 工具 ✗（不匹配会报错 ✓）
-                        //
-                        // 【拆法】不能用 split("/") ✗ —— 模型 id 自己可能带 / ✓
-                        //   （如 openrouter 的 moonshotai/kimi-k2.6 ✓）
-                        //   → 从【模型目录里反查】哪个条目完全匹配 ✓
-                        if (k === "defaultModel" && typeof v === "string" && v) {
-                            const hit = readModelCatalog().find(
-                                (m) => `${m.provider}/${m.id}` === v,
-                            );
-                            if (hit) {
-                                patch.defaultProvider = hit.provider;
-                                patch.defaultModel = hit.id;
-                            } else if (!v.includes("/")) {
-                                // 只给了 id（无 provider）→ 只写模型 ✓
-                                patch.defaultModel = v;
-                            } else {
-                                logWarn(`默认模型：目录里找不到 "${v}" ✗ 本次不写入 ✓`);
-                            }
-                            continue;
-                        }
-                        // ★ 空字符串 → 删除该字段 ✗（pi 会回到默认 ✓）
-                        //   （而不是写一个空值进去 ✗ 那样 pi 会当成“显式设为空”✓）
-                        setByPath(patch, k, v === "" || v === undefined ? undefined : v);
-                    }
-                    patchSettings(patch);
-
-                    // ★ 改了 sessionDir → 我们的会话扫目录要跟着改 ✗
-                    //   （否则列表全空 ✓ 用户预言的“一定会出错”✓）
-                    if ("sessionDir" in msg.values) {
-                        sessionStore.setRoot(resolveSessionRoot(readLaunchArgs()));
-                        await postSessionList();
-                    }
-
-                    // ★ 重新读一遍回给前端（确认真的写进去了 ✓）
-                    postSettings();
-                    void vscode.window.showInformationMessage(
-                        "设置已保存 ✓" +
-                            (needsRestartHint(msg.values) ? "（部分项需重启 pi 生效 ✗ 点输入区的 ⟳）" : ""),
-                    );
-                } catch (err) {
-                    logError(`保存设置失败: ${toErrorMessage(err)}`);
-                    void vscode.window.showErrorMessage(`保存设置失败：${toErrorMessage(err)}`);
-                }
+                settingsActions.open();
                 return;
             }
 
@@ -1472,7 +1034,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 chatView.post("cwd", pi.getCwd());
                 chatView.post("snapshot", chatState.snapshot());
                 // ★★ B35：会话列表走独立面板 ✗
-                void postSessionList();
+                void sessionActions.list();
                 logInfo("=== 重启流程结束 ===");
                 return;
             }
@@ -1537,45 +1099,77 @@ export function activate(context: vscode.ExtensionContext): void {
     );
 
     /**
-     * ★★ B35：会话面板（独立编辑器页面 ✗ 从侧栏搬走的 ✓）
+     * ★★ B36：会话（"绘画"）领域的【消息路由】+【动作】都搬去模块了 ✗
      *
-     * 【★ 它和 chatView 共用一套消息处理】
-     *   · sessionReady → 推列表
-     *     ★ 为什么叫 sessionReady 而不叫 ready？
-     *       聊天页已经有一个 ready 了 ✗ 语义不同（那边是“重放快照”✓）
-     *       同名会让两边分不清来源 ✓
-     *   · 其余（refreshSessions / newSession / switchSession /
-     *           exportSession / importSession / deleteSession）
-     *     → ★ 转给 handleFrontendMessage ✓
-     *     理由：那些逻辑早就写好了 ✗ 重写一遍就会有两份 ✓
+     * 【搬去哪了】
+     *   src/panels/session-host.ts     面板的消息 → 动作（7 个 kind ✓）
+     *   src/panels/session-actions.ts  动作实现（新建/切换/分叉/删除/导出/导入 ✓）
      *
-     * 【★ 为什么能引用下面的 postSessionList？】
-     *   它是 `async function`（函数声明 ✗）⇒ 会【提升】✓
+     * 【★★ 为什么要搬】
+     *   这十来个动作【两边都会触发】✗
+     *     · 侧栏「＋」和面板「＋」→ 都是 newSession ✓
+     *     · 聊天页气泡下那把"刀"和面板 → 都要 branch ✓
+     *     · 侧栏标题 和 面板右键 → 改名 / 删除 / 导出 ✓
+     *   ⇒ 必须落到【同一份实现】✗ 否则就是两套逻辑 ✓
+     *     （B36 之前全靠"面板把消息转交给聊天页那个大函数"凑合 ✓
+     *       隐式 ✗ 现在显式成 sessionActions ✓）
+     *
+     * 【★ 顺序说明】
+     *   下面用箭头【延迟取】sessionPanel / chatView ✓
+     *   它们都在后面才定义 ✗ 而箭头体只在真正用到时才执行 ✓
      */
-    const sessionPanel = new SessionPanel(context.extensionUri, (kind, payload) => {
-        if (kind === "sessionReady") {
-            void postSessionList();
-            return;
-        }
-        void handleFrontendMessage(payload as FrontendMessage);
+    const sessionActions = createSessionActions({
+        pi,
+        sessionStore,
+        chatState,
+        postChat: (kind, payload) => chatView.post(kind, payload),
+        postPanel: (kind, payload) => sessionPanel.post(kind, payload),
+        showPanel: () => showExclusive("session"),
+        closePanelAfterAction: () => closeSessionPanelAfterAction(),
+        replay: () => replaySessionMessages(),
+        pushTitle: (overrideName) => pushCurrentSessionTitle(overrideName),
     });
 
+    const sessionPanel = new SessionPanel(
+        context.extensionUri,
+        createSessionHost({ actions: sessionActions }),
+    );
+
     /**
-     * ★★ B35：设置面板（独立编辑器页面 ✗ 从侧栏搬走的 ✓）
+     * ★★ B36：设置面板的【消息路由】+【动作】都搬去模块了 ✗
      *
-     * 【与 sessionPanel 同一套路】
-     *   · settingsReady → 推数据（postSettings ✓）
-     *   · 其余（saveSettings / addApiKey / …）→ 转 handleFrontendMessage ✓
-     * ★ 注意：侧栏的 ⚙ 按钮发的是 openSettings ✗ 那是“打开面板”
-     *   而面板的 settingsReady 才是“给我数据”✓ 两个语义不一样 ✓
+     * 【搬去哪了】
+     *   src/panels/settings-host.ts     消息 → 动作（5 个 kind ✓）
+     *   src/panels/settings-actions.ts  动作的实现（读改写 / 弹窗 ✓）
+     *
+     * 【★ 它的两个"消息来源"】（B36 想根治的就是这个 ✗）
+     *   ① 侧栏 ⚙ → openSettings → 走 handleFrontendMessage（聊天页那条 ✓）
+     *   ② 面板自己 → settingsReady / reloadSettings / saveSettings /
+     *                addApiKey / removeAuth ✓
+     *   ⇒ 两条路【都落到同一个 settingsActions】✗ 实现只有一份 ✓
+     *
+     * 【★ 顺序说明】
+     *   下面用箭头【延迟取】postSettings / showExclusive / sessionStore ✓
+     *   它们都在后面才定义 ✗ 而箭头体只在真正用到时才执行 ✓
      */
-    const settingsPanel = new SettingsPanel(context.extensionUri, (kind, payload) => {
-        if (kind === "settingsReady") {
-            postSettings();
-            return;
-        }
-        void handleFrontendMessage(payload as FrontendMessage);
+    const settingsActions = createSettingsActions({
+        postSettings: () => postSettings(),
+        showPanel: () => showExclusive("settings"),
+        onSessionDirChanged: async () => {
+            // ★ 改了 sessionDir → 我们的会话扫目录要跟着改 ✓
+            //   （否则列表全空 ✗ 用户预言的"一定会出错"✓）
+            sessionStore.setRoot(resolveSessionRoot(readLaunchArgs()));
+            await sessionActions.list();
+        },
     });
+
+    const settingsPanel = new SettingsPanel(
+        context.extensionUri,
+        createSettingsHost({
+            actions: settingsActions,
+            onReady: () => postSettings(),
+        }),
+    );
 
     /**
      * ★★ B35：编辑器区【三面板互斥】（用户定的 ✓）
@@ -1668,7 +1262,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("pi-bridge.skills") && skillsPanel.isOpen()) {
-                void refreshSkills();
+                void skillsActions.refresh();
             }
             // ★★ B35：样式配置变了 → 【设置面板自己的】字号 / 内边距要实时生效
             //   （原来靠侧栏 chatView 推 styleVars ✗ 独立面板得自己收 ✓
@@ -1696,7 +1290,7 @@ export function activate(context: vscode.ExtensionContext): void {
         // ★ 命令面板 → 打开技能面板（B31 ✓）
         vscode.commands.registerCommand("pi-bridge.showSkills", () => {
             showExclusive("skills");
-            void refreshSkills();
+            void skillsActions.refresh();
         }),
 
         // ★ 命令面板 → 打开交互面板（B26 ✓ 没有待答请求时是空操作 ✓）
@@ -1755,282 +1349,10 @@ export function activate(context: vscode.ExtensionContext): void {
     //
     // 数据源：pi 的 get_messages ✓
     //   ★ 它返回的 message 结构与事件流里的一致 → 直接复用我们的气泡逻辑 ✓
-    /**
-     * ★ 克隆 / 分叉会话（B19）
-     *
-     * 【clone】无参数 ✓ 整会话复制成一个新文件 ✓ pi 会【自动切过去】✓
-     * 【fork】 需要一个 entryId ✓ 但它是【用户消息】的 id ✗ 不是气泡的 ✗
-     *
-     *   ★ 用户的比喻：气泡底下那把按钮“就像一把刀，切一刀，前面的保留”✓
-     *   → 刀挂在【某个 AI 气泡】下面（该 AI 组的末尾 ✓）
-     *   → 要保留到它为止 → 需要【它后面那条用户消息】作锚点 ✓
-     *   → 而前端的 userIndex 就是“这个气泡前面有几个用户气泡”✓
-     *     = 那个锚点的下标 ✓（0-based ✓ 正好就是 get_fork_messages 的下标 ✓）
-     *
-     *   ★ 最后一组【没有下一个用户气泡】→ 前端不会给它加按钮 ✓（正好 ✓）
-     *
-     * 【为什么每次都重新取 get_fork_messages？】
-     *   fork 之后【旧 entryId 会失效】✗（实测确认 ✓）
-     *   → 不能缓存，每次现取 ✓
-     */
-    async function doSessionBranch(
-        msg: { kind: "cloneSession" } | { kind: "forkSession"; payload: { userIndex: number } },
-    ): Promise<void> {
-        const isFork = msg.kind === "forkSession";
-        const label = isFork ? "分叉" : "克隆";
-        try {
-            const cmd: Record<string, unknown> = { type: isFork ? "fork" : "clone" };
-            if (isFork) {
-                const fm = (await pi.sendRaw({ type: "get_fork_messages" })) as {
-                    data?: { messages?: { entryId: string; text: string }[] };
-                };
-                const list = fm?.data?.messages ?? [];
-                const target = list[msg.payload.userIndex];
-                if (!target) {
-                    logWarn(`分叉失败：没有下标为 ${msg.payload.userIndex} 的用户消息（共 ${list.length} 条）`);
-                    void vscode.window.showWarningMessage("分叉失败：找不到对应的分界点");
-                    return;
-                }
-                logInfo(`分叉锚点 [${msg.payload.userIndex}]：${target.text.slice(0, 40)}`);
-                cmd.entryId = target.entryId;
-            }
-
-            const res = (await pi.sendRaw(cmd as never)) as {
-                success?: boolean;
-                data?: { cancelled?: boolean };
-                error?: string;
-            };
-            if (res?.success === false) throw new Error(res.error ?? "未知错误");
-            if (res?.data?.cancelled) {
-                logInfo(`${label}被取消`);
-                return;
-            }
-
-            // ★ 切到了新会话（自动的 ✓）→ 和 switchSession 一样收尾 ✓
-            chatState.reset();
-            await replaySessionMessages();
-            chatState.clearNotices();
-            chatView.post("cwd", pi.getCwd());
-            chatView.post("noticesCleared", true);
-            chatView.post("snapshot", chatState.snapshot());
-            // ★ 列表要重扫：新文件刚生成 ✓
-            await postSessionList();
-            void pushCurrentSessionTitle();
-            logInfo(`${label}完成`);
-            void vscode.window.showInformationMessage(`已${label}为新会话`);
-        } catch (err) {
-            logError(`${label}失败: ${toErrorMessage(err)}`);
-            void vscode.window.showErrorMessage(`${label}失败：${toErrorMessage(err)}`);
-        }
-    }
-
-    /**
-     * ★ 删除一个会话文件（B21）
-     *
-     * 【流程（照拄官方 TUI ✓ 见 B21 文档）】
-     *   ① 保护：它是不是【当前会话】？→ 是就拒 ✓
-     *   ② 保护：它存不存在 / 是不是会话文件？✓
-     *   ③ 二次确认（原生 modal ✓）
-     *   ④ 执行：trash ✓ → 回落 unlink ✓
-     *   ⑤ 刷新列表（后端直接扫 ✓ 不等前端 ⟳）
-     */
-    async function doDeleteSession(filePath: string, name?: string): Promise<void> {
-        const label = name ?? filePath.split("/").pop() ?? filePath;
-        try {
-            // ① 不能删当前会话 ✗
-            //   （pi 还拿着它的句柄 ✓ 删掉之后切回/重放会出怪事 ✓）
-            if (pi.isStarted()) {
-                const st = (await pi.sendRaw({ type: "get_state" })) as {
-                    data?: { sessionFile?: unknown };
-                };
-                const cur = st?.data?.sessionFile;
-                if (typeof cur === "string" && cur && resolve(cur) === resolve(filePath)) {
-                    void vscode.window.showWarningMessage(
-                        "不能删除当前正在使用的会话（先切到别的会话再删 ✓）",
-                    );
-                    return;
-                }
-            }
-
-            // ② 存在性 + ③ 二次确认
-            if (!existsSync(filePath)) {
-                void vscode.window.showErrorMessage("找不到该会话文件（可能已经被删了）");
-                await postSessionList();
-                return;
-            }
-            const pick = await vscode.window.showWarningMessage(
-                `确定删除会话「${label}」？`,
-                {
-                    modal: true,
-                    detail: `${filePath}\n\n会先尝试移到回收站（trash / gio ✓）；如果都没有才会永久删除 ⚠`,
-                },
-                "删除",
-            );
-            if (pick !== "删除") {
-                logInfo("删除会话：用户取消");
-                return;
-            }
-
-            // ④ 执行（trash 优先 → unlink 回落 ✓）
-            const result = await deleteSessionFile(filePath);
-            if (!result.ok) {
-                logError(`删除会话失败: ${result.error}`);
-                void vscode.window.showErrorMessage(`删除失败：${result.error}`);
-                return;
-            }
-            logInfo(`已删除会话（${result.method}）：${filePath}`);
-            void vscode.window.showInformationMessage(
-                result.method === "unlink"
-                    ? "会话已永久删除（系统没有可用的回收站命令 ⚠）"
-                    : `会话已移到回收站 ✓（${result.method}）`,
-            );
-
-            // ⑤ 列表刷新（后端自己扫 ✓）
-            await postSessionList();
-        } catch (err) {
-            logError(`删除会话异常: ${toErrorMessage(err)}`);
-            void vscode.window.showErrorMessage(`删除失败：${toErrorMessage(err)}`);
-        }
-    }
-
-    /**
-     * ★ 导出会话（B21）
-     *
-     * 【为什么是“格式选择 + 保存路径”两步？】
-     *   · jsonl 与 html 【不是平权的】✗：
-     *       jsonl → 任意会话都能导 ✓（纯文件复制 ✓）
-     *       html  → ★ 只能导【当前会话】✗（export_html 不接受 sessionPath ✗）
-     *   · 而这个差别【必须说清楚】✗ → 自绘菜单写不下 ✓
-     *   → 用原生 QuickPick（能带描述文字 ✓）而不是两个菜单项 ✓
-     */
-    async function doExportSession(filePath: string, name?: string): Promise<void> {
-        if (!existsSync(filePath)) {
-            void vscode.window.showErrorMessage("找不到该会话文件");
-            await postSessionList();
-            return;
-        }
-
-        // ★ 它是不是当前会话？（决定 html 那条路能不能走 ✓）
-        const cur = await currentSessionFile();
-        const isCurrent = !!cur && resolve(cur) === resolve(filePath);
-        const base = (name ?? filePath.split("/").pop() ?? "session").replace(/[\\/:*?"<>|]/g, "_");
-
-        const pick = await vscode.window.showQuickPick(
-            [
-                {
-                    label: "$(json) 导出为 JSONL",
-                    detail: "原始记录，可以再导入回 pi（任意会话都可导 ✓）",
-                    fmt: "jsonl" as const,
-                },
-                {
-                    label: "$(file-media) 导出为 HTML",
-                    detail: isCurrent
-                        ? "可读、可分享的单页（带当前主题 ✓）"
-                        : "★ 只能导出【当前正在使用的会话】✗ 这一条现在不可用",
-                    fmt: "html" as const,
-                    disabled: !isCurrent,
-                },
-            ],
-            { title: `导出会话「${base}」`, placeHolder: "选择格式" },
-        );
-        if (!pick) return;
-
-        if (pick.fmt === "jsonl") {
-            const target = await vscode.window.showSaveDialog({
-                title: "导出会话（JSONL）",
-                defaultUri: vscode.Uri.file(`${base}.jsonl`),
-                filters: { "pi 会话": ["jsonl"] },
-            });
-            if (!target) return;
-            await fs.promises.copyFile(filePath, target.fsPath);
-            logInfo(`导出会话（jsonl）：${filePath} → ${target.fsPath}`);
-            void vscode.window.showInformationMessage(`已导出到 ${target.fsPath}`, "打开所在目录").then(
-                (p) => {
-                    if (p) void vscode.commands.executeCommand("revealFileInOS", target);
-                },
-            );
-            return;
-        }
-
-        // html（只能用 pi 的命令 ✓ 且只限当前会话 ✓）
-        //
-        // ★★ 这里必须【自己再拦一次】✗（不能只靠 QuickPick 的 disabled ✗）
-        //   实测：disabled 只影响视觉 ✓ 用户【依然能点进去】✗
-        //     → 于是弹了保存框 → 选完路径 → 导出的是【当前会话】而不是右键那条 ✗
-        //       （用户看到的就是“流程走完了但文件没出现/不对”✗）
-        //   ★ 教训：UI 的禁用【永远不可信】✗ 真正的约束必须在逻辑层 ✓
-        if (!isCurrent) {
-            logWarn("导出 HTML 被拒：不是当前会话");
-            void vscode.window.showWarningMessage(
-                "HTML 只能导出【当前正在使用的会话】✗\n先切到它，再导出 ✓",
-            );
-            return;
-        }
-        const target = await vscode.window.showSaveDialog({
-            title: "导出会话（HTML）",
-            defaultUri: vscode.Uri.file(`${base}.html`),
-            filters: { HTML: ["html"] },
-        });
-        if (!target) return;
-        // ★ pi 需要【懒启动】✗ —— export_html 得会话在跑才行 ✓
-        const r = (await pi.sendRaw({
-            type: "export_html",
-            outputPath: target.fsPath,
-        })) as { success?: boolean; error?: string };
-        if (r?.success === false) {
-            void vscode.window.showErrorMessage(`导出失败：${r.error ?? "未知错误"}`);
-            return;
-        }
-        logInfo(`导出会话（html）：${target.fsPath}`);
-        void vscode.window.showInformationMessage(`已导出到 ${target.fsPath}`);
-    }
-
-    /**
-     * ★ 导入会话（B21）
-     *
-     * 【pi 完全没这个接口】✗（实测：无 import_session ✗）→ 只能自己做 ✓
-     *
-     * 【为什么要校验？】（用户：“不检验一下，不拦一下吗？”✓）
-     *   · 导入的是【外部文件】✗ 可能是别的东西（普通 jsonl / 日志 / 导出错的 ✓）
-     *   · 不拦的话，它会成为一个进不去又删不掉的【垃圾条目】✗
-     *     （切过去会报 Session file is not a valid pi session ✓）
-     *   → ★ 入库前先验明：它到底是不是 pi 的会话文件 ✓
-     *
-     * 【放哪个目录？】
-     *   当前 cwd 对应的会话目录 ✓（理由见 format-frontend.ts 的注释 ✓）
-     */
-    async function doImportSession(): Promise<void> {
-        const picks = await vscode.window.showOpenDialog({
-            title: "导入会话（选择一个 pi 会话 .jsonl）",
-            canSelectMany: false,
-            filters: { "pi 会话": ["jsonl"] },
-        });
-        if (!picks?.length) return;
-        const src = picks[0].fsPath;
-
-        // ★ 入库前校验（不做的话会造出“垃圾会话”✗）
-        const check = await validateSessionFile(src);
-        if (!check.ok) {
-            logWarn(`导入被拒：${check.reason}`);
-            void vscode.window.showErrorMessage(`这不是一个可用的 pi 会话文件：${check.reason}`);
-            return;
-        }
-
-        // 目标：当前 cwd 的会话目录 ✓
-        const dir = sessionDirForCwd(pi.getCwd());
-        await fs.promises.mkdir(dir, { recursive: true });
-        let target = path.join(dir, path.basename(src));
-        // ★ 同名不覆盖 ✗（避免把已有会话干掉 ✓）→ 加后缀 ✓
-        if (existsSync(target)) {
-            const short = `${Date.now().toString(36)}`;
-            target = path.join(dir, path.basename(src).replace(/\.jsonl$/, `-${short}.jsonl`));
-        }
-        await fs.promises.copyFile(src, target);
-        logInfo(`导入会话：${src} → ${target}`);
-
-        await postSessionList();
-        void vscode.window.showInformationMessage(`已导入到当前工作目录的会话列表 ✓`);
-    }
+    // ★★ B36：会话的六个实现（doSessionBranch / doDeleteSession /
+    //   doExportSession / doImportSession / currentSessionFile /
+    //   postSessionList）【整块搬去】src/panels/session-actions.ts ✓
+    //   ★ 它们全都【只被会话相关逻辑】用 ✗ 所以整体搬走最干净 ✓
 
     /**
      * ★ 版本检测（B24）—— 启动时异步跑一次 ✓
@@ -2173,16 +1495,6 @@ export function activate(context: vscode.ExtensionContext): void {
     //   问 pi 的 get_state（sessionFile ✓）
     //   ★ 但 get_state 会【触发懒启动】✗ → 所以先判断 isStarted ✓
     //     （用户还没发过消息就不该因为“打开面板”而启动 pi ✓）
-    /**
-     * ★ 当前会话文件路径（没有则 undefined）
-     *
-     * 【为什么单独抽一个？】
-     *   两个地方要用：
-     *     · pushCurrentSessionTitle（取名字 ✓）
-     *     · doExportSession（判断 html 那条路能不能走 ✓能不能删除 ✓）
-     *   ★ 关键：若 pi 【未启动】就直接返回 undefined ✗
-     *     不能为了问路而【懒启动】✗（用户还没发消息就不该把 pi 拉起来 ✓）
-     */
     /**
      * ★ 读 pi 的 settings.json 里的默认模型（B23）
      *
@@ -2621,20 +1933,6 @@ export function activate(context: vscode.ExtensionContext): void {
         }
     }
 
-    async function currentSessionFile(): Promise<string | undefined> {
-        if (!pi.isStarted()) return undefined;
-        try {
-            const st = (await pi.sendRaw({ type: "get_state" })) as {
-                data?: { sessionFile?: unknown };
-            };
-            const file = st?.data?.sessionFile;
-            return typeof file === "string" && file ? file : undefined;
-        } catch (err) {
-            logDebug(`取当前会话文件失败（忽略）: ${toErrorMessage(err)}`);
-            return undefined;
-        }
-    }
-
     async function pushCurrentSessionTitle(overrideName?: string): Promise<void> {
         // ★ 改名后前端要【立刻】看到新名字 ✓ → 走 override 直推 ✓
         if (overrideName !== undefined) {
@@ -2647,39 +1945,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
     /** 从会话文件路径里取【短 id】（文件名 2026-…Z_<uuid>.jsonl ✓）*/
 
-    /**
-     * ★ 推【会话列表】给前端（scope 过滤在这里做 ✓）
-     *
-     * 【为什么抽成函数？】
-     *   它被【两处】调用：
-     *     ① 前端请求（打开面板 ✓）
-     *     ② ★ 配置变化（scope 改了要【立刻重新过滤】✓ 用户要求的 ✓）
-     *   scope 本质上是“前端显示范围”→ 应该【实时生效】✗ 不是等重开面板 ✓
-     */
-    async function postSessionList(): Promise<void> {
-        const all = await sessionStore.listEntries();
-        // ★ scope（用户定的 ✓）：
-        //   "current" = 只看当前 cwd 的会话（受限模式 ✓）
-        //   "all"     = 所有 cwd（前端按 cwd 分组显示 ✓）
-        const scope = vscode.workspace
-            .getConfiguration("pi-bridge.sessions")
-            .get<string>("scope", "all");
-        const cur = pi.getCwd();
-        const list = scope === "current" ? all.filter((s) => s.cwd === cur || !s.cwd) : all;
-        logInfo(
-            `会话列表：scope=${scope} → ${list.length}/${all.length} 条` +
-                (scope === "current" ? `（当前 cwd=${cur}）` : ""),
-        );
-        // ★★ B35：推给【独立面板】✗ 不再走侧栏 ✓
-        //   ★ 连 currentCwd 一起给 ✗ 面板要用它把当前分组排最前 + 标「当前」✓
-        sessionPanel.post("sessionList", { list, currentCwd: cur });
-    }
-
     // ★ scope 改了 → 立刻重新推列表（不用重开面板 ✓）
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("pi-bridge.sessions")) {
-                void postSessionList();
+                void sessionActions.list();
             }
         }),
     );
@@ -2690,4 +1960,3 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {
     // 清理工作主要由上面的 subscriptions 完成
 }
-

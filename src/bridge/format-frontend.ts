@@ -32,26 +32,19 @@ export type FrontendMessage =
     /** ★ 侧栏「☰ 会话」→ 打开【独立会话面板】（B35 ✓）
      *  ★ 会话面板已经搬到编辑器区 ✗ 侧栏只剩这个入口 ✓ */
     | { kind: "openSessions" }
-    // ★ 刷新会话信息（★ 第二级 IO：读文件补名字 ✓ 用户手动触发 ✓）
-    | { kind: "refreshSessions" }
-    // ★ 切换会话（同 cwd → 直接切；跨 cwd → 宿主会先重载 ✓）
-    | { kind: "switchSession"; path: string; cwd: string }
+    // ★★ B36：下面五个会话消息【不在这里了】✗
+    //   refreshSessions / switchSession / deleteSession /
+    //   exportSession / importSession
+    //   ⇒ 它们【只有会话面板会发】✗ 所以：
+    //     消息处理在 src/panels/session-host.ts ✓
+    //     动作实现在 src/panels/session-actions.ts ✓
+    //   ★ 为什么要删？→ 这个类型就是"聊天页会发什么"的契约 ✓
+    //     把面板专属的混进来 ✗ 会让人以为"聊天页也会发它"✓
+    //     （B35 我就是这样被误导的 ✗ 见 B35 第七节 ✓）
+    //
     // ★ 克隆会话（B19）：整个会话复制成一个新文件 ✓ 无参数 ✓ 本地处理（不发 pi）
     | { kind: "cloneSession" }
-    // ★ 删除会话（B21）：★ pi 没有 RPC 接口 ✗ → 扩展自己删文件 ✓
-    //   照拄官方 TUI 的做法：trash CLI 优先 → 回落 unlink ✓（见 main.ts ✓）
-    //   ★ 两个保护：不能删【当前会话】✗ + 必须【二次确认】✗
-    | { kind: "deleteSession"; path: string; name?: string }
-    // ★ 导出会话（B21）：把 .jsonl 复制到用户选定的位置 ✓
-    | { kind: "exportSession"; path: string; name?: string }
-    // ★ 导入会话（B21）：把外部 .jsonl 复制进【当前 cwd】的会话目录 ✓
-    //
-    // 【为什么导入要放到“当前 cwd”而不是让用户选目录？】
-    //   · 导入的动机是“把它拿到这边来用”✓ 而你正在这边 ✓
-    //   · pi 只认【当前 cwd 对应目录】里的会话 ✗（TUI 的会话列表是按 cwd 分的 ✓）
-    //   · 放错 cwd 的目录 → 以后在 TUI 里根本看不到它 ✗
-    //   → 默认放当前 cwd ✓ 并在提示里说清楚放哪了 ✓
-    | { kind: "importSession" }
+    // ★ 分叉会话（B19）
     // ★ 压缩上下文（B22）：★ pi 有 compact 命令 ✓ 直接转发 ✓
     //   （过程状态不靠回执 ✗ 靠 compaction_start / compaction_end 事件 ✓）
     | { kind: "compact" }
