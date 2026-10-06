@@ -8,6 +8,7 @@
  *   · 结果可能【晚到】（来自另一条消息，用 callId 找回 ✓）
  *   · 执行中还会来流式输出（partialResult.content 是【累积全文】✗ 不是增量）
  */
+import type { ToolBlockFields } from "../view/chat-types.js";
 import { messagesEl } from "./dom.js";
 import { ui } from "./state.js";
 import { createHead, makeActions, scrollToBottom } from "./bubbles.js";
@@ -518,21 +519,52 @@ export function renderResultParts(
 /**
  * ★★★ B39：工具气泡的【数据】—— 前端唯一的权威状态
  *   以前这些字段散在 DOM 的 dataset 和几条渲染路径里 ✗ 没有一份权威数据
+ *
+ * ★ B40：字段本体【Pick 自共享定义 ToolBlockFields】✗ 不再手写
+ *   ⇒ 宿主改了字段名/加了字段 ⇒ 这里自动跟着变（对不上就编译错误）
+ *   ⚠️ 命名也统一了：用宿主的 resultIsError（原先前端自己叫 isError ✗ 那种翻译是漏字段的温床）
  */
-export interface ToolData {
-    /** 参数（toolEnd 时到 / snapshot 直接给）*/
-    args?: unknown;
-    /** 最终结果（toolResult / snapshot）*/
-    resultParts?: unknown[];
-    /** 执行中的实时输出（★ 累积全文 ✗ toolExecUpdate）*/
-    partialParts?: unknown[];
-    isError?: boolean;
-    executing?: boolean;
-    /** edit 的结果附加信息（含 patch）*/
-    details?: unknown;
-    /** bash 的命令主体（宿主用 bash-parser 解析后推来）*/
+export type ToolData = Pick<
+    ToolBlockFields,
+    "args" | "resultParts" | "resultIsError" | "details" | "partialParts" | "executing"
+> & {
+    /** bash 的命令主体（宿主用 bash-parser 解析后推来 ✗ 不在共享字段里）*/
     commands?: string[];
+};
+
+/**
+ * ★★ B40 守门员：快照路径专用的【必填】形状
+ *
+ * 每个字段都必须显式写出来（值可以是 undefined ✗ 但键不能少）
+ *   ⇒ 少写一个字段就是【编译错误】
+ * ★ 为什么需要它：B39 时代 replaySnapshot 漏传 details ⇒ edit 的 diff 画不出来
+ *   而 `Partial<ToolData>` 让漏字段【合法地溜过编译】✗ 靠人肉对齐是不可靠的 ✓
+ *
+ * ⚠️ 手写而不是用映射类型：`[K in keyof T]-?` 会把 undefined 也一并去掉 ✗
+ *   （实测过 ⇒ 传 undefined 反而报错 ✓ 那个方向反了）
+ */
+export interface ToolSnapshotData {
+    args: unknown;
+    resultParts: unknown[] | undefined;
+    partialParts: unknown[] | undefined;
+    resultIsError: boolean | undefined;
+    executing: boolean | undefined;
+    details: unknown;
+    commands: string[] | undefined;
 }
+
+/**
+ * ★ 编译期守门：ToolData 和 ToolSnapshotData 的【键必须完全一致】
+ *   ⇒ 以后给 ToolData 加字段却忘了同步这里 ⇒ 编译错误（而不是运行时才发现）
+ */
+type KeyMismatch<A, B> = [keyof A] extends [keyof B]
+    ? [keyof B] extends [keyof A]
+        ? never
+        : keyof B
+    : keyof A;
+/** 若两者键不一致，这里会变成具体缺的键名（true 赋值失败 ⇒ 编译报错）*/
+const _keysInSync: KeyMismatch<ToolData, ToolSnapshotData> extends never ? true : false = true;
+void _keysInSync;
 
 /** 气泡 → 数据（弱引用：气泡销毁自动回收）*/
 const toolDataMap = new WeakMap<HTMLElement, ToolData>();
@@ -569,19 +601,27 @@ export function fillToolBubble(bubble: HTMLElement, patch: ToolData): void {
     // ③ 结果（最终结果优先于流式内容）
     const parts = data.resultParts ?? data.partialParts;
     if (parts !== undefined) {
-        renderResultParts(bubble, parts, data.isError === true, data.resultParts === undefined);
+        renderResultParts(bubble, parts, data.resultIsError === true, data.resultParts === undefined);
     }
     // ④ diff（必须在 ③ 之后：它清掉 result-body 并打 hasDiff 标记挡住后续覆盖）
     if (data.details !== undefined) renderDiffDetails(bubble, data.details);
     // ⑤ 状态
     if (
-        data.isError !== undefined ||
+        data.resultIsError !== undefined ||
         data.executing !== undefined ||
         data.resultParts !== undefined ||
         data.partialParts !== undefined
     ) {
-        setToolState(bubble, data.isError ? "error" : data.executing ? "running" : "ok");
+        setToolState(bubble, data.resultIsError ? "error" : data.executing ? "running" : "ok");
     }
+}
+
+/**
+ * ★★ B40：快照路径的入口（★ 唯一的区别是【类型必填】✗ 运行时完全一样）
+ * 用它 ⇒ 漏字段编译不过 ✓ 用它就是"我要完整重建这个气泡"的声明
+ */
+export function fillToolBubbleSnapshot(bubble: HTMLElement, data: ToolSnapshotData): void {
+    fillToolBubble(bubble, data);
 }
 
 /**

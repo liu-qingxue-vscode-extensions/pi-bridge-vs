@@ -22,7 +22,8 @@ import { appendSegment, endSegment } from "./segments.js";
 import { appendMarkdown, finishMarkdown, setHighlightTheme } from "./markdown.js";
 import { createThinkingBubble, markThinkDone } from "./thinking.js";
 // ★★ B39：fillToolBubble = 工具气泡的【唯一】填充入口（实时流 / snapshot 都走它）
-import { createToolBubble, fillToolBubble } from "./tool.js";
+import type { ToolBlockFields } from "../view/chat-types.js";
+import { createToolBubble, fillToolBubble, fillToolBubbleSnapshot } from "./tool.js";
 import { appendStopNote, showRetryNotice } from "./notices.js";
 import { showCompactionEnd, showCompactionStart } from "./compact.js";
 import { setModelInfo, showModelPicker, showThinkingPicker } from "./model-picker.js";
@@ -36,19 +37,14 @@ import { setSessionTitle } from "./sessions.js";
 import { setRailCommands } from "./cmdrail.js";
 import { setFoldRules } from "./tool-fold.js";
 
-/** 气泡快照的形状（对应插件端 Bubble ✓） */
-interface SnapBlock {
+/**
+ * 气泡快照的形状（对应插件端 Bubble ✓）
+ * ★ B40：工具字段【继承共享定义 ToolBlockFields】✗ 不再手写一份
+ *   （B39 就是这里和 ToolData 两份手写 ⇒ 漏传 details ⇒ diff 画不出来）
+ */
+interface SnapBlock extends ToolBlockFields {
     type: string;
     text?: string;
-    toolName?: string;
-    toolCallId?: string;
-    args?: unknown;
-    resultParts?: unknown[];
-    resultIsError?: boolean;
-    partialParts?: unknown[];
-    executing?: boolean;
-    /** ★ B39：edit 的结果附加信息（含 patch ✗ 重放时靠它画 diff）*/
-    details?: unknown;
 }
 
 interface SnapBubble {
@@ -129,13 +125,14 @@ function replaySnapshot(payload: unknown, opts?: { keepNotices?: boolean }): voi
                 last = createToolBubble(blk.toolCallId || "", blk.toolName);
                 // ★★★ B39：跟实时路径【同一个填充入口】
                 //   （以前这里自己写了一套 ✗ cmdCache / details 都漏在这条路上）
-                fillToolBubble(last, {
+                // ★ B40：走【必填】入口 ⇒ 以后漏字段会直接编译失败（不用等用户发现）
+                fillToolBubbleSnapshot(last, {
                     args: blk.args,
                     resultParts: blk.resultParts,
                     partialParts: blk.partialParts,
-                    details: blk.details, // ★ 漏了这行 ⇒ edit 的 diff 画不出来（惨痛教训）
-                    isError: blk.resultIsError as boolean | undefined,
-                    executing: blk.executing as boolean | undefined,
+                    details: blk.details,
+                    resultIsError: blk.resultIsError,
+                    executing: blk.executing,
                     commands: cmdCache.get(blk.toolCallId || ""),
                 });
             } else if (blk.type === "thinking") {
@@ -272,7 +269,7 @@ function applyPatch(p: Record<string, unknown>): void {
             if (bubble) {
                 fillToolBubble(bubble, {
                     resultParts: p.parts as unknown[],
-                    isError: p.isError === true,
+                    resultIsError: p.isError === true,
                     executing: false,
                     commands: cmdCache.get(String(p.callId)),
                 });
@@ -311,7 +308,7 @@ function applyPatch(p: Record<string, unknown>): void {
                 // ★★ B39：details（edit 的 patch）+ 状态 ⇒ 一次填完
                 fillToolBubble(bubble, {
                     details: p.details,
-                    isError: p.isError === true,
+                    resultIsError: p.isError === true,
                     executing: false,
                     commands: cmdCache.get(String(p.callId)),
                 });

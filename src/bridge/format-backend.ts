@@ -23,6 +23,7 @@ import type { ChatPatch } from "../view/chat-state.js";
 import type { Usage } from "../view/chat-types.js";
 // ★ B39 诊断用（宿主侧 ✗ logger 依赖 vscode ⇒ 不能进 webview 包 ✓ 这里只在宿主用）
 import { logDebug } from "../logger.js";
+import { readToolExecutionEnd, readToolResultMessage } from "./tool-facts.js";
 
 /**
  * 后端输出的类型空间（我们讨论过的结论：pi 发给前端的一切都要包含进来）
@@ -95,22 +96,19 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
             return { kind: "startBubble", role, text: extractText(message?.content) };
         }
         if (role === "toolResult") {
-            if (typeof message?.toolCallId !== "string") return undefined;
-            // ★ B39：★ 切换会话时 pi 把历史当事件流推回来，走的就是这里
-            //   （不是 get_messages → 所以 replaySessionMessages 根本没跑 ✓）
-            //   原先没取 details ⇒ 重放后 edit 的 diff 全没了 ✓
-            const details = message.details;
+            // ★ B40：字段提取收敛到 tool-facts（以前这里手写 ⇒ B39 漏了 details）
+            const f = readToolResultMessage(message);
+            if (!f.callId) return undefined;
             logDebug(
-                `toolResult(message_start) 键=[${Object.keys(message).join(",")}] ` +
-                    `details=${details ? "有" : "无"}`,
+                `toolResult(message_start) 键=[${Object.keys(message ?? {}).join(",")}] ` +
+                    `details=${f.details ? "有" : "无"}`,
             );
             return {
                 kind: "toolResult",
-                callId: message.toolCallId,
-                // ★ 原样传 content 数组 → 前端按 type 分发渲染（text / image / 兵底）
-                parts: Array.isArray(message.content) ? message.content : [],
-                isError: message?.isError === true,
-                details,
+                callId: f.callId,
+                parts: f.parts, // ★ 原样传 → 前端按 type 分发（text / image / 兜底）
+                isError: f.isError,
+                details: f.details,
             };
         }
         return undefined;
@@ -180,14 +178,14 @@ const formatMap: Partial<Record<string, BackendFormatter>> = {
         };
     },
     tool_execution_end: (raw) => {
-        const ev = raw as { toolCallId?: unknown; isError?: unknown; result?: { details?: unknown } };
-        if (typeof ev.toolCallId !== "string") return undefined;
-        // ★★ B38：带上 details ✗ edit 的 diff/patch 就在里面（以前被丢掉 ✓）
+        // ★ B40：同上，走统一读取器（★ 这里没有 content ✗ 渲染用 toolResult 消息那份）
+        const f = readToolExecutionEnd(raw);
+        if (!f.callId) return undefined;
         return {
             kind: "toolExecEnd",
-            callId: ev.toolCallId,
-            isError: ev.isError === true,
-            details: ev.result?.details,
+            callId: f.callId,
+            isError: f.isError,
+            details: f.details,
         };
     },
 

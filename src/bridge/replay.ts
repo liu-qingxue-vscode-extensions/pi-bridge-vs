@@ -36,6 +36,8 @@ interface ContentPart {
 }
 
 /** pi 的一条消息（get_messages 的返回项 ✓） */
+import { readToolResultMessage } from "./tool-facts.js";
+
 export interface ReplayMessage {
     role?: string;
     content?: unknown;
@@ -102,13 +104,15 @@ export function messagesToPatches(messages: ReplayMessage[]): Patch[] {
 
         // ── 工具结果：不建气泡，按 callId 填回对应的工具块 ✓ ──
         if (role === "toolResult") {
-            if (typeof msg.toolCallId !== "string") continue;
+            // ★ B40：与 message_start 通道【共用同一个读取器】⇒ 不会再一条通道漏字段
+            const f = readToolResultMessage(msg);
+            if (!f.callId) continue;
             out.push({
                 kind: "toolResult",
-                callId: msg.toolCallId,
-                parts: Array.isArray(msg.content) ? (msg.content as unknown[]) : [],
-                isError: msg.isError === true,
-                details: msg.details, // ★ B39：edit 的 patch（不传 ⇒ 重放后没 diff）
+                callId: f.callId,
+                parts: f.parts,
+                isError: f.isError,
+                details: f.details,
             });
             continue;
         }

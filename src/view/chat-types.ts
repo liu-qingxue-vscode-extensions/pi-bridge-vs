@@ -23,41 +23,53 @@ export type ChatRole = "user" | "assistant" | "tool";
  */
 export type BlockType = "text" | "thinking" | "tool";
 
+/**
+ * ★★★ B40：工具块的【共享字段】—— 宿主气泡 / 快照块 / 前端渲染入口 三者唯一来源
+ *
+ * 【为什么要抽出来】
+ *   这几个字段原先在【四个地方】各手写一遍：
+ *     Block（宿主）· SnapBlock（前端快照）· ToolData（前端渲染入口）· ToolSnapshotData
+ *   而且命名还不一致（宿主 resultIsError ✗ 前端 isError）
+ *   ⇒ "某处漏一个字段"或"两处名字对不上"是必然 ✗ 而且 grep 看不出来
+ *      （B39 的 bug 就是这样：edit 的 details 在快照路径漏传 ⇒ diff 画不出来）
+ *
+ * ⇒ 现在【加字段只改这里】✗ 三处自动同步 ⇒ 编译期就能发现问题
+ */
+export interface ToolBlockFields {
+    // ===== 身份 =====
+    /** 工具名 */
+    toolName?: string;
+    /** 调用 id（把「工具结果消息」关联回这个块的关键）*/
+    toolCallId?: string;
+
+    // ===== 参数（toolcall_* 阶段）=====
+    /** 参数拼装完毕 */
+    toolDone?: boolean;
+    /** 参数的原始 JSON 文本（流式拼装中 ✗ 仅宿主备查）*/
+    argsText?: string;
+    /** 解析后的参数对象 */
+    args?: unknown;
+
+    // ===== 结果（toolResult 消息）=====
+    /** 结果内容 parts（原样 → 前端按 type 分发渲染）*/
+    resultParts?: unknown[];
+    /** 结果是否为错误（★ 名字以宿主为准 ✗ 前端不再翻译成 isError）*/
+    resultIsError?: boolean;
+    /** ★ edit 的结果附加信息（diff / patch）—— 丢了 ⇒ diff 画不出来 */
+    details?: unknown;
+
+    // ===== 执行阶段（tool_execution_*）=====
+    /** 执行中的实时输出（★ 累积全文 ✗ 不是增量）*/
+    partialParts?: unknown[];
+    /** 是否正在执行 */
+    executing?: boolean;
+}
+
 /** 气泡内的一个内容块 */
-export interface Block {
+export interface Block extends ToolBlockFields {
     type: BlockType;
     /** text/thinking：内容 */
     text: string;
-
-    // ===== tool 专用 =====
-    /** 工具名 */
-    toolName?: string;
-    /** 调用 id（用于把「工具结果消息」关联回这个块）★ */
-    toolCallId?: string;
-    /** 参数是否拼装完毕（toolcall_end 到达） */
-    toolDone?: boolean;
-    /** 参数的原始 JSON 文本（流式拼装中，备查） */
-    argsText?: string;
-    /** ★ B39：edit 的结果附加信息（含 patch ✗ 会话文件里本来就有 → 重放要带上）*/
-    details?: unknown;
-    /** 参数解析后的【对象】（toolcall_end 时填入 → 渲染成键值对）★ */
-    args?: unknown;
-    /** 结果内容部分（toolResult 的 content 数组原样 → 按 type 分发渲染）★ */
-    resultParts?: unknown[];
-    /** 结果是否为错误 */
-    resultIsError?: boolean;
-
-    // ===== 执行阶段（tool_execution_*）=====
-    /**
-     * 执行中的实时输出（tool_execution_update 的 partialResult.content）★
-     *
-     * ⚠️ 实测确认：它是【累积全文】而不是增量 ✗
-     *   （11 次推送，每次长度 +26、内容都是从头开始的全文）
-     *   → 前端每次【替换】而不要【追加】✓
-     */
-    partialParts?: unknown[];
-    /** 是否正在执行（exec_start 已到、exec_end 未到） */
-    executing?: boolean;
 }
 
 /**
