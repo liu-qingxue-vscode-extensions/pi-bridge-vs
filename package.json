@@ -14,7 +14,7 @@
         "liu-qingxue"
     ],
     "publisher": "liu-qingxue",
-    "license": "ISC",
+    "license": "AGPL-3.0-only",
     "author": {
         "name": "liu-qingxue",
         "email": "liu-qingxue@proton.me",
@@ -22,7 +22,7 @@
     },
     "repository": {
         "type": "git",
-        "url": "https://github.com/liu-qingxue-vscode-extensions/pi-bridge-VS"
+        "url": "https://github.com/liu-qingxue-vscode-extensions/pi-bridge-vs"
     },
     "main": "./dist/main.js",
     "type": "module",
@@ -84,7 +84,7 @@
                 {
                     "id": "pi-bridge-activitybar",
                     "title": "pi-bridge-vs",
-                    "icon": "svg/pi.svg"
+                    "icon": "svg/extension_face.svg"
                 }
             ]
         },
@@ -94,7 +94,7 @@
                     "type": "webview",
                     "id": "pi-bridge.chatView",
                     "name": "Pi 会话",
-                    "icon": "svg/pi.svg"
+                    "icon": "svg/extension_face.svg"
                 }
             ]
         },
