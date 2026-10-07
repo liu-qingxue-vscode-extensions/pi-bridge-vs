@@ -65,7 +65,16 @@ export function patchSettings(patch: PiSettings): PiSettings {
     const next: PiSettings = { ...current, ...patch };
     const tmp = `${file}.pi-bridge.tmp`;
     try {
-        fs.mkdirSync(path.dirname(file), { recursive: true });
+        // ★★ B43：不创建目录！（原来这里是 mkdirSync recursive ✓）
+        //   【为什么】agentDir 本该是【pi 自己创建的】✗ 我们创建就把"目录不存在"这个
+        //     信号抹掉了 ⇒ 一旦 agentDir 算错 / 用户填错 piAgentDir
+        //     ⇒ 会在错误位置【凭空造出一个 agent 目录 + settings.json】
+        //     ⇒ 用户以为在改 pi 的设置 ✗ 实际写到别处（而且是静默的 ✓）
+        //   ⇒ 目录不存在就报错 ✗ 让调用方提示"检查 pi-bridge.piAgentDir" ✓
+        const dir = path.dirname(file);
+        if (!fs.existsSync(dir)) {
+            throw new Error(`pi 的配置目录不存在：${dir}（检查 pi-bridge.piAgentDir 设置）`);
+        }
         fs.writeFileSync(tmp, JSON.stringify(next, null, 4) + "\n", "utf8");
         fs.renameSync(tmp, file); // ★ 原子替换 ✓
         logInfo(`settings.json 已更新：${Object.keys(patch).join(", ")}`);

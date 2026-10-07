@@ -173,6 +173,12 @@ export function activate(context: vscode.ExtensionContext): void {
         void context.globalState.update("pi-bridge.selfCheck", r); // 阶段 4：缓存（备查）
         logInfo(`★ 启动自检：\n${describeSelfCheck(r)}`);
 
+        // ★ B43：把"能不能发消息"推给前端（禁用输入 + 说明原因）
+        chatView.post("promptGate", {
+            allowed: r.canPrompt,
+            reason: r.blockReason ?? "",
+        });
+
         if (!r.pi.ok) {
             notifyPiStartError("selfcheck", r.pi.cliPath, r.pi.error ?? "pi 不可用");
             return;
@@ -1176,6 +1182,33 @@ export function activate(context: vscode.ExtensionContext): void {
             try {
                 const cmd = toRpcCommand(msg); // 表驱动：前端消息 → RpcCommand
 
+                // ★★ B43：锁住 prompt 口（用户定的规则）
+                //   "只要 setting 读不了 / pi 本体找不到 ⇒ 锁住 prompt ✗ 不让它做任何与 pi 有关的操作。
+                //    其他操作就是看 ✗ 可以随便看 ✓"
+                //   ★ 因为 prompt 是唯一【让 pi 真动手】的（读文件 / 改代码 / 跑命令 ✓）
+                //     前提不对时动手 ⇒ 可能造成真实损害 ✓
+                if (
+                    (cmd.type === "prompt" || cmd.type === "steer") &&
+                    lastSelfCheck &&
+                    !lastSelfCheck.canPrompt
+                ) {
+                    const why = lastSelfCheck.blockReason ?? "pi 不可用";
+                    logWarn(`★ 拦下 ${cmd.type}：${why}`);
+                    void vscode.window
+                        .showWarningMessage(`pi-bridge：现在不能发消息 ✗ ${why}`, "打开设置", "重新检测")
+                        .then((pick) => {
+                            if (pick === "打开设置") {
+                                void vscode.commands.executeCommand(
+                                    "workbench.action.openSettings",
+                                    "pi-bridge.piCliPath",
+                                );
+                            } else if (pick === "重新检测") {
+                                void selfCheckAndReport();
+                            }
+                        });
+                    return;
+                }
+
                 // ★★ 核心修正（B20）：agent 跑着时【prompt 会被静默丢弃】✗
                 //   实测证据（scripts/probe-steer-followup.mjs ✓）：
                 //     跑着时发 prompt → 回执 success ✓ 但【用户消息只有 1 条】✗
@@ -1937,6 +1970,13 @@ export function activate(context: vscode.ExtensionContext): void {
         };
         chatView.post("railCommands", readCommands().map(mapItem));
     };
+
+    // ★★ B43：webview 重建时会用它恢复"锁没锁 prompt"
+    //   （否则重新加载一次输入框就又能用了 ✗ 而 pi 其实还不可用 ✓）
+    chatView.getPromptGate = () => ({
+        allowed: lastSelfCheck?.canPrompt !== false,
+        reason: lastSelfCheck?.blockReason ?? "",
+    });
 
     chatView.onReady = () => {
         // ★ B32：把自由按钮推给容器（它只读 VS Code 配置 ✗ 不依赖 pi ✓）

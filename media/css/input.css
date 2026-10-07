@@ -345,3 +345,11 @@
   white-space: nowrap;
   opacity: .72;
 }
+
+/* ★★ B43：pi 不可用时锁住输入区（用户定的："可以看 ✗ 但不能让它动手"）
+   （原来的位置写错了：我建了 media/css/chat.css ✗ 而入口 chat.css 并不 @import 它
+     ⇒ 样式压根不生效 ✓ 应该放在 input.css 这个已挂载的源里 ✓）*/
+#input.prompt-locked {
+  opacity: .55;
+  cursor: not-allowed;
+}

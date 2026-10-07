@@ -64,6 +64,31 @@ export function autoGrow(): void {
  * 任务状态（agent_start / agent_settled 驱动）
  * 注：不用中文状态文字 —— 按钮形态本身就是指示 ✓
  */
+/**
+ * ★★ B43：锁 / 解锁 prompt 口（用户定的规则："pi 找不到 / setting 读不了 ⇒ 不让发消息"）
+ *
+ * 【为什么锁的是"发送"而不是整个输入框】用户还要能看 ✗ 只是不能让它动手 ✓
+ *   ⇒ 这里直接把输入区置灰 + 换提示文案（最直白 ✗ 用户一眼知道为什么发不出去 ✓）
+ */
+export function setPromptGate(gate: { allowed?: boolean; reason?: string }): void {
+    const allowed = gate.allowed !== false;
+    inputEl.disabled = !allowed;
+    inputEl.classList.toggle("prompt-locked", !allowed);
+    if (allowed) {
+        if (inputEl.dataset.lockedPlaceholder) {
+            inputEl.placeholder = inputEl.dataset.lockedPlaceholder;
+            delete inputEl.dataset.lockedPlaceholder;
+        }
+    } else {
+        // 记下原 placeholder ✗ 解锁后能还原 ✓
+        if (!inputEl.dataset.lockedPlaceholder) {
+            inputEl.dataset.lockedPlaceholder = inputEl.placeholder;
+        }
+        inputEl.placeholder = `pi 暂时不可用 ✗ ${gate.reason || "无法发消息"}`;
+        inputEl.title = gate.reason ?? "";
+    }
+}
+
 export function setAgentState(state: string): void {
     const busy = state === "working";
     sendBtn.classList.toggle("busy", busy);

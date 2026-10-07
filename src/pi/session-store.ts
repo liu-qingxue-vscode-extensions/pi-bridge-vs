@@ -30,6 +30,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import * as vscode from "vscode";
 import { resolveAgentDir } from "./pi-env.js";
+import { compactHome } from "../util/paths.js";
 import { logDebug, logInfo, logError } from "../logger.js";
 
 /** 一条会话的元信息（界面列表用 ✓） */
@@ -290,6 +291,11 @@ export class SessionStore {
     setExtraDirs(dirs: string[]): void {
         this.extraDirs = dirs.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim());
         if (this.extraDirs.length) logInfo(`额外会话目录：${this.extraDirs.join(", ")}`);
+    }
+
+    /** ★ 给人看的根目录说明（空列表时告诉用户"我在哪儿找过"）*/
+    describeRoots(): string {
+        return this.roots().map((r) => compactHome(r)).join(" ✗ ");
     }
 
     /** ★ 要扫描的全部根目录（主 + 额外 ✗ 去重）*/

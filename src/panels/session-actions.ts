@@ -126,9 +126,21 @@ export function createSessionActions(deps: SessionActionsDeps): SessionActions {
                     `   会话里的 cwd 分布 = ${JSON.stringify([...dist.entries()].slice(0, 12))}`,
             );
         }
+        // ★★★ B43：空列表要【说清是哪种空】（用户点出的：分不清"没有"和"找不到"）
+        //   ① 目录里真没有会话     ② scope=current 把全部过滤掉了
+        let emptyHint: string | undefined;
+        if (filtered.length === 0) {
+            if (all.length === 0) {
+                emptyHint = `会话目录里没有会话：${sessionStore.describeRoots()}`;
+            } else if (scope === "current") {
+                emptyHint =
+                    `当前范围是「仅当前目录」✗ 这个目录下没有会话。\n` +
+                    `（共 ${all.length} 个会话在其它目录 ✗ 可在设置里把 pi-bridge.sessions.scope 改成 all）`;
+            }
+        }
         // ★★ B35：推给【独立面板】✗ 不再走侧栏 ✓
         //   ★ 连 currentCwd 一起给 ✗ 面板要用它把当前分组排最前 + 标「当前」✓
-        deps.postPanel("sessionList", { list: filtered, currentCwd: cur });
+        deps.postPanel("sessionList", { list: filtered, currentCwd: cur, emptyHint });
     };
 
     /** ★ 刷新会话信息（★ 第二级 IO：读文件补名字 / 标异常 ✓）*/

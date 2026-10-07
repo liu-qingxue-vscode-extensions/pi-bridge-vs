@@ -261,3 +261,26 @@
   font-family: inherit;
   line-height: 1;
 }
+
+
+/* ═══ B43：diff 的 hunk 折叠 ═══
+   一个 hunk = 一处改动 = 一个折叠单元（用户定的 ✗ 不是"按行"）
+   · 顶栏折叠：按 hunk 个数裁（head/tail）
+   · 每个 hunk 的 @@ 头：自己也能点（单独折/展这一处）*/
+/* ★ 段之间的分隔（用户要的"分割"✗ 一眼看出几处改动）*/
+.diff-seg {
+  border-top: 1px dashed var(--vscode-panel-border, rgba(128, 128, 128, .28));
+  margin-top: 3px;
+  padding-top: 3px;
+}
+/* ★ 第一段（或紧跟在 hunk 头后面的）不要分隔线 */
+.diff-hunk > .diff-seg:first-of-type,
+.diff-box > .diff-seg:first-of-type {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+/* 被顶栏折叠起来的段 */
+.diff-seg.fold-hidden {
+  display: none;
+}

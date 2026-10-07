@@ -69,7 +69,25 @@ export function planFold(
 
 /** 块级折叠（通用工具用）：按规则裁 .fold-unit */
 export function applyFold(container: HTMLElement, tool: string, collapsed: boolean): void {
-    const units = [...container.querySelectorAll<HTMLElement>(".fold-unit")];
+    // ★★ B43：diff 的折叠粒度 = 【一个 hunk = 一处改动】
+    //   【为什么要特判】原来统一按 .fold-unit 数 ✗ 而 diff 里
+    //     · 路径行（renderPathLine）也是 .fold-unit
+    //     · 每个 hunk 也是 .fold-unit
+    //   ⇒ units 变成 [路径行, hunk1, hunk2…] ⇒ 规则里的"头 N"数的根本不是 hunk ✗
+    //     （表现为：edit:1:0 显示的是路径行 ✗ 数字一大才"像是全展开"✓）
+    //   ★ 用户的设计（明确）：一个 hunk（连续旧 + 连续新）= 一个单元 ✓
+    //     按【行数】截断反而糟 ✗ 会把一处改动切一半（看起来像"只改了这一行"✗ 误导 ✓）
+    //   ★ 而 diff 的单元是【改动块】（.fold-change ✗ 一组 - 行 + 一组 + 行 ✓）
+    //     不是 patch 的 hunk（hunk 是算法的分组 ✗ 几处改动可能挤在一个 hunk 里 ✓）
+    //   ★ 而 diff 的单元是【"一段上下文 + 一处改动"】(.fold-seg ✓)
+    //     不是光秃秃的增删行 ✗ 也不是 patch 的 hunk ✓
+    const segs = [...container.querySelectorAll<HTMLElement>(".fold-seg")];
+    const units = segs.length ? segs : [...container.querySelectorAll<HTMLElement>(".fold-unit")];
+    // ★ B43 诊断：diff 折叠不生效时看这一行（tool / 单元数 / 规则）
+    log.info(
+        `[fold] tool=${tool} collapsed=${collapsed} segs=${segs.length} units=${units.length} ` +
+            `rules=${JSON.stringify(rules)}`,
+    );
     if (!units.length) return;
 
     // 清掉上一次的"已折叠"提示
@@ -100,7 +118,9 @@ export function applyFold(container: HTMLElement, tool: string, collapsed: boole
     if (hidden > 0) {
         const more = document.createElement("div");
         more.className = "fold-more";
-        more.textContent = `…（已折叠 ${hidden} 项 · 点顶栏展开）`;
+        more.textContent = segs.length
+            ? `…（已折叠 ${hidden} 处改动 · 点顶栏展开）`
+            : `…（已折叠 ${hidden} 项 · 点顶栏展开）`;
         units[head]?.before(more);
     }
 }

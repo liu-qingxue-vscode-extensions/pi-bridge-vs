@@ -33,6 +33,8 @@ const toastEl = document.getElementById("toast")!;
 let sessions: SessionInfo[] = [];
 /** ★ 当前会话所在的目录（用来把它那组排最前 + 标「当前」✓）*/
 let currentCwd = "";
+/** ★ B43：空列表时的说明（宿主给 ✗ 分清"真没有会话"和"目录找不到 / 被 scope 过滤"）*/
+let emptyHint = "";
 
 // ── toast ──
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -61,6 +63,10 @@ const openGroups = new Set<string>();
 function render(): void {
     listEl.innerHTML = "";
     emptyEl.style.display = sessions.length ? "none" : "";
+    if (!sessions.length) {
+        // ★ B43：能区分两种空（真没有 / 目录或范围问题 ✗ 后者要告诉用户去哪儿看）
+        emptyEl.textContent = emptyHint || "尚无会话";
+    }
     countEl.textContent = `${sessions.length} 个会话`;
 
     // ① 按 cwd 分组（保持宿主给的顺序：组内已按时间倒序 ✓）
@@ -235,9 +241,15 @@ newBtn.addEventListener("click", () => {
 window.addEventListener("message", (e: MessageEvent) => {
     const msg = e.data as { kind?: string; payload?: unknown };
     if (msg?.kind === "sessionList") {
-        const p = (msg.payload ?? {}) as { list?: SessionInfo[]; currentCwd?: string };
+        const p = (msg.payload ?? {}) as {
+            list?: SessionInfo[];
+            currentCwd?: string;
+            emptyHint?: string;
+        };
         sessions = Array.isArray(p.list) ? p.list : [];
         currentCwd = typeof p.currentCwd === "string" ? p.currentCwd : "";
+        // ★ B43：空列表的原因（宿主给的 ✗ 区分"真没有"和"找不到/被过滤"）
+        emptyHint = typeof p.emptyHint === "string" ? p.emptyHint : "";
         render();
         return;
     }

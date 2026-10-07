@@ -22,7 +22,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
 
@@ -43,7 +43,21 @@ export interface SelfCheck {
         settingsPath: string;
         /** settings.json 是否存在（不存在不代表错 ✗ 只是"用户还没配过"）*/
         hasSettings: boolean;
+        /** 不 ok 时的原因（给用户看的）*/
+        reason?: string;
     };
+    /**
+     * ★★ B43：能不能发 prompt（= 能不能让 pi 干真活）
+     *
+     * 【为什么单独一个字段】用户定的规则：
+     *   "只要 setting 读不了 / 派本体找不到 ⇒ 锁住 prompt 口 ✗ 不让它做任何与 pi 有关的操作。
+     *    其他它能做的操作就是看 ✗ 可以看 ✗ 随便它看 ✓"
+     *   ★ 因为 prompt 是唯一【让 pi 真的动手】的操作（读文件 / 改代码 / 跑命令 ✓）
+     *     前提不对时动手 ⇒ 可能造成真实损害 ✓
+     */
+    canPrompt: boolean;
+    /** 不能 prompt 的原因（前端要显示）*/
+    blockReason?: string;
     /** 检测时间（缓存用）*/
     at: number;
 }
@@ -69,6 +83,7 @@ export async function runSelfCheck(input: SelfCheckInput): Promise<SelfCheck> {
             settingsPath: path.join(agentDir, "settings.json"),
             hasSettings: false,
         },
+        canPrompt: false,
         at: Date.now(),
     };
 
@@ -93,19 +108,42 @@ export async function runSelfCheck(input: SelfCheckInput): Promise<SelfCheck> {
         }
     }
 
-    // ── ② 数据目录：存在 + 可读 ──
-    //   ★ 不存在【不算错】（pi 自己会创建）✗ 只在"存在但读不了"时报错 ✓
-    try {
-        const exists = existsSync(agentDir);
-        const settingsPath = path.join(agentDir, "settings.json");
-        result.agent.hasSettings = existsSync(settingsPath);
-        result.agent.ok = !exists || true; // 目录无法确认可读时也放行（交给后面使用时再报）
-        if (!exists) {
-            result.agent.ok = true; // 允许不存在（首次使用）
+    // ── ② 数据目录：能不能【安全地动它】──
+    //   ★ 目录不存在【不算错】（pi 首次启动会创建 ✓）
+    //   ★ 但 settings.json【存在却读不出来】是错的（文件坏了 ✗ 我们再写下去会毁数据 ✓）
+    const settingsPath = path.join(agentDir, "settings.json");
+    result.agent.hasSettings = existsSync(settingsPath);
+    if (result.agent.hasSettings) {
+        try {
+            const raw = readFileSync(settingsPath, "utf-8");
+            const obj = JSON.parse(raw) as unknown;
+            if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+                result.agent.ok = false;
+                result.agent.reason = `settings.json 不是一个对象（格式不对）：${settingsPath}`;
+            } else {
+                result.agent.ok = true;
+            }
+        } catch (e) {
+            result.agent.ok = false;
+            result.agent.reason = `settings.json 读不了 / 解析失败：${
+                e instanceof Error ? e.message : String(e)
+            }`;
         }
-    } catch (err) {
-        result.agent.ok = false;
-        void err;
+    } else {
+        result.agent.ok = true; // 还没配过 ⇒ 正常（pi 会创建）
+    }
+
+    // ── ③ 汇总：能不能发 prompt ──
+    //   ★ 用户规则：pi 本体找不到 / setting 读不了 ⇒ 锁 prompt（不让它干真活 ✓）
+    //     其余操作（看会话 / 看设置 / 看技能）都无害 ✗ 不锁 ✓
+    if (!result.pi.ok) {
+        result.canPrompt = false;
+        result.blockReason = `pi 不可用：${result.pi.error ?? "未知原因"}`;
+    } else if (!result.agent.ok) {
+        result.canPrompt = false;
+        result.blockReason = result.agent.reason ?? "pi 的配置读不了";
+    } else {
+        result.canPrompt = true;
     }
 
     return result;

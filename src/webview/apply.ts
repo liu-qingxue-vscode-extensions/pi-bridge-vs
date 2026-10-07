@@ -31,7 +31,7 @@ import { showInteractionHint } from "./ui-request.js";
 import { setCommands } from "./slash-menu.js";
 import { updateStatusBar } from "./topbar.js";
 import { appendNotice, clearNotices, removeNotice, renderNotices, resetNotices, setExpanded } from "./noticeboard.js";
-import { applyStyleVars, autoGrow, setAgentState, showCwd, syncPadding } from "./input.js";
+import { applyStyleVars, autoGrow, setAgentState, setPromptGate, showCwd, syncPadding } from "./input.js";
 import { setSessionTitle } from "./sessions.js";
 // ★★ B32：自由按钮容器
 import { setRailCommands } from "./cmdrail.js";
@@ -381,9 +381,11 @@ export function setupHostBridge(): void {
                 //   空闲时立即生效；流式中会延后到 agent_settled ✓
                 replayForConfig();
                 return;
-            case "modelLimits":
-                ui.modelLimits = (data.payload ?? {}) as Record<string, number>;
+            // ★★ B43：pi 不可用 / 配置读不了 ⇒ 锁住 prompt 口
+            case "promptGate":
+                setPromptGate((data.payload ?? {}) as { allowed?: boolean; reason?: string });
                 return;
+            case "modelLimits":
             // ★★ B38：宿主解析好的命令主体 → 填摘要行
             case "cmdSummary": {
                 const p = (data.payload ?? {}) as { callId?: string; commands?: string[] };

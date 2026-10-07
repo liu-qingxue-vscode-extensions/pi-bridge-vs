@@ -297,22 +297,45 @@ export function renderDiffDetails(bubble: HTMLElement, details: unknown): void {
     const box = document.createElement("div");
     box.className = "diff-box";
 
-    // 逐行解析：--- / +++ 文件头丢掉（路径已在摘要行）
-    //   @@ -a,b +c,d @@  → hunk 头
-    //   + / - / 空格      → 增 / 删 / 上下文（行号自己算 ✓）
+    // ★★★ B43：折叠单元 = 【一段上下文 + 紧接的一处改动】= "一段"
+    //
+    // 【为什么不能只把"增删行"当单元】（用户实测截图 ✓）
+    //   只折增删行 ⇒ 它前后的上下文行【接在一起】⇒ 行号看着乱跳（10 → 15）
+    //     而增删行本身是对的（"红绿灯听规矩 ✗ 原文乱跳"✓）
+    //   ⇒ 单元必须连【它前面的上下文】一起折 ✓ 剩下的内容才依然连续 ✓
+    //
+    // 【为什么不是 patch 的 hunk】
+    //   hunk 是 diff 算法的分组（距离近就合并 ✗ 5 处改动可能全在一个 hunk 里）
+    //   而用户感知的"一处修改"= 一段连续 - 行 + 紧接着一段连续 + 行 ✓
+    //
+    // ★ 结构：hunk（分组容器）> 多个 .diff-seg（★ 折叠单元）✗ 尾部上下文单独放
     let hunk: HTMLElement | null = null;
+    /** 攒着的上下文行（还不知道后面有没有改动 ✗ 有就归入下一段 ✓）*/
+    let pending: HTMLElement[] = [];
+    /** 当前段（一旦出现改动行就建 ✓ 后续增删行都进它 ✓）*/
+    let seg: HTMLElement | null = null;
     let newLine = 0;
     let oldLine = 0;
 
+    const host2 = (): HTMLElement => hunk ?? box;
+
+    /** 把攒着的上下文倒进某个容器（段的顺序 = 上下文 → 改动 ✓）*/
+    const dumpPending = (into: HTMLElement): void => {
+        for (const c of pending) into.appendChild(c);
+        pending = [];
+    };
+
     for (const raw of patch.replace(/\n$/, "").split("\n")) {
-        if (raw.startsWith("--- ") || raw.startsWith("+++ ")) continue; // 文件头 ✗ 不要
+        if (raw.startsWith("--- ") || raw.startsWith("+++ ")) continue;
 
         const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
         if (m) {
+            dumpPending(host2()); // 上个 hunk 末尾的上下文归位 ✓
+            seg = null;
             oldLine = Number(m[1]);
             newLine = Number(m[2]);
             hunk = document.createElement("div");
-            hunk.className = "diff-hunk fold-unit";
+            hunk.className = "diff-hunk";
             const head = document.createElement("div");
             head.className = "diff-hunk-head";
             head.textContent = raw;
@@ -338,11 +361,29 @@ export function renderDiffDetails(bubble: HTMLElement, details: unknown): void {
         lc.className = "diff-lc";
         lc.textContent = raw;
         line.append(ln, lc);
-        (hunk ?? box).appendChild(line);
-    }
 
+        if (kind === "ctx") {
+            // ★★ 上下文行 ⇒ 【当前段到此结束】
+            //   （原来写的是"把它塞进当前段"✗ 结果整个 hunk 变成一个段 ⇒ segs=1 ✓）
+            //   后续的上下文先攒着 —— 若后面又有改动，它们就是新段的开头 ✓
+            seg = null;
+            pending.push(line);
+            continue;
+        }
+
+        // ★ 增删行 ⇒ 开一个新段（折叠单元 ✓）✗ 攒的上下文当它的开头 ✓
+        if (!seg) {
+            seg = document.createElement("div");
+            seg.className = "diff-seg fold-seg";
+            dumpPending(seg);
+            host2().appendChild(seg);
+        }
+        seg.appendChild(line);
+    }
+    // 收尾：最后剩下的上下文（最后一处改动之后）不属于任何段 ⇒ 直接放 ✓
+    dumpPending(host2());
     body.appendChild(box);
-    bubble.dataset.hasDiff = "1"; // 让后面的 toolResult 不要覆盖它
+    bubble.dataset.hasDiff = "1";
     refold(bubble);
     scrollToBottom();
 }
