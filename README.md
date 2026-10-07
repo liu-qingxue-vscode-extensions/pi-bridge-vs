@@ -2,6 +2,7 @@
 <p align="center">
   <a href="README_EN.md">English</a> | <b>简体中文</b>
 </p>
+
 **让 VS Code 成为 [Pi](https://github.com/earendil-works/pi) 的前端,尝试让派获得更强的前端表现力，并且尝试找寻AI coding与手写编程平衡点**
 
 Pi 是一个跑在终端里的 AI 编码代理。这个扩展把它的会话搬进 VS Code 侧边栏 ——
