@@ -83,8 +83,8 @@ export function applyFold(container: HTMLElement, tool: string, collapsed: boole
     //     不是光秃秃的增删行 ✗ 也不是 patch 的 hunk ✓
     const segs = [...container.querySelectorAll<HTMLElement>(".fold-seg")];
     const units = segs.length ? segs : [...container.querySelectorAll<HTMLElement>(".fold-unit")];
-    // ★ B43 诊断：diff 折叠不生效时看这一行（tool / 单元数 / 规则）
-    log.info(
+    // ★ B43 诊断：diff 折叠出问题时把它调成 debug（tool / 单元数 / 规则一次看全）
+    log.debug(
         `[fold] tool=${tool} collapsed=${collapsed} segs=${segs.length} units=${units.length} ` +
             `rules=${JSON.stringify(rules)}`,
     );

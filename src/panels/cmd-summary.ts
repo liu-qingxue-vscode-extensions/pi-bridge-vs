@@ -10,10 +10,13 @@
  *   实测下来那是无底洞：for/do/done、if/case、函数、heredoc、$(...)…
  *   修一个冒一个 ✓ 用 AST 一次到位 ✓
  */
-import { createRequire } from "node:module";
 import { logWarn } from "../logger.js";
 
-const require = createRequire(import.meta.url);
+// ★★ B43：宿主打成 CJS（esbuild）后，require 就是标准的 CommonJS require
+//   原来用 createRequire(import.meta.url) ✗ 而 import.meta 在 CJS 里是 undefined
+//   ⇒ 激活直接抛错（"Received undefined"✓）
+//   （下面这个 declare 只在类型层 ✗ 运行时用的是真 require ✓）
+declare const require: (id: string) => unknown;
 /** bash-parser：解析成 AST（异步）*/
 const parseBash = require("bash-parser") as (src: string) => Promise<unknown>;
 

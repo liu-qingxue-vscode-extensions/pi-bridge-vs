@@ -35,18 +35,32 @@ const main = {
 };
 
 /**
- * 附带产物：patch 反推的纯函数
- * ★ 它被 scripts/check-patch-reverse.mjs 用 Node 直接 import 做单测
- *   ⇒ 单独产出一份（ESM 格式 ✗ 好让 .mjs 脚本 import ✓）
+ * ★★ 附带产物：那些"零 vscode 依赖的纯逻辑模块"
+ *
+ * 【为什么要单独产出一份】
+ *   主产物是 bundle 过的 main.cjs ✗ 里面没有独立的模块文件
+ *   而守门脚本（scripts/check-*.mjs）要用 Node 直接 import 它们做单测 ✓
+ *   ⇒ 这些模块必须【单独再 build 一次】（ESM 格式 ✗ 好让 .mjs import ✓）
+ *   ★ 前提：它们不能 import vscode（否则 Node 加载不了 ✗ 见 B42 的分层约定 ✓）
  */
-const testable = {
-    entryPoints: ["src/bridge/patch-reverse.ts"],
+const TESTABLE = [
+    ["src/bridge/patch-reverse.ts", "dist/bridge/patch-reverse.js"],
+    ["src/bridge/session-file.ts", "dist/bridge/session-file.js"],
+    // ★ replay.ts 本身也被脚本用（check-session-file.mjs 要 messagesToPatches ✓）
+    ["src/bridge/replay.ts", "dist/bridge/replay.js"],
+    ["src/pi/pi-env.ts", "dist/pi/pi-env.js"],
+    ["src/pi/pi-selfcheck.ts", "dist/pi/pi-selfcheck.js"],
+];
+
+const testableBuilds = TESTABLE.map(([inFile, outFile]) => ({
+    entryPoints: [inFile],
     bundle: true,
     platform: "node",
     format: "esm",
-    outfile: "dist/bridge/patch-reverse.js",
+    outfile: outFile,
+    external: ["vscode"], // ★ 万一哪天误 import 了 vscode ✗ 让它显式报错而不是静默 ✓
     logLevel: "warning",
-};
+}));
 
 if (watch) {
     const ctx = await esbuild.context(main);
@@ -54,6 +68,8 @@ if (watch) {
     console.log("⚡ build-extension: watching…");
 } else {
     await esbuild.build(main);
-    await esbuild.build(testable);
-    console.log("⚡ build-extension: dist/main.cjs（含 bash-parser）+ dist/bridge/patch-reverse.js");
+    await Promise.all(testableBuilds.map((o) => esbuild.build(o)));
+    console.log(
+        `⚡ build-extension: dist/main.cjs（含 bash-parser）+ ${TESTABLE.length} 个可测模块`,
+    );
 }
