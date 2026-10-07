@@ -245,13 +245,13 @@ export const SETTINGS_GROUPS: GroupDef[] = [
     {
         title: "环境",
         items: [
-            {
-                key: "sessionDir",
-                label: "会话目录",
-                desc: "★ 改这里会话文件就搬家（留空 = 默认 <agentDir>/sessions ✓）改完需要重启 pi ✓",
-                kind: "text",
-                needsRestart: true,
-            },
+            // ★★ B42：【删掉可写的"会话目录"】
+            //   【为什么】pi 的 sessionDir 一个值【同时管读和写】（"storage and lookup"）
+            //     ⇒ 改了它 = 换了个库：新会话写新地方 ✗ 旧会话看不见（因为不去旧地方找）
+            //     ⇒ 对用户来说这是"数据分裂"✗ 对小白尤其危险 ✓
+            //   ⇒ 想改的人去改 <agentDir>/settings.json 或环境变量
+            //     我们仍然【按那条链解析】（见 src/pi/pi-env.ts 的 resolveSessionRoot ✓）
+            //   ⇒ 想"多看几个目录的会话"用 pi-bridge.sessions.extraDirs（只读扫描 ✓ 不碰 pi）
             {
                 key: "httpProxy",
                 label: "HTTP 代理",

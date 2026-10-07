@@ -142,14 +142,19 @@ function close(): void {
  */
 export function refreshSlashMenu(keepSelection = false): void {
     if (!menuEl) return;
-    if (commands.length === 0) {
-        // ★ 还没拿到命令列表 → 主动要一次 ✓
-        vscode.postMessage({ kind: "listCommands" });
-        return;
-    }
+
+    // ★★ B42：只有用户【真的在打斜杠命令】时才去要列表
+    //   【为什么改】原来"命令列表为空就主动要一次"✗ 而这个函数由【任何输入】触发
+    //     ⇒ 用户随便打个字就拉起了 pi 子进程（"打开扩展就启动"的真凶之一 ✓）
+    //   ⇒ 现在：先看输入像不像斜杠命令 ✗ 不像就直接关掉候选 ✓ 一个请求都不发 ✓
     const prefix = currentPrefix();
     if (prefix === null) {
         close();
+        return;
+    }
+    if (commands.length === 0) {
+        // ★ 到这一步说明【确实在打斜杠】⇒ 这才值得去问一次 ✓
+        vscode.postMessage({ kind: "listCommands" });
         return;
     }
     matches = filterByPrefix(prefix);
@@ -210,6 +215,7 @@ export function setupSlashMenu(): void {
     });
     // 失焦就关 ✓
     inputEl.addEventListener("blur", () => setTimeout(close, 120));
-    // ★ 首次进入主动拉一次 ✗（这样按 / 立刻就有 ✓）
-    vscode.postMessage({ kind: "listCommands" });
+    // ★★ B42：【删掉】原来的"首次进入主动拉一次"
+    //   它让"打开扩展"就 spawn pi（只为让按 / 立刻有候选 ✗ 代价太大 ✓）
+    //   ⇒ 现在按 / 时才拉 ✗ 最多多等一次往返（本地进程 ✗ 几十毫秒 ✓）
 }

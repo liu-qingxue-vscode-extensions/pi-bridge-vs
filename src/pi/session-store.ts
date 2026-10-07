@@ -277,6 +277,27 @@ export class SessionStore {
         return this.sessionRoot ?? path.join(resolveAgentDir(), "sessions");
     }
 
+    /**
+     * ★★ B42：额外扫描的会话目录（用户配置 ✗ 只读）
+     *
+     * 【为什么要它】
+     *   pi 的 sessionDir 是【一个值同时管读和写】⇒ 不该让用户乱改（会数据分裂 ✓）
+     *   但用户也可能"会话散落在多处"（从别的机器拷来的 / 旧目录）✓
+     *   ⇒ ★ 用这个【只读探测列表】解决：多看几个地方 ✗ 但不碰 pi 的行为 ✓
+     */
+    private extraDirs: string[] = [];
+
+    setExtraDirs(dirs: string[]): void {
+        this.extraDirs = dirs.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim());
+        if (this.extraDirs.length) logInfo(`额外会话目录：${this.extraDirs.join(", ")}`);
+    }
+
+    /** ★ 要扫描的全部根目录（主 + 额外 ✗ 去重）*/
+    private roots(): string[] {
+        const all = [this.root(), ...this.extraDirs];
+        return [...new Set(all.map((d) => path.resolve(d)))];
+    }
+
     private async persist(): Promise<void> {
         await this.context.globalState.update(STORE_KEY, this.data);
     }
@@ -288,34 +309,41 @@ export class SessionStore {
      * 名字/异常状态【只从缓存读】✗（要新的就点刷新 ✓）
      */
     async listEntries(): Promise<SessionInfo[]> {
-        const root = this.root();
-
-        let dirs: string[];
-        try {
-            dirs = (await fs.readdir(root, { withFileTypes: true }))
-                .filter((d) => d.isDirectory())
-                .map((d) => String(d.name));
-        } catch {
-            logError(`[sessions] 读不到会话目录: ${root}`);
-            return [];
+        // ★★ B42：扫【主目录 + 额外探测目录】
+        //   ★ cwdMap / cwdKey 的键用【完整目录路径】✗ 不再用目录名
+        //     （不同根下可能有同名目录 ✗ 用名字会互相覆盖 ✓）
+        const roots = this.roots();
+        const pairs: { root: string; dir: string; full: string }[] = [];
+        for (const root of roots) {
+            let dirs: string[];
+            try {
+                dirs = (await fs.readdir(root, { withFileTypes: true }))
+                    .filter((d) => d.isDirectory())
+                    .map((d) => String(d.name));
+            } catch {
+                // ★ 主目录读不到要报（那是"前提"之一）✗ 额外目录读不到就算了（用户随手配的）
+                if (root === this.root()) logError(`[sessions] 读不到会话目录: ${root}`);
+                else logDebug(`[sessions] 额外目录读不到（忽略）: ${root}`);
+                continue;
+            }
+            for (const dir of dirs) pairs.push({ root, dir, full: path.join(root, dir) });
         }
 
         // ① 补 cwd（★ 只对新目录；一个目录读 1 次 ✓）
-        const needCwd = dirs.filter((d) => !this.data.cwdMap[d]);
+        const needCwd = pairs.filter((p) => !this.data.cwdMap[p.full]);
         let cwdAdded = 0;
         if (needCwd.length) {
-            const found = await mapLimit(needCwd, 8, async (dir) => {
-                const dirPath = path.join(root, dir);
+            const found = await mapLimit(needCwd, 8, async (p) => {
                 let names: string[];
                 try {
-                    names = (await fs.readdir(dirPath)).map((n) => String(n));
+                    names = (await fs.readdir(p.full)).map((n) => String(n));
                 } catch {
                     return null;
                 }
                 const any = names.find((n) => FILE_RE.test(n));
                 if (!any) return null; // 空目录 → 不写映射 ✓
-                const cwd = await readCwd(path.join(dirPath, any));
-                return cwd ? ([dir, cwd] as const) : null;
+                const cwd = await readCwd(path.join(p.full, any));
+                return cwd ? ([p.full, cwd] as const) : null;
             });
             for (const item of found) {
                 if (!item) continue;
@@ -327,18 +355,17 @@ export class SessionStore {
 
         // ② 扫文件名 → 条目（★ 零内容 IO ✓）
         const out: SessionInfo[] = [];
-        for (const dir of dirs) {
+        for (const p of pairs) {
             if (out.length >= MAX_SESSIONS) break;
-            const dirPath = path.join(root, dir);
             let names: string[];
             try {
-                names = (await fs.readdir(dirPath)).map((n) => String(n));
+                names = (await fs.readdir(p.full)).map((n) => String(n));
             } catch {
                 continue;
             }
             for (const name of names) {
                 if (out.length >= MAX_SESSIONS) break;
-                const file = path.join(dirPath, name);
+                const file = path.join(p.full, name);
                 const parsed = parseFileName(name);
                 const cached = this.data.files[file];
 
@@ -347,8 +374,8 @@ export class SessionStore {
                     out.push({
                         path: file,
                         id: name.replace(/\.jsonl$/i, ""),
-                        cwd: this.data.cwdMap[dir] ?? "",
-                        cwdKey: dir,
+                        cwd: this.data.cwdMap[p.full] ?? "",
+                        cwdKey: p.full,
                         createdAt: 0,
                         broken: cached?.broken ?? "文件名格式不识认（无法解析时间/id）",
                     });
@@ -357,8 +384,8 @@ export class SessionStore {
                 out.push({
                     path: file,
                     id: parsed.id,
-                    cwd: this.data.cwdMap[dir] ?? "",
-                    cwdKey: dir,
+                    cwd: this.data.cwdMap[p.full] ?? "",
+                    cwdKey: p.full,
                     createdAt: parsed.createdAt,
                     // ★ 只从缓存取（要新名字/轮次请点刷新 ✓）
                     name: cached?.name,
@@ -372,9 +399,9 @@ export class SessionStore {
         // ③ 清理缓存里【已经不存在的文件】（防止无限膨胀 ✓）
         const alive = new Set(out.map((s) => s.path));
         let cleaned = 0;
-        for (const p of Object.keys(this.data.files)) {
-            if (!alive.has(p)) {
-                delete this.data.files[p];
+        for (const k of Object.keys(this.data.files)) {
+            if (!alive.has(k)) {
+                delete this.data.files[k];
                 cleaned++;
             }
         }
@@ -382,7 +409,7 @@ export class SessionStore {
 
         out.sort((a, b) => b.createdAt - a.createdAt);
         logInfo(
-            `[sessions] 条目 ${out.length} 个（补 cwd ${cwdAdded} / 清理 ${cleaned}）` +
+            `[sessions] 条目 ${out.length} 个（根目录 ${roots.length} 个 / 补 cwd ${cwdAdded} / 清理 ${cleaned}）` +
                 `★ 零内容 IO ✓`,
         );
         return out;

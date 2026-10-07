@@ -328,6 +328,14 @@
                         "type": "boolean",
                         "default": true,
                         "markdownDescription": "在会话面板里【切换会话】或点【新建会话】之后，自动关闭这个面板（焦点回到聊天输入框）。\n\n★ 点了就关 ✗ 不等切完（所以切换失败时得看侧栏的报错提示 ✓）\n★ 关掉它 → 面板保持打开 ✗ 适合“连着切好几个会话”的用法 ✓\n★ 导出 / 导入 / 删除 / 改名【不】触发关闭 ✓"
+                    },
+                    "pi-bridge.sessions.extraDirs": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": [],
+                        "markdownDescription": "**额外扫描**这些目录里的会话文件（只读展示 ✗ 不改变 pi 的行为）。\n\n★ 与 `pi-bridge.sessions.scope` 配合：scope 决定显示范围 ✗ 这里决定**去哪里找**。\n★ 用于**会话散落在多处**的情况（比如从别的机器拷来的会话目录）。\n\n留空 = 只扫 pi 自己的会话目录（`--session-dir` → `settings.sessionDir` → `<agentDir>/sessions`）。"
                     }
                 }
             },

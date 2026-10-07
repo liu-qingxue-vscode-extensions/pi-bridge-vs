@@ -212,6 +212,14 @@ export class PiClient {
         if (this.started) return;
         if (this.starting) return this.starting;
 
+        // ★ B42：留下"谁触发了启动"的调用栈（debug 级 ✗ 平时安静 ✓）
+        //   【为什么值得留】这次就是靠它定位的：打开扩展就 spawn pi ✗
+        //     而有守卫的地方全排除了 ⇒ 只能靠栈找到真凶（前端启动时拉斜杠命令 ✓）
+        logDebug(
+            "[PiClient] 启动被触发，调用栈：" +
+                (new Error().stack?.split("\n").slice(2, 6).map((l) => l.trim()).join(" ← ") ?? "?"),
+        );
+
         this.starting = this.doStart().finally(() => {
             // 无论成功/失败都清空：失败后允许下一次重试
             this.starting = null;

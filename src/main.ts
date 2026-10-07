@@ -214,6 +214,14 @@ export function activate(context: vscode.ExtensionContext): void {
     //   优先级：CLI --session-dir > settings.sessionDir > 默认 ✓
     //   ★ 改这个值要在【设置面板保存】和【激活时】都重新算一次 ✓
     sessionStore.setRoot(resolveSessionRoot(readLaunchArgs()));
+    // ★★ B42：额外的【只读探测目录】（会话散落多处时用 ✗ 不碰 pi 的 sessionDir）
+    const readExtraSessionDirs = (): string[] => {
+        const v = vscode.workspace
+            .getConfiguration("pi-bridge.sessions")
+            .get<string[]>("extraDirs", []);
+        return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+    };
+    sessionStore.setExtraDirs(readExtraSessionDirs());
     // ★ 通知环形缓冲上限（配置可调；改设置时实时生效 ✓）
     const applyNoticeLimit = (): void => {
         chatState.setNoticeLimit(
@@ -1287,6 +1295,7 @@ export function activate(context: vscode.ExtensionContext): void {
             // ★ 改了 sessionDir → 我们的会话扫目录要跟着改 ✓
             //   （否则列表全空 ✗ 用户预言的"一定会出错"✓）
             sessionStore.setRoot(resolveSessionRoot(readLaunchArgs()));
+            sessionStore.setExtraDirs(readExtraSessionDirs());
             await sessionActions.list();
         },
     });
@@ -2170,6 +2179,8 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("pi-bridge.sessions")) {
+                // ★ B42：extraDirs 变了 ⇒ 重新注入（下次 list 就用新目录 ✓）
+                sessionStore.setExtraDirs(readExtraSessionDirs());
                 void sessionActions.list();
             }
         }),
