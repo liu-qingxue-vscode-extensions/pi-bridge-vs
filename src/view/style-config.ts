@@ -69,6 +69,14 @@ export function readStyleVars(): Record<string, string> {
     // 默认折叠开关（同样用特殊值传，webview 自己处理）
     vars["--pi-think-collapsed"] = cfg.get<boolean>("thinkCollapsed", false) ? "on" : "off";
     vars["--pi-tool-collapsed"] = cfg.get<boolean>("toolCollapsed", false) ? "on" : "off";
+    // ★★ B45：完整历史面板的默认收起（它跟主聊天页不同 ⇒ 独立一个开关 ✓）
+    vars["--pi-history-collapsed"] = cfg.get<boolean>("historyCollapsed", true) ? "on" : "off";
+
+    // ★★ B45：已压缩区段的颜色（留空 ⇒ 用 CSS 里的内置默认值 ✓）
+    const compactedBg = cfg.get<string>("compactedBg", "").trim();
+    if (compactedBg) vars["--pi-compacted-bg"] = compactedBg;
+    const compactedSplitBg = cfg.get<string>("compactedSplitBg", "").trim();
+    if (compactedSplitBg) vars["--pi-compacted-split-bg"] = compactedSplitBg;
 
     // ★★ B38：resultLabel 已删（结果区那个头没了 ✓）
 

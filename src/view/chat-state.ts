@@ -26,6 +26,13 @@ export class ChatState {
     private compSeq = 0;
 
     /**
+     * ★★ B45：当前正在收"已被压缩"那一段的消息吗
+     *   由 compactedMark patch 切换 ✗ 新建的气泡带上这个标记 ✓
+     *   （只有完整历史面板会推它 ⇒ 聊天页永远是 false ✓）
+     */
+    private compacted = false;
+
+    /**
      * ★ 通知环形缓冲（★ 不进会话文件 → 独立于 bubbles ✓）
      *   为什么单独存？因为通知是“过程状态”，无法从 pi 重放（它就不在文件里 ✗）
      *   但视图重开时要能恢复 → 所以放进 snapshot ✓（插件重启才清除 ✓）
@@ -102,6 +109,7 @@ export class ChatState {
                     role: patch.role,
                     blocks: patch.text ? [{ type: "text", text: patch.text }] : [],
                     done: false,
+                    ...(this.compacted ? { compacted: true } : {}),
                 });
                 break;
 
@@ -224,6 +232,11 @@ export class ChatState {
             // ★★ B46：压缩【结果】—— 它是历史的一部分 ✗ 所以要进 bubbles ✓
             //   一个压缩气泡 = { role: "compaction" } + 一个 block ✗
             //   这样前端的气泡渲染循环【不用为它开分支】✓（它只是第 4 种 role ✓）
+            // ★★ B45：区段标记（完整历史面板专用 ✗ 普通渲染里不会有）
+            case "compactedMark":
+                this.compacted = patch.on;
+                break;
+
             case "compactionBubble": {
                 this.bubbles.push({
                     role: "compaction",
@@ -238,6 +251,7 @@ export class ChatState {
                         },
                     ],
                     done: true,
+                    ...(this.compacted ? { compacted: true } : {}),
                 });
                 break;
             }

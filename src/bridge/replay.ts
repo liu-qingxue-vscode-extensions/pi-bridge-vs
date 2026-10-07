@@ -62,6 +62,14 @@ export interface ReplayMessage {
     model?: string;
     /** ★ B46：压缩条目专用（role="__compaction" 时才有 ✓）*/
     compaction?: CompactionInfo;
+    /**
+     * ★★ B45：这条消息【已经被压缩掉了】吗
+     *
+     * 【只有 raw 模式（完整历史面板）会填】
+     *   普通渲染时这些消息【根本不出现】（被 applyCompaction 裁掉了 ✓）
+     *   raw 模式把它们放出来 ✗ 但要让界面能区分 ⇒ 打这个标记 ✓
+     */
+    compacted?: boolean;
 }
 
 /** 一条渲染指令（与 ChatPatch 同形 —— 这里只声明用到的 ✓） */
@@ -69,6 +77,9 @@ type Patch =
     | { kind: "startBubble"; role: "user" | "assistant"; text: string }
     // ★ B46：压缩气泡（摘要 + 压缩前的 token 数）
     | { kind: "compactionBubble"; summary: string; tokensBefore?: number; time?: string }
+    // ★★ B45：区段标记 —— 从这里开始（on=true）/ 结束（on=false）"已被压缩"的状态
+    //   ★ 用它而不是"数第几条气泡"：因为 toolResult 不建气泡 ✗ 索引对不上 ✓
+    | { kind: "compactedMark"; on: boolean }
     | { kind: "append"; block: "text" | "thinking"; text: string }
     | {
           kind: "endBubble";
@@ -105,9 +116,18 @@ function textOf(content: unknown): string {
  */
 export function messagesToPatches(messages: ReplayMessage[]): Patch[] {
     const out: Patch[] = [];
+    /** ★ 当前处于"已被压缩"区段吗（初值 false ✗ 发生变化时才插标记 ✓）*/
+    let compacted = false;
 
     for (const msg of messages) {
         const role = msg.role;
+
+        // ★★ B45：区段切换 ⇒ 插一个标记（只在实际变化时插 ✗ 不刷屏 ✓）
+        const want = msg.compacted === true;
+        if (want !== compacted) {
+            out.push({ kind: "compactedMark", on: want });
+            compacted = want;
+        }
 
         // ── ★ B46：压缩条目 → 一个压缩气泡（不建普通气泡 ✓）──
         if (role === "__compaction") {

@@ -125,9 +125,11 @@ export function applyStyleVars(vars?: Record<string, string>): void {
     ui.defaultThinkCollapsed = !!vars && vars["--pi-think-collapsed"] === "on";
     ui.defaultToolCollapsed = !!vars && vars["--pi-tool-collapsed"] === "on";
     if (ui.historyMode) {
-        // ★ B47：历史面板【一概默认收起】—— 消息成百上千条，展开没法看 ✓
-        ui.defaultThinkCollapsed = true;
-        ui.defaultToolCollapsed = true;
+        // ★★ B45：历史面板的默认收起【独立配置】（--pi-history-collapsed ✗ 默认 on ✓）
+        //   为什么独立：主区你可能想全展开 ✗ 但那个面板消息成百上千条，不收没法看 ✓
+        const c = !vars || vars["--pi-history-collapsed"] !== "off";
+        ui.defaultThinkCollapsed = c;
+        ui.defaultToolCollapsed = c;
     }
     ui.noticeAutoOpen = !!vars && vars["--pi-notice-auto-open"] === "on";
     // ★ B41：代码过宽自动缩放（默认开 ✗ 只有显式 "0" 才关）

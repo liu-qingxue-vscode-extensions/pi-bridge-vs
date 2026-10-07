@@ -32,6 +32,18 @@
      实测约 28px（12px 字号 + 6px*2 padding + 1px 边框 ✓）*/
   --pi-history-banner-h: 29px;
 
+  /* ★★ B45：完整历史面板里"已被压缩"那段
+     ★ 用【实色】而不是主题变量叠色 —— 上一版用 editorWidgetBackground（半透明）
+       ⇒ 叠在气泡底色上等于没变 ✗ 用户实测："完全看不出来"✓
+     ★ 也不用 opacity：那会把【文字】一起弄淡 ✗ 要的是"背景突出、文字照常"✓
+     深浅主题各一套（body 上有 vscode-dark / vscode-light 类 ✓）*/
+  /* ★ 上一版 #2d2a3e 与 VS Code 深色底 #1e1e1e 几乎同色 ⇒ 用户："完全看不出来"✓
+     ⇒ 提亮 + 提饱和，明显是"一块紫色区域"✓ */
+  --pi-compacted-bg: #3b3054;        /* 紫（深色主题）*/
+  --pi-compacted-split-bg: #7b68c9;  /* 分界色条 */
+  --pi-compacted-fg: #d8d0f0;
+  --pi-compacted-pad: 10px;          /* 整块区域的内边距（让它看起来是"一片"✓）*/
+
   /* 输入框 */
   --pi-input-radius: 14px;
   --pi-input-width: 100%;

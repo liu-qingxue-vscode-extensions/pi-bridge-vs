@@ -417,6 +417,21 @@
                         "type": "boolean",
                         "default": false,
                         "markdownDescription": "工具气泡**默认收起**（只显示头部，点一下展开）。默认 false。"
+                    },
+                    "pi-bridge.style.compactedBg": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "**完整历史面板**里「已被压缩」那一段的底色（气泡**以外**的区域）。\n\n留空 = 用内置紫色。深浅主题各有一套默认值 ✓"
+                    },
+                    "pi-bridge.style.compactedSplitBg": {
+                        "type": "string",
+                        "default": "",
+                        "markdownDescription": "**完整历史面板**里「已压缩 / 未压缩」分界条 + 左侧书脊线的颜色。\n\n留空 = 用内置紫色 ✓"
+                    },
+                    "pi-bridge.style.historyCollapsed": {
+                        "type": "boolean",
+                        "default": true,
+                        "markdownDescription": "**完整历史面板**里，工具块 / 思考块**默认收起**吗。\n\n默认 true —— 那个面板动辄上百条消息，全展开没法看 ✓\n（主聊天页由 toolCollapsed / thinkCollapsed 各自控制 ✓）"
                     }
                 }
             },

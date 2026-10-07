@@ -56,6 +56,8 @@ interface SnapBubble {
     blocks: SnapBlock[];
     usage?: unknown;
     model?: string;
+    /** ★ B45：这条属于"已被压缩"那段吗（只有完整历史面板会带 ✓）*/
+    compacted?: boolean;
 }
 
 /** 最近一次快照（★ 改配置要重画时用 ✓） */
@@ -119,11 +121,43 @@ export function replaySnapshot(payload: unknown, opts?: { keepNotices?: boolean 
         resetNotices((snap.notices ?? []) as never);
     }
 
+    /** ★★ B45：当前气泡是不是"已被压缩"那段（给它加背景差异 ✓）*/
+    let compactedNow = false;
+    /** 区段是否已经插过"分界线"（一条就够 ✗ 别到处插 ✓）*/
+    let splitDone = false;
+
+    /**
+     * 给刚建好的气泡打"已压缩"标记
+     * ★ 用包装函数而不是"事后遍历"：因为一个 bubble 里可能追加多个元素 ✓
+     */
+    const mark = <T extends HTMLElement | null>(el: T): T => {
+        if (el && compactedNow) {
+            // ★★ B45：标记打在【wrapper】上而不是 .bubble 上
+            //   【为什么】wrapper 才是"一整块区域"（含气泡 + 动作区 ✓）
+            //     只标 .bubble 的话 ⇒ 块与块【之间的间距】是透明的 ✗
+            //     用户实测："间距里面难道没有背景吗？"✓
+            const wrap = el.classList.contains("bubble-wrap") ? el : el.parentElement;
+            (wrap ?? el).classList.add("compacted");
+        }
+        return el;
+    };
+
     for (const b of bubbles) {
+        const was = compactedNow;
         ui.role = b.role;
+        compactedNow = b.compacted === true;
+
+        // ★★ B45：从"已压缩"跨到"未压缩"处 ⇒ 插一条分界线（告诉用户"下面才是 pi 记得的"✓）
+        if (was && !compactedNow && !splitDone) {
+            splitDone = true;
+            const hr = document.createElement("div");
+            hr.className = "compacted-split";
+            hr.textContent = "—— 以上是已被压缩的历史（pi 已不记得原文）——";
+            messagesEl.appendChild(hr);
+        }
         // ★ 用户消息：整条消息就是一个 user 气泡（不走 segment 逻辑）
         if (b.role === "user") {
-            const el = createBubble("user");
+            const el = mark(createBubble("user"));
             el.textContent = b.blocks.map((x) => x.text ?? "").join("");
             ui.bubble = null;
             continue;
@@ -132,13 +166,13 @@ export function replaySnapshot(payload: unknown, opts?: { keepNotices?: boolean 
         for (const blk of b.blocks) {
             if (blk.type === "compaction") {
                 // ★ B46：历史里的压缩摘要（★ 与实时路径共用 fillCompactionBubble ✓）
-                last = createCompactionBubbleSnapshot(blk.compId ?? "", {
+                last = mark(createCompactionBubbleSnapshot(blk.compId ?? "", {
                     summary: blk.summary ?? "",
                     tokensBefore: blk.tokensBefore,
                     time: blk.time,
-                });
+                }));
             } else if (blk.type === "tool") {
-                last = createToolBubble(blk.toolCallId || "", blk.toolName);
+                last = mark(createToolBubble(blk.toolCallId || "", blk.toolName));
                 // ★★★ B39：跟实时路径【同一个填充入口】
                 //   （以前这里自己写了一套 ✗ cmdCache / details 都漏在这条路上）
                 // ★ B40：走【必填】入口 ⇒ 以后漏字段会直接编译失败（不用等用户发现）
@@ -154,12 +188,12 @@ export function replaySnapshot(payload: unknown, opts?: { keepNotices?: boolean 
             } else if (blk.type === "thinking") {
                 // 历史里的思考：也是可折叠气泡（已完成，无时长可显示）
                 if (!last || !last.classList.contains("thinking")) {
-                    last = createThinkingBubble("已思考");
+                    last = mark(createThinkingBubble("已思考"));
                 }
                 last.querySelector(".think-body")!.textContent += blk.text ?? "";
             } else {
                 if (!last || !last.classList.contains("text")) {
-                    last = createBubble("text");
+                    last = mark(createBubble("text"));
                 }
                 // ★ B29：历史重建也走 MD 渲染 ✗（与流式同一条路 ✓）
                 appendMarkdown(last, blk.text ?? "");

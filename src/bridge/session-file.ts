@@ -179,13 +179,33 @@ export function readSessionFile(filePath: string, opts?: ReadOptions): SessionFi
     }
 
     if (opts?.raw) {
-        // ★ raw：原样返回（压缩条目也变成伪消息 ✗ 但【不丢】它前面的消息 ✓）
+        // ★★ B45：raw 模式 —— 全都放出来 ✗ 但标注"哪些已经被压掉了" ✓
+        //
+        // 【怎么算】跟 pi 的语义对齐（见 applyCompaction 的注释）：
+        //   最后一个 compaction 的 firstKeptEntryId ⇒ 它【之前】的消息都已被压缩 ✓
+        //   之前的那些老 compaction 事件本身【也算】（它们的内容已被新摘要吸收 ✓）
+        //
+        // ★ 为什么要标：完整历史面板是"看档案"✗ 得让用户一眼看出
+        //   "从哪儿开始，pi 已经不记得原文了"（那之后才是它真读得到的 ✓）
+        let boundary = entries.length; // 未压缩起点（默认：全都算已压缩）
+        for (let i = entries.length - 1; i >= 0; i--) {
+            const e = entries[i];
+            if (e.kind === "compaction" && e.firstKeptEntryId) {
+                const at = entries.findIndex((x) => x.id === e.firstKeptEntryId);
+                boundary = at >= 0 ? at : 0;
+                break;
+            }
+        }
+
         const all: ReplayMessage[] = [];
-        for (const e of entries) {
+        for (let i = 0; i < entries.length; i++) {
+            const e = entries[i];
+            const compacted = i < boundary;
             if (e.kind === "compaction" && e.comp) {
-                all.push({ role: "__compaction", compaction: e.comp });
+                all.push({ role: "__compaction", compaction: e.comp, compacted });
             } else if (e.kind === "message" && e.msg) {
-                all.push(e.msg);
+                // ★ 不污染原对象（它可能被别处引用 ✓）⇒ 浅拷贝加标记 ✓
+                all.push(compacted ? { ...e.msg, compacted: true } : e.msg);
             }
         }
         return { messages: all, live };

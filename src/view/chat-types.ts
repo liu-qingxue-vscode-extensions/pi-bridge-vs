@@ -125,6 +125,12 @@ export interface Bubble {
     usage?: Usage;
     /** 模型 id（顶部状态栏用；也是查 contextWindow 的键 ✓） */
     model?: string;
+    /**
+     * ★★ B45：这条气泡属于【已被压缩】的那一段吗
+     *   只有"完整历史面板"（raw 模式）会填 ✗ 普通渲染里那些消息根本不出现 ✓
+     *   ⇒ 前端据此加背景色差异 ✓
+     */
+    compacted?: boolean;
 }
 
 /** 通知级别（决定图标与颜色）★ 与 pi 的 notifyType 一一对应 */
@@ -173,6 +179,8 @@ export type ChatPatch =
           tokensBefore?: number;
           tokensAfter?: number;
       }
+    // ★★ B45：区段标记（已压缩 / 未压缩 的分界 + 背景色差异用 ✓）
+    | { kind: "compactedMark"; on: boolean }
     // ★★ B46：压缩【结果】气泡 —— 与上面那个过程事件不同：
     //   这个【进 bubbles/snapshot】（它是历史的一部分 ✗ webview 重建后要还在 ✓）
     | { kind: "compactionBubble"; summary: string; tokensBefore?: number; time?: string }

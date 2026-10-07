@@ -157,6 +157,88 @@
 }
 .bubble.thinking[data-open="false"] .think-body { display: none; }
 
+/* ★★ B45：完整历史面板里"已被压缩"那段的气泡 =====
+   ★ 实色背景 + 左侧色条 ⇒ 一眼能扫出一整片"这段已经过去了"✓
+   ★ 不用 opacity（那会把文字一起淡掉 ✗ 用户要的是"背景显眼、字照常读"✓）
+   ★ 浅色主题单独覆盖（见下方 body.vscode-light ✓）*/
+/* ★★ B45：已压缩区段的气泡 =====
+   【目标】"气泡以外的区域"有底色 ✗ 而气泡自己保持原样 ✓
+     · 用户气泡仍然右对齐、仍然是蓝底 ✓（一眼能找到它 ✓）
+     · 左右两侧的"间距"也在这片底色里 ✓（用户："左右间距加颜色"✓）
+
+   【★ 怎么做到不改布局】（踩了三版的坑 ✓）
+     #messages 的左右 padding 是 0 ✗ "左右间距"其实是【气泡自己的 margin】✓
+       AI   → margin-left: leftGap
+       用户 → margin-right: rightGap
+     ⇒ 所以：负 margin 把背景【撑到两侧】✗ padding 再把内容【推回原位】✓
+       净效果 = 宽度多了一个 gap ✗ 但内容位置不变 ✓
+     ★ 关键是【成对出现】（负 margin 与 padding 同值 ✗ 否则会歪 ✓）
+
+   前两版错在：
+     ① 只染 .bubble ⇒ 只剩沿边一条线
+     ② 染每块 wrapper 但把 margin 归零 ⇒ 一个个紫方块 + 中间黑缝
+     ③ 包大容器 ⇒ ★ 用户气泡跑左对齐 + 左右间距全丢（破坏了 flex 上下文 ✓）*/
+.bubble-wrap.compacted {
+  background: var(--pi-compacted-bg);
+  /* ★ 撑满两侧的间距（再等量 padding 补回来 ⇒ 内容纹丝不动 ✓）*/
+  padding-left: var(--pi-left-gap, 3%);
+  margin-left: calc(-1 * var(--pi-left-gap, 3%));
+  padding-right: var(--pi-right-gap, 3%);
+  margin-right: calc(-1 * var(--pi-right-gap, 3%));
+  padding-top: 4px;
+  padding-bottom: 4px;
+  /* ★ 左侧书脊线 */
+  box-shadow: inset 3px 0 0 0 var(--pi-compacted-split-bg);
+}
+
+/* ★★ 用户气泡也要撑到右边（它的 margin-right 覆盖了上面那条 ✓）
+   —— 特异性要够（`.bubble-wrap.user` 在后面 ✗ 会赢 ✓）*/
+.bubble-wrap.compacted.user {
+  margin-right: calc(-1 * var(--pi-right-gap, 3%));
+  padding-right: var(--pi-right-gap, 3%);
+}
+
+/* ★★ 让【气泡】和【气泡以外的区域】区分开（这一版才终于对了 ✓）
+   【用户要的形态】
+       ┌─紫─┐ ╔═气泡（原样底色）═╗ ┌─紫─┐
+         ↑ 左右两侧的空白（气泡以外）是紫的
+         气泡自己保持原样 ⇒ 边界一眼可见 ✓
+   【为什么之前不对】
+     AI 气泡的默认背景是 transparent ✗ 于是紫底【直接透上来】
+     ⇒ 气泡和背景融为一体 ⇒ 用户："我怎么感觉还是没什么改动啊"✓
+   ⇒ 所以：给它一个【实底】（编辑器底色 ✗ 和外面紫底形成对比 ✓）
+   ★ 用户气泡不动：它本来就有自己的蓝底 ✓*/
+.bubble-wrap.compacted > .bubble {
+  background: var(--vscode-editor-background, #1e1e1e);
+}
+/* ★ 内部有自己底色的块（工具结果等）保持原样 ⇒ 它们本身就是"气泡里的内容"✓*/
+.bubble-wrap.compacted .tool-result,
+.bubble-wrap.compacted .part-text {
+  background: transparent;
+}
+
+/* 浅色主题单独一套 */
+html.vscode-light,
+body.vscode-light {
+  --pi-compacted-bg: #e6dff7;
+  --pi-compacted-split-bg: #8b7ac0;
+  --pi-compacted-fg: #4a3f6b;
+}
+
+/* 已压缩 → 未压缩 的分界线：做成一条【有底色的大提示条】✗ 不再用灰虚线 ✓
+   （用户实测："很难找到这条分界线"✓）*/
+.compacted-split {
+  margin: 20px 0 14px;
+  padding: 7px 12px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: #fff;
+  background: var(--pi-compacted-split-bg);
+  border-radius: 4px;
+}
+
 /* ===== ★★ B46：压缩气泡 =====
    代表"此时刻之前的所有对话已被压缩成这段摘要"（见 bridge/session-file.ts ✓）
    ★ 折叠机制与 thinking 同构（dataset.open + 整块显示/隐藏 ✓）
