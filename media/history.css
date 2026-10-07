@@ -1,0 +1,9 @@
+/* =====================================================================
+   history.css —— ★★ B47：完整历史面板的入口
+   ★ 只引必要的源 ✗（不要 input.css / topbar.css / cmdrail.css ✓）
+   ===================================================================== */
+@import url("./css/base.css");
+@import url("./css/markdown.css");
+@import url("./css/bubbles.css");
+@import url("./css/tool.css");
+@import url("./css/history-page.css");

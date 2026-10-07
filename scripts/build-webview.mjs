@@ -44,6 +44,10 @@ const options = {
         { in: "src/debug/index.js", out: "debug" },
         // ★ 设置面板（B35 ✗ 从侧栏搬到编辑器区 ✓）
         { in: "src/settings/index.ts", out: "settings" },
+        // ★★ B47：完整历史面板
+        //   ★ 它【复用聊天页的渲染器】（apply.ts 的 replaySnapshot ✓）
+        //     ⇒ 入口里只有"握手 + 收快照"✗ 没有任何渲染代码 ✓
+        { in: "src/webview/history.ts", out: "history" },
     ],
     outdir: "media/out",
     bundle: true,          // 把 import 的全部打进一个文件 ✓

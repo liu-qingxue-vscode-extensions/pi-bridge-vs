@@ -147,6 +147,17 @@ export class ChatView implements vscode.WebviewViewProvider {
             //   按 callId 从 chatState 取原始块 ✗ 再交给 editor-open 分派
             //   （★ 数据从宿主取而不是从 webview DOM 抠 —— 宿主的数据更完整：
             //     details.patch / resultParts 都在 ✓ 而且不必解析 HTML ✗）
+            // ★★ B46：压缩块送去编辑器（它没有 callId ✗ 用自己的 compId ✓）
+            if (kind === "openCompaction") {
+                const compId = (msg as { compId?: unknown }).compId;
+                if (typeof compId === "string") {
+                    const blk = this.chatState.findCompactionBlock(compId);
+                    logInfo(`★ 宿主收到 openCompaction：compId=${compId} 找到=${!!blk}`);
+                    void openToolInEditor(blk);
+                }
+                return;
+            }
+
             if (kind === "openInEditor") {
                 const callId = (msg as { callId?: unknown }).callId;
                 logInfo(`★ 宿主收到 openInEditor：callId=${String(callId)}`);

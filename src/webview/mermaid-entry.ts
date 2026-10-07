@@ -29,6 +29,15 @@ mermaid.initialize({
     // ★ strict：禁掉点击事件/脚本/外链 ✗ 只画图 ✓（安全 ✓）
     securityLevel: "strict",
     fontFamily: "var(--vscode-font-family)",
+    // ★★ B47：语法错误时【别往 DOM 里插错误图】
+    //
+    // 【用户报的 bug】消息里有个语法错的 mermaid 块 ⇒ 页面上多出
+    //   一个浮动的错误层（"mermaid version 12.1.0" + "Parse error on line 8"）
+    //   它叠在正文上面 ⇒ 用户看到的就是"左上角闪一块别人的样式"✓
+    // 【为什么】mermaid.render() 失败时会把错误图插到【它临时建的容器】里
+    //   并在某些路径下【不清理】⇒ 留在了 document 里 ✓
+    // ⇒ 关掉它：我们自己 catch 异常 + 回退成普通代码块（用户要的行为 ✓）
+    suppressErrorRendering: true,
 });
 
 // ★ 暴露给主程序 ✓

@@ -83,6 +83,17 @@ export function createSessionHost(
                 void deps.actions.importOne();
                 return;
 
+            // ★★ B47：全量渲染（含已压缩历史）⇒ 打开独立面板 ✓
+            case "openFullHistory": {
+                const p = payload as { path?: string; name?: string } | undefined;
+                if (typeof p?.path !== "string") {
+                    logWarn("会话面板：全量渲染请求缺 path ✗ 已忽略");
+                    return;
+                }
+                deps.actions.showFullHistory(p.path, typeof p.name === "string" ? p.name : undefined);
+                return;
+            }
+
             default:
                 // ★ 不静默吞 ✓（前端加了新消息忘在宿主接 → 输出面板能立刻看见 ✓）
                 logWarn(`会话面板：宿主没接的消息 kind=${kind}`);

@@ -20,10 +20,13 @@ import { createBubble, refreshForkButtons, removePending, showPending } from "./
 import { setQueueing, showInserting } from "./inserting.js";
 import { appendSegment, endSegment } from "./segments.js";
 import { appendMarkdown, finishMarkdown, setHighlightTheme } from "./markdown.js";
+import { beginCodeFitBatch, endCodeFitBatch } from "./code-fit.js";
 import { createThinkingBubble, markThinkDone } from "./thinking.js";
 // ★★ B39：fillToolBubble = 工具气泡的【唯一】填充入口（实时流 / snapshot 都走它）
-import type { ToolBlockFields } from "../view/chat-types.js";
+import type { CompactionFields, ToolBlockFields } from "../view/chat-types.js";
 import { createToolBubble, fillToolBubble, fillToolBubbleSnapshot } from "./tool.js";
+import { createCompactionBubbleSnapshot, fillCompactionBubble } from "./compact-bubble.js";
+import type { CompactionData } from "./compact-bubble.js";
 import { appendStopNote, showRetryNotice } from "./notices.js";
 import { showCompactionEnd, showCompactionStart } from "./compact.js";
 import { setModelInfo, showModelPicker, showThinkingPicker } from "./model-picker.js";
@@ -43,7 +46,7 @@ import { fitCodeBlocks } from "./code-fit.js";
  * ★ B40：工具字段【继承共享定义 ToolBlockFields】✗ 不再手写一份
  *   （B39 就是这里和 ToolData 两份手写 ⇒ 漏传 details ⇒ diff 画不出来）
  */
-interface SnapBlock extends ToolBlockFields {
+interface SnapBlock extends ToolBlockFields, CompactionFields {
     type: string;
     text?: string;
 }
@@ -95,10 +98,15 @@ function replayForConfig(): void {
  * @param opts.keepNotices 保留现有通知（改配置重画时用 ✓）
  *                         不传 = 用快照里的通知重建（webview 重建时 ✓）
  */
-function replaySnapshot(payload: unknown, opts?: { keepNotices?: boolean }): void {
+export function replaySnapshot(payload: unknown, opts?: { keepNotices?: boolean }): void {
     lastSnapshot = payload; // ★ 记住它：改配置时要靠它重画 ✓
     const snap = (payload ?? {}) as { bubbles?: SnapBubble[]; notices?: unknown[] };
     const bubbles = Array.isArray(snap.bubbles) ? snap.bubbles : [];
+
+    // ★★ B47：批量渲染期间抑制"每块一次强制布局"（见 code-fit.ts ✓）
+    //   实测：全量重放时不包这层会明显卡住（用户报的 ✓ 主区切会话也受影响 ✓）
+    beginCodeFitBatch();
+    const __t0 = performance.now();
 
     messagesEl.innerHTML = "";
     ui.bubble = null;
@@ -122,7 +130,14 @@ function replaySnapshot(payload: unknown, opts?: { keepNotices?: boolean }): voi
         }
         let last: HTMLElement | null = null;
         for (const blk of b.blocks) {
-            if (blk.type === "tool") {
+            if (blk.type === "compaction") {
+                // ★ B46：历史里的压缩摘要（★ 与实时路径共用 fillCompactionBubble ✓）
+                last = createCompactionBubbleSnapshot(blk.compId ?? "", {
+                    summary: blk.summary ?? "",
+                    tokensBefore: blk.tokensBefore,
+                    time: blk.time,
+                });
+            } else if (blk.type === "tool") {
                 last = createToolBubble(blk.toolCallId || "", blk.toolName);
                 // ★★★ B39：跟实时路径【同一个填充入口】
                 //   （以前这里自己写了一套 ✗ cmdCache / details 都漏在这条路上）
@@ -160,6 +175,17 @@ function replaySnapshot(payload: unknown, opts?: { keepNotices?: boolean }): voi
     for (const el of messagesEl.querySelectorAll<HTMLElement>(".bubble.text")) {
         finishMarkdown(el);
     }
+
+    const __t1 = performance.now();
+    // ★ 批量结束 ⇒ 统一算一次代码块宽度（整棵树一次读一次写 ✓）
+    endCodeFitBatch(messagesEl);
+    const __t2 = performance.now();
+    // ★ 分段计时（建 DOM / marked 封尾 / 代码块宽度 —— 一眼看出真瓶颈 ✓）
+    log.info(
+        `⏱ replay 分段：建DOM ${(__t1 - __t0).toFixed(0)}ms · ` +
+            `封尾(marked) ${(__t2 - __t1).toFixed(0)}ms · ` +
+            `代码块宽度 ${(performance.now() - __t2).toFixed(0)}ms`,
+    );
 
     // ★ 顶栏也从快照恢复（取最后一条带 usage 的气泡）
     for (let i = bubbles.length - 1; i >= 0; i--) {
@@ -222,6 +248,25 @@ function applyPatch(p: Record<string, unknown>): void {
             return;
 
         // ★ 压缩（B22）：开始/结束共用一种 patch，原地更新同一个气泡 ✓
+        // ★★ B46：压缩【结果】气泡
+        case "compactionBubble": {
+            const compId = p.compId as string | undefined;
+            const summary = p.summary as string | undefined;
+            if (!summary) return;
+            const data: CompactionData = {
+                summary,
+                tokensBefore: p.tokensBefore as number | undefined,
+                time: p.time as string | undefined,
+            };
+            // 同一 compId 再来一次就复用（幂等 ✗ 重放时不重复建 ✓）
+            const exist = compId
+                ? messagesEl.querySelector<HTMLElement>(`.bubble.compaction[data-comp-id="${compId}"]`)
+                : null;
+            const el = exist ?? createCompactionBubbleSnapshot(compId ?? "", data);
+            fillCompactionBubble(el, data);
+            break;
+        }
+
         case "compaction":
             if (p.phase === "start") showCompactionStart(p as never);
             else showCompactionEnd(p as never);

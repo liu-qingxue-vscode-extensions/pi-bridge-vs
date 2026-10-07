@@ -22,6 +22,16 @@
   --pi-rail-width: 2px;
   --pi-border-w: 1px;
 
+  /* ★★ B46：压缩气泡的默认值（想在 VS Code 设置里改的话
+     用 workbench.colorCustomizations 覆盖同名变量即可 ✓）*/
+  --pi-bg-compaction: transparent;
+  --pi-rail-color-compaction: var(--vscode-panel-border);
+  --pi-compaction-max-height: 420px;
+
+  /* ★ B47：完整历史面板的横幅高度（#messages 要让出这块 ✗ 否则被盖住 ✓）
+     实测约 28px（12px 字号 + 6px*2 padding + 1px 边框 ✓）*/
+  --pi-history-banner-h: 29px;
+
   /* 输入框 */
   --pi-input-radius: 14px;
   --pi-input-width: 100%;

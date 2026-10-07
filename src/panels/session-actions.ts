@@ -60,9 +60,25 @@ export interface SessionActionsDeps {
     replay: (sessionPath?: string) => Promise<void>;
     /** 推顶栏会话名（pushCurrentSessionTitle ✓ 改名 / 启动探针都要用 ✓）*/
     pushTitle: (overrideName?: string) => Promise<void>;
+    /**
+     * ★★ B46：改"待生效的会话参数"（纯变量 ✗ 不碰 pi ✓）
+     *
+     * 【为什么是参数而不是动作】
+     *   切换会话【只是改一个值】✗ 跟 cwd 同类 ✓
+     *   它在该生效的时候才生效 —— 也就是【用户真的发 prompt 时】✓
+     *   ⇒ 所以点击会话列表 = 改这个变量 + 读文件渲染（零进程 ✓）
+     */
+    setPendingSession: (sessionPath: string | null) => void;
+    /**
+     * ★★ B47：打开"完整历史"面板（含已被压缩掉的部分 ✓）
+     * ★ 它是【纯只读】的显示 ✗ 不碰 pi ✗ 不动当前会话 ✓
+     */
+    showFullHistory: (sessionPath: string, name?: string) => void;
 }
 
 export interface SessionActions {
+    /** ★ B47：全量渲染（右键菜单 ✓）*/
+    showFullHistory: (sessionPath: string, name?: string) => void;
     /** 打开 / 切到会话面板（侧栏 ☰ · 命令入口 ✓ 顺带刷一下顶栏名字 ✓）*/
     open(): void;
     /** 重扫文件名 + 补名字 / 标异常 → 推列表（用户点「⟳ 刷新」✓）*/
@@ -248,23 +264,26 @@ export function createSessionActions(deps: SessionActionsDeps): SessionActions {
         }
 
         try {
-            if (info.cwd && info.cwd !== pi.getCwd()) {
-                logInfo(`跨目录切会话：${pi.getCwd()} → ${info.cwd}`);
-                pi.setCwd(info.cwd);
-                await pi.reload(); // 用新 cwd 重启
-            }
-            logInfo(`切换会话：${sessionPath}`);
-            await pi.sendRaw({ type: "switch_session", sessionPath });
+            // ★★ B46：切换会话 = 【只改一个参数】✗ 完全不碰 pi ✓
+            //
+            //【为什么以前会启动 pi】原来是这里直接发 switch_session（RPC ✓）
+            //   ⇒ 打开扩展点一下会话列表，pi 就被拉起来了 ✗（懒加载在这条路上是漏的 ✓）
+            //【现在】参数记下来 ⇒ 在【发 prompt 的那一刻】才生效 ✓
+            //   · 那才是"用户真的要 pi 干活"的时刻（启动它理所当然 ✓）
+            //   · 生效逻辑见 main.ts 的 applyPendingSession（同 cwd → switch ✗ 跨 cwd → reload ✓）
+            deps.setPendingSession(sessionPath);
 
-            // ★ 清空当前界面 + ★ 重放该会话的历史消息 ✓
-            //   （否则切过去是一片空白 ✗）
-            //   ★ B42：把路径传下去 ⇒ 重放走【读文件】✗ 不再问 pi ✓
+            logInfo(`预览会话（改参数 ✗ 不启动 pi）：${sessionPath}`);
+            // ★ 清空当前界面 + 读文件重放该会话历史（零子进程 ✓）
             chatState.reset();
             await deps.replay(sessionPath);
             // ★ 通知【跟着会话走】：切了会话就是另一个上下文了 ✓
             //   （用户定的：切换会话应该清通知 ✓）
             chatState.clearNotices();
-            deps.postChat("cwd", { path: pi.getCwd(), short: compactHome(pi.getCwd()) });
+            // ★ B46：显示【目标会话的】cwd ✗ 不是 pi 现在的（此刻 pi 还没切过去 ✓）
+            //   不这么改的话：点开一个别目录的会话 ⇒ 顶栏还是旧 cwd ✗ 与画面不符 ✓
+            const shownCwd = info.cwd ?? pi.getCwd();
+            deps.postChat("cwd", { path: shownCwd, short: compactHome(shownCwd) });
             deps.postChat("noticesCleared", true);
             deps.postChat("snapshot", chatState.snapshot());
             // ★★ B35：会话列表走独立面板 ✗
@@ -580,5 +599,7 @@ export function createSessionActions(deps: SessionActionsDeps): SessionActions {
         remove,
         exportOne,
         importOne,
+        // ★ B47：就转给 main.ts（面板在那边组装 ✓ 这里只管路由 ✓）
+        showFullHistory: (sessionPath, name) => deps.showFullHistory(sessionPath, name),
     };
 }

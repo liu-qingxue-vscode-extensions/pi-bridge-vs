@@ -111,6 +111,24 @@ if (toolResults.length) {
     check("toolResult 结构可用（有 toolCallId）", toolResults.some((m) => typeof m.toolCallId === "string"));
 }
 
+// ── ★★ B46：压缩裁剪 ──
+//   【为什么必须测】裁剪是"赌上一半历史不渲染"的开关 ✗ 错了就是整段内容消失 ✓
+//   三条不变量：① 压缩伪消息最多一个（只显示最新的 ✓）
+//              ② 它必须排在【最前】（它代表"此前的一切"✓）
+//              ③ 能产出 compactionBubble 指令（前端才画得出气泡 ✓）
+const comps = data.messages.filter((m) => m.role === "__compaction");
+console.log(`\n  压缩条目: ${comps.length} 个`);
+if (comps.length) {
+    check("★ 压缩伪消息最多一个（只显示最新的）", comps.length === 1, `(得到 ${comps.length})`);
+    check("★ 压缩伪消息排在最前", data.messages[0]?.role === "__compaction");
+    check("★ 摘要非空", typeof comps[0].compaction?.summary === "string" && comps[0].compaction.summary.length > 0);
+    check("★ token 数可用（显示 此前 ≈N tokens）", typeof comps[0].compaction?.tokensBefore === "number");
+    const cb = (patches ?? []).filter((x) => x.kind === "compactionBubble");
+    check("★ 能产出 compactionBubble 指令", cb.length === 1, `(得到 ${cb.length})`);
+} else {
+    console.log("  （这个会话没压缩过 ⇒ 跳过压缩检查 ✓）");
+}
+
 // ── live 状态 ──
 console.log("\n  live:", JSON.stringify(data.live));
 

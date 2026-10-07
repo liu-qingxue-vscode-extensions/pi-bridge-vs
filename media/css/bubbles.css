@@ -157,6 +157,38 @@
 }
 .bubble.thinking[data-open="false"] .think-body { display: none; }
 
+/* ===== ★★ B46：压缩气泡 =====
+   代表"此时刻之前的所有对话已被压缩成这段摘要"（见 bridge/session-file.ts ✓）
+   ★ 折叠机制与 thinking 同构（dataset.open + 整块显示/隐藏 ✓）
+     而不是 tool 那套"折叠单元"（压缩摘要没有"单元"的概念 ✗ 它是一整段 ✓）*/
+.bubble.compaction {
+  background: var(--pi-bg-compaction, transparent);
+  border-left: var(--pi-rail-width, 2px) solid
+    var(--pi-rail-color-compaction, var(--vscode-panel-border));
+  padding: 2px 0 2px 10px;
+  margin: 2px 0 2px 4px;
+  /* ★ 字号略小 + 灰色：它是一段"背景资料"✗ 不是当前对话 ✓ */
+  font-size: 0.95em;
+  color: var(--vscode-descriptionForeground);
+}
+.bubble.compaction .head { padding: 2px 0; }
+.bubble.compaction[data-open="false"] .comp-body { display: none; }
+.comp-body {
+  margin-top: 4px;
+  /* ★ 摘要可能很长 ⇒ 限高 + 滚动 ✗ 免得一个气泡占满整屏 ✓ */
+  max-height: var(--pi-compaction-max-height, 420px);
+  overflow: auto;
+  /* ★ 摘要是 markdown ✗ 这里把颜色还原成正文色（不然整块都是灰的 ✓）*/
+  color: var(--vscode-foreground);
+}
+.comp-body .comp-time {
+  font-size: 0.85em;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+/* 压缩气泡的头部标签（与 thinking 的头部同款处理）*/
+.head-label.comp-label { font-style: normal; }
+
 /* ---- 占位三点（发送后、等第一个数据包）---- */
 /* ★ 宽度由 wrapper 控制（现在 wrapper 才是 #messages 的直接子项 ✓）*/
 .bubble.pending {

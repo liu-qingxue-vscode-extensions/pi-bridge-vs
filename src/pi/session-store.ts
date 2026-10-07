@@ -288,6 +288,43 @@ export class SessionStore {
      */
     private extraDirs: string[] = [];
 
+    /**
+     * ★★ B46：待生效的会话参数（纯变量 ✗ 不持久化 ✗ 不碰 pi）
+     *
+     * 【它是什么】
+     *   用户点了会话列表 ⇒ 我们【只改这个值】✗ 跟 cwd 是同一类东西 ✓
+     *   它在该生效的时刻生效 —— 【用户真的发 prompt 时】（见 main.ts 的 applyPendingSession ✓）
+     *
+     * 【为什么不是"当前会话"】
+     *   因为"当前会话"是 pi 的概念（它有自己的 sessionFile ✓）
+     *   而我们这里记的是【用户想看/想切到】的那个 ✗ 两者在发消息前可以不同 ✓
+     */
+    private pendingSession: string | null = null;
+
+    /**
+     * ★ B46：正在渲染的会话文件（压缩重放要用它 ✗ 零子进程 ✓）
+     *   来源：每次 replay 的入参（那是渲染的唯一源头 ✓）
+     *   ★ 不是"问 pi 要"的 ✗ 也不是"猜"的 ✓
+     */
+    private renderedFile: string | null = null;
+
+    setPendingSession(file: string | null): void {
+        this.pendingSession = file;
+    }
+
+    getPendingSession(): string | null {
+        return this.pendingSession;
+    }
+
+    setRenderedFile(file: string | null): void {
+        this.renderedFile = file;
+    }
+
+    /** ★ 拿不到就返回 null ✗ 调用方【不要】为了它去请求 pi ✓ */
+    getRenderedFile(): string | null {
+        return this.renderedFile;
+    }
+
     setExtraDirs(dirs: string[]): void {
         this.extraDirs = dirs.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim());
         if (this.extraDirs.length) logInfo(`额外会话目录：${this.extraDirs.join(", ")}`);

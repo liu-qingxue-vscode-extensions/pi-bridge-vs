@@ -54,6 +54,15 @@ export const ui = {
     defaultThinkCollapsed: false,
     /** 默认折叠·工具 */
     defaultToolCollapsed: false,
+    /**
+     * ★★ B47：这是"完整历史"面板吗？
+     *
+     * 【为什么要区分】历史面板是【看档案】✗ 消息成千上百条 ⇒
+     *   默认把它们全展开会：① 滚不完 ② 渲染量大（性能 ✓）
+     *   ⇒ 它有自己的默认值（historyCollapsed ✓ 默认 true）
+     *   ⇒ 其它地方仍是聊天页的行为（toolCollapsed ✓ 默认 false）
+     */
+    historyMode: false,
     /** ★ 通知到达时自动展开面板（默认关 ✓） */
     noticeAutoOpen: false,
     /**

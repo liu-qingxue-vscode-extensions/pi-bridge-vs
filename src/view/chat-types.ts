@@ -11,7 +11,7 @@
  */
 
 /** 气泡角色（user / assistant / 工具结果） */
-export type ChatRole = "user" | "assistant" | "tool";
+export type ChatRole = "user" | "assistant" | "tool" | "compaction";
 
 /**
  * 气泡内的【内容块】类型
@@ -21,7 +21,28 @@ export type ChatRole = "user" | "assistant" | "tool";
  *   [0] thinking 块、[1] text 块、（后续）toolcall 块…
  * 所以气泡不是一段文本，而是一串块 —— 渲染时要按块分开呈现。
  */
-export type BlockType = "text" | "thinking" | "tool";
+export type BlockType = "text" | "thinking" | "tool" | "compaction";
+
+/**
+ * ★★ B46：压缩块的字段
+ *
+ * 【为什么要独立一个气泡类型】
+ *   压缩摘要【不是任何人的话】✗ 也不属于某个工具 ✓
+ *   强行塞进 text 气泡会错位（它出现在历史最前面 ✗ 而它是"后来才发生的事"✓）
+ *
+ * 【它代表什么】
+ *   此时刻之前的所有对话【已被压缩成这段摘要】✗ 之后的才是原文 ✓
+ */
+export interface CompactionFields {
+    /** 摘要正文（markdown 源文 ✗ 前端渲染 ✓）*/
+    summary?: string;
+    /** 压缩前的 token 数（显示 "已压缩 ≈N tokens" ✓）*/
+    tokensBefore?: number;
+    /** 压缩发生的时间（ISO 串）*/
+    time?: string;
+    /** ★ 块 id（跳转编辑器时靠它从宿主找回这个块 ✓ 前端自己生成 ✓）*/
+    compId?: string;
+}
 
 /**
  * ★★★ B40：工具块的【共享字段】—— 宿主气泡 / 快照块 / 前端渲染入口 三者唯一来源
@@ -66,7 +87,7 @@ export interface ToolBlockFields {
 }
 
 /** 气泡内的一个内容块 */
-export interface Block extends ToolBlockFields {
+export interface Block extends ToolBlockFields, CompactionFields {
     type: BlockType;
     /** text/thinking：内容 */
     text: string;
@@ -152,6 +173,9 @@ export type ChatPatch =
           tokensBefore?: number;
           tokensAfter?: number;
       }
+    // ★★ B46：压缩【结果】气泡 —— 与上面那个过程事件不同：
+    //   这个【进 bubbles/snapshot】（它是历史的一部分 ✗ webview 重建后要还在 ✓）
+    | { kind: "compactionBubble"; summary: string; tokensBefore?: number; time?: string }
     // 工具调用（toolcall_*）—— 工具气泡的生命周期
     | { kind: "toolStart"; name: string; callId: string }
     | { kind: "toolArgs"; text: string }

@@ -25,6 +25,7 @@
 import { messagesEl } from "./dom.js";
 import { escapeHtml, plainParser, richParser } from "./marked-setup.js";
 import { applyTheme, highlightBlock } from "./highlight.js";
+import { log } from "./vscode-api.js";
 
 interface MdState {
     /** 累积的原文 ✓ */
@@ -360,14 +361,23 @@ async function renderMermaidBlocks(): Promise<void> {
                 out.innerHTML = svg;
                 b.appendChild(out);
             } catch (err) {
-                // ★★ 失败时【自动展开源码】✗ 否则用户什么都看不到 ✓
-                b.setAttribute("data-show-src", "");
+                // ★★ B47：失败 ⇒ 【静默回退成普通代码块】（用户明确要求的 ✓）
+                //
+                // 【原来为什么不对】插了一个 .mermaid-err 提示块 ✗
+                //   而且是"渲染不出来"的图 + 一行红字 ✗ 净是噪音 ✓
+                // 【现在】语法错就语法错 ✗ 用户能看到源码就够了 ✓
+                //   （源码本来就在这个块里 ✗ 只是平时被"图"盖住 ✓）
+                log.debug(`mermaid 语法错误（已回退成代码块）：${String(err).slice(0, 120)}`);
+                b.setAttribute("data-show-src", ""); // ★ 露出源码 ⇒ 就是个普通代码块 ✓
                 const tg = b.querySelector<HTMLElement>("[data-mermaid-toggle]");
-                if (tg) tg.textContent = "渲染";
-                const tip = document.createElement("div");
-                tip.className = "mermaid-err";
-                tip.textContent = `Mermaid 语法/渲染错误：${String(err).slice(0, 200)}`;
-                b.appendChild(tip);
+                if (tg) tg.textContent = "渲染"; // （点了会再试一次 ✓）
+                // ★ 防 mermaid 留垃圾：清掉它可能插到 body 上的临时容器 ✓
+                //   实测：它的临时容器 id 形如 "dpi-mermaid-N" / "mermaid-N" ✓
+                for (const junk of document.querySelectorAll(
+                    "body > [id^='dpi-mermaid'], body > [id^='mermaid-']",
+                )) {
+                    junk.remove();
+                }
             }
         }
     } finally {

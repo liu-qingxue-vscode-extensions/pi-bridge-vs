@@ -1,0 +1,46 @@
+/* ★★ B47：完整历史面板的专属样式（聊天页没有这些 ✓） */
+
+/* 隐藏占位：给 dom.ts 的 needEl 一个交代 ✗ 但绝不占地方不显示 ✓
+   ★ 双保险：HTML 上也有 hidden 属性（防 CSS 加载前的闪烁 ✓ 见 history.html）*/
+.history-page .hidden-stubs {
+  display: none;
+}
+
+/* ★ #messages 在聊天页是 position:absolute 铺满的（base.css ✓）
+     历史面板多了一条横幅 ✗ 所以要让出它的高度 ✓ */
+.history-page #messages {
+  top: var(--pi-history-banner-h, 30px);
+}
+
+/* ★ 顶层布局：历史面板是【整页只读】✗ 不需要输入区留白 ✓ */
+.history-page {
+  padding: 0;
+}
+.history-page #messages {
+  /* 聊天页的 #messages 给输入区留了底部空间 ✗ 这里没有输入区 ✓ */
+  padding-bottom: 24px;
+}
+
+/* 只读提示条 */
+#history-banner {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, .12));
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, .3));
+}
+#history-banner .hb-title {
+  font-weight: 600;
+}
+#history-banner .hb-sub {
+  color: var(--vscode-descriptionForeground);
+  /* ★ 路径可能很长 ⇒ 让它省略 ✗ 别把标题挤走 ✓ */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

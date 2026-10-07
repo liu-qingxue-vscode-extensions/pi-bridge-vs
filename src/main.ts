@@ -37,6 +37,7 @@ import { DebugPanel } from "./view/debug-panel.js";
 import { extractCommands } from "./panels/cmd-summary.js";
 import { ChatView } from "./view/chat-view.js";
 import { SessionPanel } from "./view/session-panel.js";
+import { HistoryPanel } from "./view/history-panel.js";
 import { SettingsPanel } from "./view/settings-panel.js";
 import { InteractionPanel, type UiReq } from "./view/interaction-panel.js";
 import { SkillsPanel } from "./view/skills-panel.js";
@@ -82,6 +83,7 @@ import { createSettingsPoster } from "./panels/settings-post.js";
 import { createCommandHost } from "./panels/command-host.js";
 import { createSessionActions } from "./panels/session-actions.js";
 import { createSessionHost } from "./panels/session-host.js";
+import { createHistoryHost } from "./panels/history-host.js";
 import { createSettingsActions } from "./panels/settings-actions.js";
 import { createSettingsHost } from "./panels/settings-host.js";
 import { createSkillsActions } from "./panels/skills-actions.js";
@@ -279,6 +281,10 @@ export function activate(context: vscode.ExtensionContext): void {
         } else if (event.type === "entry_appended") {
             const e = event as { entry?: { type?: string } };
             if (e.entry?.type === "model_change") void pushPiState();
+            // ★★ B46：压缩条目【落盘】⇒ 重放会话
+            //   为什么必须重放：压缩把"此刻之前的一切"变成了摘要 ⇒ 界面也要跟着塌缩 ✓
+            //   （不重放的话：气泡还停在压缩前的样子 ✗ 与 pi 的实际上下文脱节 ✓）
+            else if (e.entry?.type === "compaction") void onCompactionDone();
         }
 
         // ★★ 函数【出口】不参与侧效应 ✗ —— 调试板必须【无遗漏】
@@ -1209,6 +1215,13 @@ export function activate(context: vscode.ExtensionContext): void {
                     return;
                 }
 
+                // ★★ B46：发消息前 ⇒ 让"待生效的会话参数"生效
+                //   【为什么放这里】prompt 是"用户真的要 pi 干活"的时刻 ✗
+                //     此刻启动 pi 理所当然 ✓ 而之前的所有点击都不该启动它 ✓
+                if (cmd.type === "prompt" || cmd.type === "steer") {
+                    await applyPendingSession();
+                }
+
                 // ★★ 核心修正（B20）：agent 跑着时【prompt 会被静默丢弃】✗
                 //   实测证据（scripts/probe-steer-followup.mjs ✓）：
                 //     跑着时发 prompt → 回执 success ✓ 但【用户消息只有 1 条】✗
@@ -1295,6 +1308,10 @@ export function activate(context: vscode.ExtensionContext): void {
         showPanel: () => showExclusive("session", true),
         closePanelAfterAction: () => closeSessionPanelAfterAction(),
         replay: (sessionPath?: string) => replaySessionMessages(sessionPath),
+        // ★ B46：切换会话只是改这个参数（纯变量 ✗ 不碰 pi ✓）
+        setPendingSession: (p: string | null) => sessionStore.setPendingSession(p),
+        // ★ B47：完整历史面板（纯只读 ✗ 不碰 pi ✓）
+        showFullHistory: (p, n) => showFullHistory(p, n),
         pushTitle: (overrideName) => pushCurrentSessionTitle(overrideName),
     });
 
@@ -1302,6 +1319,61 @@ export function activate(context: vscode.ExtensionContext): void {
         context.extensionUri,
         createSessionHost({ actions: sessionActions }),
     );
+
+    // ══════════════════════════════════════════════════════════════
+    // ★★ B47：完整历史面板（独立 webview ✗ 只读）
+    //
+    // 【它是干什么的】把【一整个会话文件】渲染出来 —— 包括那些
+    //   已经被压缩掉、pi 自己都不再看的消息 ✓
+    // 【怎么渲染】★ 复用聊天页的渲染器（前端 apply.ts 的 replaySnapshot ✓）
+    //   后端这边：用一个【临时的 ChatState 实例】离线算出 snapshot
+    //   ★ 不能动全局的 chatState（那是当前会话的权威状态 ✗ 会被污染 ✓）
+    // 【零进程】全部读文件 ✗ 不碰 pi ✓
+    // ══════════════════════════════════════════════════════════════
+    /** 当前面板要显示哪个会话（ready 来的时候要用 ✓）*/
+    let fullHistoryTarget: { path: string; name?: string } | null = null;
+
+    const historyPanel = new HistoryPanel(
+        context.extensionUri,
+        createHistoryHost({
+            postStyleVars: () => historyPanel.postStyleVars(),
+            renderFullHistory: () => {
+                if (!fullHistoryTarget) {
+                    logWarn("完整历史：还不知道要渲染哪个会话 ✗ 忽略");
+                    return;
+                }
+                const { path: p, name } = fullHistoryTarget;
+                try {
+                    // ★ raw=true ⇒ 【不裁剪压缩】⇒ 全部历史都在 ✓
+                    const data = readSessionFile(p, { raw: true });
+                    // ★★ 离线算出快照（临时实例 ✗ 不碰全局 chatState ✓）
+                    const tmp = new ChatState();
+                    let n = 0;
+                    for (const patch of messagesToPatches(data.messages)) {
+                        tmp.apply(patch as never);
+                        n++;
+                    }
+                    historyPanel.post("fullHistory", tmp.snapshot());
+                    historyPanel.post("historyMeta", {
+                        name: name ?? data.live.name ?? "",
+                        path: p,
+                        messages: data.messages.length,
+                    });
+                    logInfo(`完整历史：${n} 个指令 / ${data.messages.length} 条消息 [${compactHome(p)}]`);
+                } catch (err) {
+                    logError(`完整历史渲染失败：${err instanceof Error ? err.message : String(err)}`);
+                    void vscode.window.showErrorMessage("打不开这个会话的完整历史（看输出面板）");
+                }
+            },
+        }),
+    );
+
+    function showFullHistory(p: string, name?: string): void {
+        fullHistoryTarget = { path: p, name };
+        const title = (name ?? "").trim() || p.split(/[/\\]/).pop()?.slice(0, 12) || "会话";
+        logInfo(`打开完整历史面板：${compactHome(p)}`);
+        historyPanel.show(title);
+    }
 
     /**
      * ★★ B36：设置面板的【消息路由】+【动作】都搬去模块了 ✗
@@ -1686,8 +1758,68 @@ export function activate(context: vscode.ExtensionContext): void {
      *   ★ 调用方通常【知道路径】（用户点的那个会话 ✗ switchTo 手里就有）
      *     ⇒ 有路径 = 零子进程；没路径（如 reload）才回退问 pi ✓
      */
+    /**
+     * ★★ B46：让"待生效的会话参数"生效（在【发 prompt 的那一刻】调用 ✓）
+     *
+     * 【语义】用户点会话列表只是改了个值 ✗ 这个值在这里才真正装到 pi 身上 ✓
+     *
+     *   同 cwd  → switch_session（pi 内部换库 ✗ 不重启 ✓）
+     *   跨 cwd  → 改 pi 的 cwd + reload（cwd 是 spawn 参数 ⇒ 只能重启 ✓）
+     *             ★ reload() 自己判断"没在跑就不重启"⇒ 不会白白拉起进程 ✓
+     *
+     * 【失败怎么办】清掉参数 ✗ 让 prompt 照发 ✓
+     *   （用户至少能说话 ✗ 而不是卡在一个切不过去的会话上 ✓）
+     */
+    async function applyPendingSession(): Promise<void> {
+        const target = sessionStore.getPendingSession();
+        if (!target) return;
+        sessionStore.setPendingSession(null); // 先清（失败也不反复重试 ✓）
+
+        try {
+            const entries = await sessionStore.listEntries();
+            const info = entries.find((x) => x.path === target);
+            if (info?.cwd && info.cwd !== pi.getCwd()) {
+                logInfo(`★ 会话参数生效（跨目录）：cwd ${pi.getCwd()} → ${info.cwd}`);
+                pi.setCwd(info.cwd);
+                await pi.reload();
+            }
+            logInfo(`★ 会话参数生效：switch_session → ${compactHome(target)}`);
+            await pi.sendRaw({ type: "switch_session", sessionPath: target });
+            // ★ 参数生效后，界面上的"正在渲染"就是它了 ✓
+            sessionStore.setRenderedFile(target);
+        } catch (err) {
+            logWarn(`切换会话参数生效失败：${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+
+    /**
+     * ★★ B46：压缩完成 ⇒ 重建界面
+     *
+     * 【为什么不用 get_messages 拿内容】
+     *   实测 pi 的 rpc-mode：get_messages 返回的是 session.messages
+     *   —— 那是【已经应用压缩】（buildContextEntries）之后的列表 ✗
+     *   ⇒ 里面【没有 compaction 结构】✗ 只有摘要被当成一条普通消息 ✓
+     *   ⇒ 想要压缩气泡，只能读会话文件（我们自己的解析才行 ✓）
+     *
+     * 【为什么要 reset】
+     *   压缩把"此刻之前"的全部对话折叠成一段摘要 ⇒ 旧的渲染结果已作废 ✓
+     *   （不清的话旧气泡会留在摘要前面 ✗ 看起来像压缩没生效 ✓）
+     */
+    async function onCompactionDone(): Promise<void> {
+        // ★★ 用【自己记的】路径 ✗ 不去问 pi（get_state 是 RPC ⇒ 会把 pi 拉起来 ✗）
+        //   这条路径在"切换会话 / reload 前"就已经问过 pi 了 ⇒ 顺手记下的 ✓
+        const path = sessionStore.getRenderedFile();
+        logInfo(`★ 压缩完成 ⇒ 重建会话界面（${path ? compactHome(path) : "★ 还没记到路径 ⇒ 跳过"}）`);
+        chatState.reset();
+        chatState.clearNotices();
+        if (path && existsSync(path)) await replaySessionMessages(path);
+    }
+
     async function replaySessionMessages(sessionPath?: string): Promise<void> {
         let messages: ReplayMessage[] | undefined;
+
+        // ★ B46：记下"正在渲染哪个文件"（压缩重放要用 ✗ 零子进程 ✓）
+        if (sessionPath) sessionStore.setRenderedFile(sessionPath);
 
         // ── ① 有路径 ⇒ 直接读文件（零子进程 ✗ 也更快）──
         if (sessionPath && existsSync(sessionPath)) {

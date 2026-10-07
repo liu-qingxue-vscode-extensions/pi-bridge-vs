@@ -97,6 +97,31 @@ export async function openToolInEditor(blk: Block | undefined): Promise<void> {
     const filePath = (blk.args as { path?: unknown } | null)?.path;
 
     try {
+        // ⓪ ★★ B46：压缩摘要 → ★ Markdown 预览（不是只读源码视图 ✓）
+        //
+        // 【为什么必须是"预览"而不是打开 .md 文件】
+        //   虚拟文档是【只读编辑器】⇒ ★ Ctrl+F 搜索、折叠、大纲全都不可用 ✗
+        //     用户实测："只读编辑器 Ctrl+F 渲染都失效了"✓
+        //   ⇒ Markdown 预览是 VS Code 内置的渲染视图 ✗ 它可以搜索 ✓
+        //     （而且有标题大纲 / 表格 / 代码高亮 ✗ 正是读长摘要需要的 ✓）
+        //
+        // 【副作用】预览是"渲染视图"✗ 不能选原文地址
+        //   ⇒ 想看源码/要复制原文 ⇒ 右键菜单里另给一个"打开源码"✓
+        if (blk.type === "compaction") {
+            const head = blk.tokensBefore
+                ? `已被压缩的对话（压缩前约 ${blk.tokensBefore.toLocaleString()} tokens）`
+                : "已被压缩的对话";
+            const when = blk.time ? `\n\n压缩时间：${blk.time}` : "";
+            // ★ 用引用块做头（渲染出来是灰底 ✓ 一眼看出"这是被压缩的"✓）
+            const body = `> ${head}${when}\n\n---\n\n${blk.summary ?? ""}`;
+            // ★ key = 压缩块的 compId ⇒ 重复点击【复用同一个 tab】✓
+            // ★ showPreview（当前组）而不是 showPreviewToSide（会新开一组 ✗ 用户不要 ✓）
+            const uri = registerVirtualDoc("压缩摘要.md", body, blk.compId ? `comp:${blk.compId}` : undefined);
+            await vscode.commands.executeCommand("markdown.showPreview", uri);
+            logInfo("★ 送去编辑器：压缩摘要 → Markdown 预览");
+            return;
+        }
+
         // ① 有真实文件路径的（read / write）→ 直接开真文件
         if ((tool === "read" || tool === "write") && typeof filePath === "string") {
             if (await openRealFile(filePath)) {

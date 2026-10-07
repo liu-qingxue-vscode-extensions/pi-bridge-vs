@@ -22,6 +22,9 @@ export class ChatState {
     /** 所有气泡（权威状态） */
     private readonly bubbles: Bubble[] = [];
 
+    /** ★ B46：压缩块的 id 序号（跳转编辑器时靠它找回块 ✓）*/
+    private compSeq = 0;
+
     /**
      * ★ 通知环形缓冲（★ 不进会话文件 → 独立于 bubbles ✓）
      *   为什么单独存？因为通知是“过程状态”，无法从 pi 重放（它就不在文件里 ✗）
@@ -218,6 +221,27 @@ export class ChatState {
             case "compaction":
                 break;
 
+            // ★★ B46：压缩【结果】—— 它是历史的一部分 ✗ 所以要进 bubbles ✓
+            //   一个压缩气泡 = { role: "compaction" } + 一个 block ✗
+            //   这样前端的气泡渲染循环【不用为它开分支】✓（它只是第 4 种 role ✓）
+            case "compactionBubble": {
+                this.bubbles.push({
+                    role: "compaction",
+                    blocks: [
+                        {
+                            type: "compaction",
+                            text: "",
+                            summary: patch.summary,
+                            tokensBefore: patch.tokensBefore,
+                            time: patch.time,
+                            compId: `c${this.compSeq++}`,
+                        },
+                    ],
+                    done: true,
+                });
+                break;
+            }
+
             // ★ 通知：分配 id + 时间，入环形缓冲，然后【带 id 广播】✓
             case "notice": {
                 const notice: Notice = {
@@ -252,6 +276,16 @@ export class ChatState {
 
     /** 按 callId 在所有气泡的内容块里找工具块 */
     /** ★ B41：公开给 editor-open 用（按 callId 取工具块 ⇒ 送去编辑器）*/
+    /** ★ B46：按 compId 找压缩块（送去编辑器用 ✓）*/
+    findCompactionBlock(compId: string): Block | undefined {
+        for (const b of this.bubbles) {
+            for (const blk of b.blocks) {
+                if (blk.type === "compaction" && blk.compId === compId) return blk;
+            }
+        }
+        return undefined;
+    }
+
     findToolBlock(callId: string): Block | undefined {
         for (const bubble of this.bubbles) {
             for (const blk of bubble.blocks) {

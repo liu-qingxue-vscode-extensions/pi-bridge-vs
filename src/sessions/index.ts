@@ -198,6 +198,11 @@ function buildRow(s: SessionInfo, depth: number, cwd: string): HTMLButtonElement
     row.addEventListener("contextmenu", (ev) => {
         showContextMenu(ev, [
             {
+                label: "全量渲染查看（带已压缩历史）",
+                onClick: () =>
+                    vscode.postMessage({ kind: "openFullHistory", path: s.path, name: s.name }),
+            },
+            {
                 label: "导出会话…",
                 onClick: () =>
                     vscode.postMessage({ kind: "exportSession", path: s.path, name: s.name }),

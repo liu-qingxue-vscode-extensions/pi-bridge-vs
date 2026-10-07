@@ -38,6 +38,16 @@ interface ContentPart {
 /** pi 的一条消息（get_messages 的返回项 ✓） */
 import { readToolResultMessage } from "./tool-facts.js";
 
+/** ★★ B46：压缩条目的内容（会话文件里 type=compaction ✗ 见 session-file.ts）*/
+export interface CompactionInfo {
+    /** 摘要（markdown 源文）*/
+    summary: string;
+    /** 压缩前的 token 数（"Compacted from N tokens" ✓）*/
+    tokensBefore?: number;
+    /** 压缩发生的时间（ISO 串）*/
+    time?: string;
+}
+
 export interface ReplayMessage {
     role?: string;
     content?: unknown;
@@ -50,11 +60,15 @@ export interface ReplayMessage {
     stopReason?: string;
     usage?: unknown;
     model?: string;
+    /** ★ B46：压缩条目专用（role="__compaction" 时才有 ✓）*/
+    compaction?: CompactionInfo;
 }
 
 /** 一条渲染指令（与 ChatPatch 同形 —— 这里只声明用到的 ✓） */
 type Patch =
     | { kind: "startBubble"; role: "user" | "assistant"; text: string }
+    // ★ B46：压缩气泡（摘要 + 压缩前的 token 数）
+    | { kind: "compactionBubble"; summary: string; tokensBefore?: number; time?: string }
     | { kind: "append"; block: "text" | "thinking"; text: string }
     | {
           kind: "endBubble";
@@ -94,6 +108,15 @@ export function messagesToPatches(messages: ReplayMessage[]): Patch[] {
 
     for (const msg of messages) {
         const role = msg.role;
+
+        // ── ★ B46：压缩条目 → 一个压缩气泡（不建普通气泡 ✓）──
+        if (role === "__compaction") {
+            const c = msg.compaction;
+            if (c?.summary) {
+                out.push({ kind: "compactionBubble", summary: c.summary, tokensBefore: c.tokensBefore, time: c.time });
+            }
+            continue;
+        }
 
         // ── 用户消息：整条 = 一个气泡 ✓ ──
         if (role === "user") {

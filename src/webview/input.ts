@@ -124,6 +124,11 @@ export function applyStyleVars(vars?: Record<string, string>): void {
     root.classList.toggle("centered", !!vars && vars["--pi-centered-mode"] === "on");
     ui.defaultThinkCollapsed = !!vars && vars["--pi-think-collapsed"] === "on";
     ui.defaultToolCollapsed = !!vars && vars["--pi-tool-collapsed"] === "on";
+    if (ui.historyMode) {
+        // ★ B47：历史面板【一概默认收起】—— 消息成百上千条，展开没法看 ✓
+        ui.defaultThinkCollapsed = true;
+        ui.defaultToolCollapsed = true;
+    }
     ui.noticeAutoOpen = !!vars && vars["--pi-notice-auto-open"] === "on";
     // ★ B41：代码过宽自动缩放（默认开 ✗ 只有显式 "0" 才关）
     setCodeAutoFit(!vars || vars["--pi-code-autofit"] !== "0");
