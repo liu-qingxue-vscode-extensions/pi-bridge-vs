@@ -325,12 +325,33 @@ export function renderDiffDetails(bubble: HTMLElement, details: unknown): void {
         pending = [];
     };
 
+    /**
+     * ★★★ 段的边界规则（用户定的 ✗ 就一句话）：
+     *
+     *     一个单元 = 【上文】+ 【红绿改动块】+ 【下文】
+     *
+     * 【怎么切】
+     *   · 攒着的上下文（pending）⇒ 归入【接下来那个改动】所在的新段（= 下文的上文 ✓）
+     *   · 但【hunk 交界】是个硬边界 ⇒ 交界处残留在 pending 里的上下文
+     *     属于【上一个段的下文】⇒ 要收回给上一个段 ✓
+     *
+     * 【两个错误版本（都踩过）】
+     *   ① `dumpPending(host2())`  ⇒ 上下文【不属于任何段】⇒ 折不掉，永远露着 ✓
+     *   ② `flushPendingAsSeg()`   ⇒ 上下文【自成一段】⇒ 用户："你把下文切成
+     *      一个单独的单位上报了是吧？这肯定不对啊"✓（截图里 51-54 就是它 ✓）
+     */
+    let lastSeg: HTMLElement | null = null;
+
     for (const raw of patch.replace(/\n$/, "").split("\n")) {
         if (raw.startsWith("--- ") || raw.startsWith("+++ ")) continue;
 
         const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
         if (m) {
-            dumpPending(host2()); // 上个 hunk 末尾的上下文归位 ✓
+            // ★ hunk 交接 ⇒ 残留的上下文是【上一段的下文】⇒ 收回给上一段 ✓
+            if (pending.length) {
+                if (lastSeg) dumpPending(lastSeg);
+                else dumpPending(host2());
+            }
             seg = null;
             oldLine = Number(m[1]);
             newLine = Number(m[2]);
@@ -377,11 +398,15 @@ export function renderDiffDetails(bubble: HTMLElement, details: unknown): void {
             seg.className = "diff-seg fold-seg";
             dumpPending(seg);
             host2().appendChild(seg);
+            lastSeg = seg; // ★ 记住它（hunk 交界处要把上文收回来 ✓）
         }
         seg.appendChild(line);
     }
-    // 收尾：最后剩下的上下文（最后一处改动之后）不属于任何段 ⇒ 直接放 ✓
-    dumpPending(host2());
+    // 收尾：最后一处改动之后的上下文 ⇒ 它是【最后一段的下文】✓
+    if (pending.length) {
+        if (lastSeg) dumpPending(lastSeg);
+        else dumpPending(host2());
+    }
     body.appendChild(box);
     bubble.dataset.hasDiff = "1";
     refold(bubble);
