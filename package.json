@@ -589,7 +589,7 @@
     },
     "activationEvents": [],
     "scripts": {
-        "compile": "node scripts/check-html.mjs && node scripts/check-style-vars.mjs && node scripts/bundle-css.mjs && node scripts/sync-katex.mjs && tsc -p ./ && node scripts/check-patch-reverse.mjs && tsc -p tsconfig.webview.json --noEmit && node scripts/build-webview.mjs",
+        "compile": "node scripts/check-html.mjs && node scripts/check-style-vars.mjs && node scripts/bundle-css.mjs && node scripts/sync-katex.mjs && tsc -p ./ && node scripts/check-patch-reverse.mjs && node scripts/check-pi-env.mjs && node scripts/check-session-file.mjs && tsc -p tsconfig.webview.json --noEmit && node scripts/build-webview.mjs",
         "watch": "tsc --watch -p ./",
         "vscode:prepublish": "npm run compile",
         "watch:webview": "node scripts/build-webview.mjs --watch",

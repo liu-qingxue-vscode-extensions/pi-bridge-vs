@@ -30,7 +30,7 @@ import os from "node:os";
 import path from "node:path";
 import fs, { existsSync } from "node:fs";
 import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
-import { getPackageDir, VERSION } from "@earendil-works/pi-coding-agent";
+import { piPackageDir, piVersion } from "./pi/pi-env.js";
 import { PiClient } from "./pi/client.js";
 import { DebugPanel } from "./view/debug-panel.js";
 // ★★ B38：命令主体提取（宿主侧用 bash-parser 出 AST ✗ 不占前端包）
@@ -44,9 +44,17 @@ import { SkillsPanel } from "./view/skills-panel.js";
 import { CommandPanel } from "./view/command-panel.js";
 import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
 import { readSettings, resolveSessionRoot } from "./pi/settings.js";
+import { describeSelfCheck, runSelfCheck, type SelfCheck } from "./pi/pi-selfcheck.js";
+import {
+    currentPiPackageDir,
+    currentPiVersion,
+    resolvePiAgentDir,
+    resolvePiCliPath,
+} from "./pi/paths.js";
 import { checkPiVersion } from "./pi/version-check.js";
 import { toChatPatch } from "./bridge/format-backend.js";
 import { messagesToPatches, type ReplayMessage } from "./bridge/replay.js";
+import { readSessionFile } from "./bridge/session-file.js";
 import { SessionStore } from "./pi/session-store.js";
 import { ChatState } from "./view/chat-state.js";
 import { toErrorMessage } from "./utils.js";
@@ -109,7 +117,85 @@ export function activate(context: vscode.ExtensionContext): void {
     //   现读后，改完设置点一下 reload 按钮就能用新参数启动 ✓
     const pi = new PiClient(cwd, {
         readArgs: () => readLaunchArgs(),
+        // ★ B42：每次启动都现读（含用户的 piCliPath 覆盖）
+        //   否则"改设置 → reload / 切换会话"仍用旧路径（启动是多处共用的核心 ✗ 必须现读）
+        readCliPath: () => resolvePiCliPath(),
     });
+
+    // ★★ B42：启动失败通报 —— ★【统一入口】（去重）
+    //   ★ 为什么要收口：启动是【多处共用的核心】（自检 / reload / 切换会话 / 发消息）
+    //     若通报挂在某个调用点上 ⇒ 别的路径失败时就只有普通报错（用户实测过 ✗）
+    //   ⇒ 一处通报 ✗ 多处触发（自检 + PiClient.onStartError）✓
+    // ★ 去重：只在【很短的时间窗内】挡重复（避免一次操作触发多次弹窗 ✓）
+    //   ★ 绝不能按"错误内容"永久去重 —— 用户下一次操作就该重新提示
+    //     （B42 的教训：永久去重后，"切换会话"失败竟然一声不响 ✗）
+    const PI_ERROR_DEDUP_MS = 1500;
+    let lastPiErrorKey = "";
+    let lastPiErrorAt = 0;
+    function notifyPiStartError(kind: string, cliPath: string, message: string): void {
+        const key = `${kind}|${message}`;
+        const now = Date.now();
+        const suppressed = key === lastPiErrorKey && now - lastPiErrorAt < PI_ERROR_DEDUP_MS;
+        logWarn(`★ 启动失败通报（${kind}）：${message}（${suppressed ? "★被短时去重挡下" : "弹出"}）`);
+        if (suppressed) return;
+        lastPiErrorKey = key;
+        lastPiErrorAt = now;
+
+        logError(`★ pi 启动失败（${kind}）：${message}${cliPath ? ` [${cliPath}]` : ""}`);
+        const hint =
+            kind === "not-found"
+                ? "检查 pi-bridge.piCliPath 是否指向正确的 pi"
+                : "pi 进程启动后又退出了（可在输出面板查看它的报错）";
+        void vscode.window
+            .showWarningMessage(`pi-bridge：无法启动 pi ✗ ${hint}\n${message}`, "打开设置", "重试")
+            .then((pick) => {
+                if (pick === "打开设置") {
+                    void vscode.commands.executeCommand(
+                        "workbench.action.openSettings",
+                        "pi-bridge.piCliPath",
+                    );
+                } else if (pick === "重试") {
+                    void selfCheckAndReport();
+                    void pi.reload().catch(() => undefined);
+                }
+            });
+    }
+
+    // ★★ B42：启动期自检 —— 确认两个"前提"（pi 能不能启动 / 数据目录好不好）
+    //   ★ 异步跑 ✗ 不阻塞激活（这本身也是懒加载的一部分：能不等进程就先把界面给出 ✓）
+    let lastSelfCheck: SelfCheck | undefined;
+    async function selfCheckAndReport(): Promise<void> {
+        const r = await runSelfCheck({
+            cliPath: resolvePiCliPath(),
+            agentDir: resolvePiAgentDir(),
+        });
+        lastSelfCheck = r;
+        void context.globalState.update("pi-bridge.selfCheck", r); // 阶段 4：缓存（备查）
+        logInfo(`★ 启动自检：\n${describeSelfCheck(r)}`);
+
+        if (!r.pi.ok) {
+            notifyPiStartError("selfcheck", r.pi.cliPath, r.pi.error ?? "pi 不可用");
+            return;
+        }
+        if (!r.agent.hasSettings) {
+            logInfo(`★ 自检：数据目录尚无 settings.json（首次使用 ✗ 正常）：${r.agent.dir}`);
+        }
+    }
+    void selfCheckAndReport();
+
+    // ★★ B42：PiClient 的启动失败也走【同一个通报】
+    //   ★ 这样 reload / 切换会话 / 发消息 触发的启动失败，用户都能看见通知 ✓
+    context.subscriptions.push({
+        dispose: pi.onStartError((err) => {
+            notifyPiStartError(err.kind, err.cliPath, err.message);
+        }),
+    });
+    context.subscriptions.push(
+        vscode.commands.registerCommand("pi-bridge.selfCheck", () => {
+            logInfo(`★ 上次自检结果：\n${lastSelfCheck ? describeSelfCheck(lastSelfCheck) : "(还没跑过)"}`);
+            void selfCheckAndReport();
+        }),
+    );
 
     /** ★ 我们给 pi 的启动参数（设置项 pi-bridge.launchArgs ✓）*/
     function readLaunchArgs(): string[] {
@@ -990,6 +1076,9 @@ export function activate(context: vscode.ExtensionContext): void {
                 chatView.post("cwd", { path: pi.getCwd(), short: compactHome(pi.getCwd()) });
                 chatView.post("noticesCleared", true);
                 chatView.post("snapshot", chatState.snapshot());
+                // ★ B42：cwd 变了 ⇒ 会话列表的 scope 过滤结果也变了 ⇒ 必须重推
+                //   （否则面板还显示旧 cwd 的会话 ✗ 用户会以为"这个目录下没有会话"✓）
+                void sessionActions.list();
                 void vscode.window.showInformationMessage(
                     `工作目录已切到 ${compactHome(pi.getCwd())}`,
                 );
@@ -1164,7 +1253,7 @@ export function activate(context: vscode.ExtensionContext): void {
         // ★★ B37：侧栏 ☰ 带 toggle ✗ 再点一次就关 ✓
         showPanel: () => showExclusive("session", true),
         closePanelAfterAction: () => closeSessionPanelAfterAction(),
-        replay: () => replaySessionMessages(),
+        replay: (sessionPath?: string) => replaySessionMessages(sessionPath),
         pushTitle: (overrideName) => pushCurrentSessionTitle(overrideName),
     });
 
@@ -1439,7 +1528,9 @@ export function activate(context: vscode.ExtensionContext): void {
         //     ① 只有【真的有新版】才发 ✓（已是最新就什么都不做 ✓）
         //     ② npm 自己【有缓存】✗（npm view 第二次很快 ✓）
         //   而重复的通知在通知板里可以一键清空 ✓
-        const r = await checkPiVersion("@earendil-works/pi-coding-agent", VERSION);
+        // ★ B42：版本现在从 pi 的 package.json 读（读不到给占位 ✗ 自检那边会提示找不到 pi）
+        const piVer = currentPiVersion() ?? "0.0.0";
+        const r = await checkPiVersion("@earendil-works/pi-coding-agent", piVer);
         if (!r.latest) return; // 查不到（离线 / 代理挂了 ✓）→ 静默 ✓
         if (!r.hasUpdate) return;
 
@@ -1497,13 +1588,13 @@ export function activate(context: vscode.ExtensionContext): void {
             logInfo(`更新日志：初始化 lastSeen = ${last}（照拄 pi 的值 ✓）`);
         }
 
-        if (last === VERSION) {
-            logDebug(`更新日志：版本未变（${VERSION}）✓`);
+        if (last === currentPiVersion()) {
+            logDebug(`更新日志：版本未变（${currentPiVersion()}）✓`);
             return;
         }
 
-        logInfo(`★ 检测到 pi 版本变化：${last} → ${VERSION}（有新更新日志 ✓）`);
-        const msg = `pi 已更新：${last} → ${VERSION}（有更新日志 ✓）`;
+        logInfo(`★ 检测到 pi 版本变化：${last} → ${currentPiVersion()}（有新更新日志 ✓）`);
+        const msg = `pi 已更新：${last} → ${currentPiVersion()}（有更新日志 ✓）`;
 
         // ★ 两个都发（同版本检测那里 ✓）
         chatState.apply({ kind: "notice", text: msg, level: "info" } as never);
@@ -1513,7 +1604,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
         // ★ 记下看过（下次不再提示 ✓）
         //   ★ 放在最后 ✗ —— 先提醒再改，不然用户连看都没看过就再也不提了 ✓
-        await context.globalState.update(KEY, VERSION);
+        await context.globalState.update(KEY, currentPiVersion());
     }
 
     /**
@@ -1525,7 +1616,12 @@ export function activate(context: vscode.ExtensionContext): void {
      */
     async function openChangelog(): Promise<void> {
         try {
-            const p = path.join(getPackageDir(), "CHANGELOG.md");
+            const pkgDir = currentPiPackageDir();
+            if (!pkgDir) {
+                void vscode.window.showWarningMessage("找不到 pi 包（无法定位更新日志）");
+                return;
+            }
+            const p = path.join(pkgDir, "CHANGELOG.md");
             if (!existsSync(p)) {
                 void vscode.window.showWarningMessage(`找不到更新日志：${p}`);
                 return;
@@ -1539,24 +1635,41 @@ export function activate(context: vscode.ExtensionContext): void {
         }
     }
 
-    async function replaySessionMessages(): Promise<void> {        const resp = (await pi.sendRaw({ type: "get_messages" })) as {
-            data?: { messages?: ReplayMessage[] };
-        };
-        const messages = resp?.data?.messages;
+    /**
+     * ★★ B42：重放会话历史
+     *
+     * 【为什么优先读文件】
+     *   实测：pi 的 get_messages 只是把会话文件里的 message 记录传一遍
+     *   ⇒ 我们自己读就行 ✗ 【不必启动子进程】✓（这是"懒加载"的关键一步）
+     *   ★ 调用方通常【知道路径】（用户点的那个会话 ✗ switchTo 手里就有）
+     *     ⇒ 有路径 = 零子进程；没路径（如 reload）才回退问 pi ✓
+     */
+    async function replaySessionMessages(sessionPath?: string): Promise<void> {
+        let messages: ReplayMessage[] | undefined;
+
+        // ── ① 有路径 ⇒ 直接读文件（零子进程 ✗ 也更快）──
+        if (sessionPath && existsSync(sessionPath)) {
+            const data = readSessionFile(sessionPath);
+            messages = data.messages;
+            logInfo(`重放历史（读文件）：${messages.length} 条 [${compactHome(sessionPath)}]`);
+        }
+
+        // ── ② 回退：问 pi（reload / 不知道路径时）──
+        if (!messages) {
+            const resp = (await pi.sendRaw({ type: "get_messages" })) as {
+                data?: { messages?: ReplayMessage[] };
+            };
+            const viaRpc = resp?.data?.messages;
+            if (Array.isArray(viaRpc)) {
+                messages = viaRpc;
+                logInfo(`重放历史（RPC）：${messages.length} 条`);
+            }
+        }
+
         if (!Array.isArray(messages) || messages.length === 0) {
             logDebug("会话没有历史消息");
             return;
         }
-        logInfo(`重放历史消息 ${messages.length} 条`);
-        // ★ B39 诊断：确认 get_messages 返回的 toolResult 带 details（edit 的 patch）
-        //   发现：pi 确实原样返回（会话文件里什么样就是什么样 ✓）
-        const trDiag = messages.find((m) => m.role === "toolResult");
-        logDebug(
-            trDiag
-                ? `重放诊断：toolResult 键=[${Object.keys(trDiag).join(",")}] ` +
-                      `details=${trDiag.details ? "有" : "无"}`
-                : "重放诊断：这批消息里没有 toolResult",
-        );
         for (const patch of messagesToPatches(messages)) {
             // ★ 走 ChatState.apply：与实时流同一条渲染路径 ✓
             chatState.apply(patch as never);

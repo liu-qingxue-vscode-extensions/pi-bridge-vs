@@ -6,7 +6,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { resolveAgentDir } from "../pi/pi-env.js";
 import { readSettings } from "../pi/settings.js";
 import { logDebug } from "../logger.js";
 import { toErrorMessage } from "../utils.js";
@@ -48,7 +48,7 @@ export function readModelCatalog(): { provider: string; id: string; name?: strin
 
     // ① models.json（用户自定义 ✓ 有 providers 包装）
     try {
-        const p = path.join(getAgentDir(), "models.json");
+        const p = path.join(resolveAgentDir(), "models.json");
         const d = JSON.parse(fs.readFileSync(p, "utf8")) as {
             providers?: Record<string, { models?: { id?: string; name?: string }[] }>;
         };
@@ -59,7 +59,7 @@ export function readModelCatalog(): { provider: string; id: string; name?: strin
 
     // ② models-store.json（pi 的内置目录 ✓ 没有 providers 包装）
     try {
-        const p = path.join(getAgentDir(), "models-store.json");
+        const p = path.join(resolveAgentDir(), "models-store.json");
         const d = JSON.parse(fs.readFileSync(p, "utf8")) as Record<
             string,
             { models?: { id?: string; name?: string }[] }

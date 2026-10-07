@@ -10,7 +10,7 @@
 import { readSettings, settingsPath } from "../pi/settings.js";
 import { SETTINGS_GROUPS } from "../pi/settings-schema.js";
 import { listAuth } from "../pi/auth.js";
-import { VERSION } from "@earendil-works/pi-coding-agent";
+import { piVersion } from "../pi/pi-env.js";
 import { sortCatalog, readModelCatalog } from "./model-catalog.js";
 import { readInstalledExtensions } from "./extensions-scan.js";
 import * as vscode from "vscode";

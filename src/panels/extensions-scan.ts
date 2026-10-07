@@ -3,13 +3,13 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { resolveAgentDir } from "../pi/pi-env.js";
 import { readSettings } from "../pi/settings.js";
 import { logDebug, logInfo } from "../logger.js";
 import { toErrorMessage } from "../utils.js";
 
 export function readInstalledExtensions(): { source: string; enabled: boolean }[] {
-    const nm = path.join(getAgentDir(), "npm", "node_modules");
+    const nm = path.join(resolveAgentDir(), "npm", "node_modules");
     const enabledSet = new Set(
         (readSettings().packages as string[] | undefined)?.filter(
             (x) => typeof x === "string",

@@ -7,7 +7,7 @@
  */
 import fs, { existsSync } from "node:fs";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { resolveAgentDir } from "../pi/pi-env.js";
 import { logDebug, logInfo } from "../logger.js";
 import { toErrorMessage } from "../utils.js";
 
@@ -77,11 +77,11 @@ export function readSkills(): { dir: string; skills: SkillEntry[] } {
     };
 
     // ① 用户自己的技能 ✓
-    const userDir = path.join(getAgentDir(), "skills");
+    const userDir = path.join(resolveAgentDir(), "skills");
     scanDir(userDir, "用户技能", true);  // ★ 用户自己的 → 可改可删 ✓
 
     // ② 扩展包提供的技能 ✓
-    const nm = path.join(getAgentDir(), "npm", "node_modules");
+    const nm = path.join(resolveAgentDir(), "npm", "node_modules");
     const scanExt = (dir: string) => {
         try {
             const pj = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) as {

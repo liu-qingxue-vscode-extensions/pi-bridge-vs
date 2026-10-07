@@ -1,0 +1,25 @@
+# 扩展运行需要的是 dist/ + media/ + svg/ + package.json
+# 其余都是【开发时才需要】的东西 ✗ 不该进 vsix
+
+# ── 源码与构建输入 ──
+src/**
+**/*.ts
+tsconfig*.json
+
+# ── 开发资料 ──
+docs/**
+test_date/**
+scripts/**
+.vscode/**
+.gitignore
+.git/**
+svg/README*           # ★ 但 svg/pi.svg 必须保留（图标要用 ✗ 见 package.json 的 contributes）
+
+# ── 媒体源（已 bundle 进 media/out/）──
+media/css/**
+
+# ── 杂项 ──
+**/*.map
+**/.DS_Store
+**/*.log
+.directory

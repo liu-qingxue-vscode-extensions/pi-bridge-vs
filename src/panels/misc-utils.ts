@@ -3,7 +3,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { resolveAgentDir } from "../pi/pi-env.js";
 import { readSettings } from "../pi/settings.js";
 import { logDebug, logWarn } from "../logger.js";
 import { toErrorMessage } from "../utils.js";
@@ -14,7 +14,7 @@ export function readPiDefaults(): {
     thinkingLevel?: string;
 } {
     try {
-        const p = path.join(getAgentDir(), "settings.json");
+        const p = path.join(resolveAgentDir(), "settings.json");
         const d = JSON.parse(fs.readFileSync(p, "utf8")) as Record<string, unknown>;
         return {
             model: typeof d.defaultModel === "string" ? d.defaultModel : undefined,

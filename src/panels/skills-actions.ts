@@ -20,7 +20,7 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { resolveAgentDir } from "../pi/pi-env.js";
 import { readSkills } from "./skill-scan.js";
 import { deleteSessionFile } from "../pi/session-store.js";
 import { logError, logInfo, logWarn } from "../logger.js";
@@ -163,7 +163,7 @@ export function createSkillsActions(deps: SkillsActionsDeps): SkillsActions {
      *   → 给一个能直接开写的骨架 ✗ 用户改两行就好了 ✓
      */
     const create = async (): Promise<void> => {
-        const root = path.join(getAgentDir(), "skills");
+        const root = path.join(resolveAgentDir(), "skills");
         const name = await vscode.window.showInputBox({
             title: "新建技能",
             prompt: "起个名字（当目录名 ✗ 建议用英文小写 + 连字符 ✓）",

@@ -23,12 +23,12 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { resolveAgentDir } from "./pi-env.js";
 import { logInfo, logWarn, logDebug } from "../logger.js";
 
 /** settings.json 的路径（global scope ✓ 我们只碰 global ✗ 不碰 project ✓）*/
 export function settingsPath(): string {
-    return path.join(getAgentDir(), "settings.json");
+    return path.join(resolveAgentDir(), "settings.json");
 }
 
 /** pi 的 settings 是一大坨自由字段 ✓ 我们不做严格建模 ✗（免得 pi 加字段就崩 ✓）*/
@@ -107,5 +107,5 @@ export function resolveSessionRoot(launchArgs: readonly string[] = []): string {
         return path.resolve(abs);
     }
     // ③ 默认 ✓
-    return path.join(getAgentDir(), "sessions");
+    return path.join(resolveAgentDir(), "sessions");
 }

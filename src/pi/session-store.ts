@@ -29,7 +29,7 @@ import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import * as vscode from "vscode";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { resolveAgentDir } from "./pi-env.js";
 import { logDebug, logInfo, logError } from "../logger.js";
 
 /** 一条会话的元信息（界面列表用 ✓） */
@@ -274,7 +274,7 @@ export class SessionStore {
     }
 
     private root(): string {
-        return this.sessionRoot ?? path.join(getAgentDir(), "sessions");
+        return this.sessionRoot ?? path.join(resolveAgentDir(), "sessions");
     }
 
     private async persist(): Promise<void> {
@@ -448,6 +448,37 @@ export class SessionStore {
         );
         return { total: files.length, named, broken };
     }
+
+    /**
+     * ★★ B42：从"读全文"的结果回写缓存（渲染时顺便做 ✗ 零额外 I/O）
+     *
+     * 【为什么要有它】
+     *   refresh() 为了快只读【尾部 16KB】找名字 ✗ 假设"名字在最后"
+     *   但真相是：改名后又聊了很多 ⇒ 名字被推出 16KB ⇒ 读不到 ✓
+     *   ★ 而我们【打开会话本来就要读整个文件】（渲染）⇒ 顺手把名字拿回来 ✓
+     *     ⇒ 打开过的会话名字一定准 ✓ 越用越准 ✓
+     */
+    updateFromFullRead(file: string, meta: { name?: string; turns?: number; parent?: string }): void {
+        const cur = this.data.files[file];
+        const next = { ...(cur ?? {}) };
+        let changed = false;
+        if (meta.name && meta.name !== next.name) {
+            next.name = meta.name;
+            changed = true;
+        }
+        if (typeof meta.turns === "number" && meta.turns !== next.turns) {
+            next.turns = meta.turns;
+            changed = true;
+        }
+        if (meta.parent && meta.parent !== next.parent) {
+            next.parent = meta.parent;
+            changed = true;
+        }
+        if (!changed) return;
+        this.data.files[file] = next;
+        void this.persist();
+        logInfo(`[sessions] 读全文补全元信息：${path.basename(file)} name=${next.name ?? "-"}`);
+    }
 }
 
 /**
@@ -521,7 +552,7 @@ export async function deleteSessionFile(
  */
 export function sessionDirForCwd(cwd: string, rootDir?: string): string {
     const safe = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
-    return path.join(rootDir ?? path.join(getAgentDir(), "sessions"), safe);
+    return path.join(rootDir ?? path.join(resolveAgentDir(), "sessions"), safe);
 }
 
 /**

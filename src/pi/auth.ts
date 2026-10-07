@@ -21,11 +21,11 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { resolveAgentDir } from "./pi-env.js";
 import { logInfo, logWarn } from "../logger.js";
 
 export function authPath(): string {
-    return path.join(getAgentDir(), "auth.json");
+    return path.join(resolveAgentDir(), "auth.json");
 }
 
 /** 一条凭据（只暴露【类型】和【是否有 key】✗ 不暴露 key 本身 ✓）*/

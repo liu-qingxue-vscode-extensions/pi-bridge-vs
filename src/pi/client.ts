@@ -16,16 +16,17 @@
  * 因为我们的“前端 → 后端”是表驱动设计（前端消息 → RpcCommand 对象）✓
  * 本层把 RpcCommand 翻译成对应调用，format 层就能继续数据驱动地扩展 ✓
  */
+
+import { existsSync } from "node:fs";
 import type {
     RpcCommand,
     JsonAgentSessionEvent,
     RpcExtensionUIResponse,
     RpcResponse,
 } from "@earendil-works/pi-coding-agent";
-import { logDebug, logInfo, logError } from "../logger.js";
+import { logDebug, logInfo, logError, logWarn } from "../logger.js";
 import type { PiLocalEvent } from "./rpc-client.js";
 
-/** 事件订阅回调 */
 /**
  * 事件订阅回调
  *
@@ -53,6 +54,17 @@ export type PiEventHandler = (
  */
 import { resolvePiCliPath } from "./paths.js";
 import { OwnRpcClient } from "./rpc-client.js";
+
+/**
+ * ★ B42：启动失败的原因（决定前端怎么提示）
+ *   not-found     —— 路径空 / 文件不存在 ⇒ ★ 该弹"去设置"的通知
+ *   startup-failed —— 启动过程本身失败（崩溃 / 就绪探针超时…）
+ */
+export interface PiStartError {
+    kind: "not-found" | "startup-failed";
+    cliPath: string;
+    message: string;
+}
 
 export class PiClient {
     /**
@@ -87,27 +99,62 @@ export class PiClient {
      */
     private cwd: string;
     /** pi CLI 路径（构造时解析一次即可 —— 路径很少变 ⚠） */
-    private readonly cliPath: string;
 
     /**
      * @param cwd     pi 的工作目录（通常 = VS Code 打开的工作区）
-     * @param options.cliPath   pi CLI 路径；不传则自动解析
-     * @param options.readArgs  ★ 每次启动时【现读】额外参数的回调
-     *                            （比“构造时传入数组”更好：设置改了能立即生效 ✓）
-     * @param options.extraArgs 【旧接口】固定参数（保留兼容；优先用 readArgs ✓）
+     * @param options.cliPath     pi CLI 路径（固定值 ✗ 不推荐：设置改了不生效）
+     * @param options.readCliPath ★ 每次启动时【现读】cli 路径的回调（推荐 ✓）
+     * @param options.readArgs    ★ 每次启动时【现读】额外参数的回调（推荐 ✓）
+     * @param options.extraArgs   【旧接口】固定参数（保留兼容；优先用 readArgs ✓）
+     *
+     * ★ B42 教训：cliPath 原先只在【构造时】算一次 ✗ 于是
+     *   "改设置 → reload / 切换会话" 仍然用旧路径（而启动是多处共用的核心 ✓）
+     *   ⇒ 必须跟 readArgs 一样现读 ✓
      */
     constructor(
         cwd: string,
-        options: { cliPath?: string; readArgs?: () => string[]; extraArgs?: string[] } = {},
+        options: {
+            cliPath?: string;
+            readCliPath?: () => string;
+            readArgs?: () => string[];
+            extraArgs?: string[];
+        } = {},
     ) {
         this.cwd = cwd;
-        this.cliPath = options.cliPath ?? resolvePiCliPath();
+        this.readCliPath =
+            options.readCliPath ?? ((): string => options.cliPath ?? resolvePiCliPath());
         this.readArgs = options.readArgs ?? ((): string[] => options.extraArgs ?? []);
-        logDebug(`[PiClient] cliPath = ${this.cliPath}`);
+        logDebug(`[PiClient] cliPath（启动时现读）= ${this.readCliPath()}`);
     }
+
+    /** ★ 现读 cli 路径（每次启动都重新解析 ⇒ 用户改设置立刻生效）*/
+    private readonly readCliPath: () => string;
 
     /** 现读额外启动参数（由 main.ts 提供：从设置项里拿 ✓） */
     private readonly readArgs: () => string[];
+
+    /**
+     * ★★ B42：启动失败订阅者
+     *
+     * 【为什么要有它】
+     *   "启动"是【多处共用的核心】（activate 自检 / reload / 切换会话 / 发消息都会启动）
+     *   ⇒ 失败通报必须挂在这里 ✗ 挂在某一处调用点上覆盖不全 ✓
+     *   （用户实测：activate 时有通知 ✗ 但"切换会话"失败时只有普通报错 ✓）
+     */
+    private readonly startErrorHandlers = new Set<(err: PiStartError) => void>();
+
+    /** 订阅"启动失败"（返回取消订阅）*/
+    onStartError(handler: (err: PiStartError) => void): () => void {
+        this.startErrorHandlers.add(handler);
+        return () => this.startErrorHandlers.delete(handler);
+    }
+
+    private emitStartError(err: PiStartError): void {
+        logWarn(
+            `[PiClient] 启动失败(${err.kind})：${err.message} —— 订阅者 ${this.startErrorHandlers.size} 个`,
+        );
+        for (const h of this.startErrorHandlers) h(err);
+    }
 
     /**
      * ★ 建一个全新的传输层（每次启动都会调）
@@ -124,7 +171,7 @@ export class PiClient {
 
         const client = new OwnRpcClient({
             cwd: this.cwd,
-            cliPath: this.cliPath,
+            cliPath: this.readCliPath(), // ★ 现读（用户改设置立刻生效）
             // ★ 不再强加 --no-session ✓（用户要求：要传就【手动传，有传参的地方 ✓）
             //
             // 【历史】之前加它是为了：
@@ -174,23 +221,51 @@ export class PiClient {
 
     /** 真正的启动流程（只被 ensureStarted 调用一次） */
     private async doStart(): Promise<void> {
-        logInfo("[PiClient] 启动 pi --mode rpc ...");
+        const cliPath = this.readCliPath(); // ★ 现读（含用户设置覆盖 ✓）
+        logInfo(`[PiClient] 启动 pi --mode rpc ...（cliPath=${cliPath || "(空)"}）`);
 
-        // ★ 每次启动都【重建客户端 + 现读参数】
-        //   → 改完设置点 reload 就能用新参数启动 ✓
-        const client = this.buildClient();
-        this.client = client;
+        // ★ B42：两个"启动前就能判定"的失败 ⇒ 立刻通报（覆盖所有启动路径 ✓）
+        if (!cliPath) {
+            const err: PiStartError = {
+                kind: "not-found",
+                cliPath: "",
+                message: "没找到 pi（未配置 piBridge.piCliPath，自动探测也没找到）",
+            };
+            this.emitStartError(err);
+            throw new Error(err.message);
+        }
+        if (!existsSync(cliPath)) {
+            const err: PiStartError = {
+                kind: "not-found",
+                cliPath,
+                message: `pi 的路径不存在：${cliPath}（检查 pi-bridge.piCliPath 设置）`,
+            };
+            this.emitStartError(err);
+            throw new Error(err.message);
+        }
 
-        // ① 启动子进程（内部只等 100ms + 检查进程没立即崩溃）
-        await client.start();
+        try {
+            // ★ 每次启动都【重建客户端 + 现读参数】
+            //   → 改完设置点 reload 就能用新参数启动 ✓
+            const client = this.buildClient();
+            this.client = client;
 
-        // ② 就绪探针：发一条 get_state 并等回执
-        //    能拿到回执，说明 pi 的 stdin/stdout 都通了、协议层真的活了
-        //    （等价于 s-pi 里的 waitReady 探针）
-        await client.getState();
+            // ① 启动子进程（内部只等 100ms + 检查进程没立即崩溃）
+            await client.start();
 
-        this.started = true;
-        logInfo("[PiClient] pi 就绪");
+            // ② 就绪探针：发一条 get_state 并等回执
+            //    能拿到回执，说明 pi 的 stdin/stdout 都通了、协议层真的活了
+            //    （等价于 s-pi 里的 waitReady 探针）
+            await client.getState();
+
+            this.started = true;
+            logInfo("[PiClient] pi 就绪");
+        } catch (e) {
+            // ★ 启动过程本身的失败（崩溃 / 探针超时 / 权限…）也要通报
+            const msg = e instanceof Error ? e.message : String(e);
+            this.emitStartError({ kind: "startup-failed", cliPath, message: msg });
+            throw e;
+        }
     }
 
     /** 当前的工作目录（给界面显示用 ✓） */

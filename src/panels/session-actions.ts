@@ -53,8 +53,11 @@ export interface SessionActionsDeps {
     showPanel: () => void;
     /** ★ B35：切换 / 新建会话后关面板（配置 pi-bridge.sessions.closeAfterAction ✓）*/
     closePanelAfterAction: () => void;
-    /** 重放历史消息（main.ts 的 replaySessionMessages ✓ reloadPi 也要用 ✓）*/
-    replay: () => Promise<void>;
+    /**
+     * 重放历史消息（main.ts 的 replaySessionMessages ✓ reloadPi 也要用 ✓）
+     * ★ B42：可传会话文件路径 ⇒ 走【读文件】而不是问 pi（零子进程 ✗ 更快）
+     */
+    replay: (sessionPath?: string) => Promise<void>;
     /** 推顶栏会话名（pushCurrentSessionTitle ✓ 改名 / 启动探针都要用 ✓）*/
     pushTitle: (overrideName?: string) => Promise<void>;
 }
@@ -112,6 +115,17 @@ export function createSessionActions(deps: SessionActionsDeps): SessionActions {
             `会话列表：scope=${scope} → ${filtered.length}/${all.length} 条` +
                 (scope === "current" ? `（当前 cwd=${cur}）` : ""),
         );
+        // ★ B42 诊断：scope=current 却筛空了 ⇒ 十有八九是"当前 cwd 与会话记录的 cwd 对不上"
+        //   ⇒ 把两边都打出来（含不可见字符的 JSON 形式）✓ 一眼就能看出差在哪
+        if (scope === "current" && all.length > 0 && filtered.length === 0) {
+            const dist = new Map<string, number>();
+            for (const s of all) dist.set(s.cwd || "(空)", (dist.get(s.cwd || "(空)") ?? 0) + 1);
+            logWarn(
+                `★ 当前 cwd 一个会话都匹配不上。\n` +
+                    `   当前 cwd = ${JSON.stringify(cur)}\n` +
+                    `   会话里的 cwd 分布 = ${JSON.stringify([...dist.entries()].slice(0, 12))}`,
+            );
+        }
         // ★★ B35：推给【独立面板】✗ 不再走侧栏 ✓
         //   ★ 连 currentCwd 一起给 ✗ 面板要用它把当前分组排最前 + 标「当前」✓
         deps.postPanel("sessionList", { list: filtered, currentCwd: cur });
@@ -232,8 +246,9 @@ export function createSessionActions(deps: SessionActionsDeps): SessionActions {
 
             // ★ 清空当前界面 + ★ 重放该会话的历史消息 ✓
             //   （否则切过去是一片空白 ✗）
+            //   ★ B42：把路径传下去 ⇒ 重放走【读文件】✗ 不再问 pi ✓
             chatState.reset();
-            await deps.replay();
+            await deps.replay(sessionPath);
             // ★ 通知【跟着会话走】：切了会话就是另一个上下文了 ✓
             //   （用户定的：切换会话应该清通知 ✓）
             chatState.clearNotices();
