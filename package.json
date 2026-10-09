@@ -622,11 +622,12 @@
         "vscode": "^1.135.0"
     },
     "devDependencies": {
+        "@earendil-works/pi-coding-agent": "^1.1.0",
         "@truly-private/omdsh-llm-mock-server": "^0.1.0",
         "@types/node": "^26.5.1",
         "@types/vscode": "^1.135.0",
         "esbuild": "^0.28.2",
-        "typescript": "^7.0.2"
+        "typescript": "^5.9.3"
     },
     "dependencies": {
         "bash-parser": "^0.5.0",
