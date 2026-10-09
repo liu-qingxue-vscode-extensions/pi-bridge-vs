@@ -26,3 +26,5 @@ Thumbs.db
 test_date
 /.vscode/media/out/*.bundle.css
 svg/pi.svg
+/myNote/
+leaves-manifest.json
