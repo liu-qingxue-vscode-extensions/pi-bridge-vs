@@ -25,7 +25,10 @@ Thumbs.db
 .directory
 test_date
 /.vscode/media/out/*.bundle.css
-svg/pi.svg
-/myNote/
 leaves-manifest.json
+
+# my
+svg/pi.svg
+/my/
 /.vscode/mcp.json
+ai-src/
