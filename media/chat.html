@@ -1,176 +1,36 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="{{htmlClass}}">
+<html>
 <head>
-<meta charset="UTF-8">
-<!-- ★ B29：mermaid 的脚本地址（独立打包 ✗ 主程序按需注入 ✓）-->
-<meta name="pi-mermaid-uri" content="{{mermaidJs}}">
-<!--
-  CSP（内容安全策略）：
-    default-src 'none'                        默认禁止一切外部资源
-    style-src {{cspSource}} 'unsafe-inline'   允许扩展目录下的 CSS + 内联 <style>
-    script-src {{cspSource}} 'nonce-{{nonce}}' 允许扩展目录下的 JS + 本次 nonce 的内联脚本
-
-  {{nonce}} {{cspSource}} {{css}} {{js}} {{styleVars}} 由扩展加载时注入（见 src/view/html-loader.ts）
--->
-<meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; font-src {{cspSource}}; script-src {{cspSource}} 'nonce-{{nonce}}'; img-src * data:;">
-<link rel="stylesheet" href="{{css}}">
-<style>{{styleVars}}</style>
+    <style>
+        body {
+            padding: 10px;
+            font-family: sans-serif;
+        }
+        #output {
+            margin-top: 10px;
+            padding: 10px;
+            background: #222;
+            color: #0f0;
+        }
+    </style>
 </head>
 <body>
-  <!--
-    ★ 顶部区域（手机式）：三层结构
-      【收起】只有 #status-bar 露在外面（= 现在的样子 ✓ 没按钮）
-      【展开】容器从上方“撑开”、面板从下方滑出 → 统计栏自然落到第 2 行 ✓
-    整个 #status-bar 就是展开/收起的点击热区 ✓（也可按住下拉 / 用快捷键）
-  -->
-  <div id="top-area">
-    <!-- 第 1 行：按钮容器（★ 只在展开时存在 → ⚙ 日常碰不到 ✓）-->
-    <div id="notice-toolbar" class="top-row collapsed">
-      <span id="notice-title">通知</span>
-      <span class="spacer"></span>
-      <button id="notice-clear" title="清空全部通知">清空</button>
-    </div>
+    <h2>Pi 会话</h2>
+    <div id="output">等待消息...</div>
 
-    <!-- 第 2 行：常驻顶栏（点它展开/收起 ✓；★ 🔔 放这里 → 收起时就看得见未读 ✓）-->
-    <div id="status-bar" title="点击展开通知（也可按住下拉 / Ctrl+Alt+N）">
-      <span class="sb-item" id="notice-badge" title="通知">
-        <span id="notice-bell">🔕</span><span id="notice-count">0</span>
-      </span>
-      <span class="sb-sep"></span>
-      <span class="sb-item" id="sb-cost" title="本次会话花费">¥ 0</span>
-      <span class="sb-sep"></span>
-      <span class="sb-item" id="sb-out" title="输出 token">out 0</span>
-      <span class="sb-sep"></span>
-      <span class="sb-item" id="sb-cache" title="缓存命中率 = cacheRead / (input + cacheRead)">cache 0%</span>
-      <span class="sb-sep"></span>
-      <span class="sb-item" id="sb-ctx" title="对话长度（显示【剩余】占比）">
-        <span class="battery" id="sb-battery">
-          <span class="battery-fill" id="sb-battery-fill"></span>
-          <span class="battery-pct" id="sb-battery-pct">?</span>
-        </span>
-      </span>
-    </div>
+    <script>
+        const vscode = acquireVsCodeApi();
 
-    <!-- 第 3 行：★ 按钮行（常驻）—— 左：会话管理 · 中：当前会话名 · 右：新建 ✓ -->
-    <div id="app-toolbar">
-      <!-- ★ 左组（B22）：会话管理 + 新建 —— 两个【紧贴】✓（用户定的 ✓）-->
-      <button id="btn-sessions" class="tb-btn" title="会话管理">☰</button>
-      <button id="btn-new-session" class="tb-btn" title="新建会话">＋</button>
-      <!-- ★ 中间：当前会话名（既是展示也是按钮 → 点击改名 ✓）-->
-      <button id="session-title" title="点击修改会话名"></button>
-      <!-- ★★ B25 搬上来的状态类按钮 ✗（用户要求 ✓）
-           用户：“把这个模型和思考深度的按钮搬到上面来，搬到会话名旁边”✓
-           ★ 为什么搬？→ 它们本质是“当前状态”而不是“输入辅助”✓
-             放输入区【挤位置】✗ 而且与发送按钮不同类 ✓ -->
-      <button id="foot-model" class="tb-text" title="点击切换模型"></button>
-      <button id="foot-thinking" class="tb-text" title="点击切换思考深度"></button>
-      <!-- 弹性留白：把右组顶到最右 ✓ -->
-      <div class="tb-spacer"></div>
-      <!-- ★ 右组（B24/B25）：重载 + 压缩 + 技能 + 设置 ✓
-           ★ B25 把 ⟳（重载）也搬上来了 ✗（用户：“放到压缩按钮的旁边儿”✓）-->
-      <button id="btn-reload" class="tb-btn" title="重启 pi（应用最新启动参数）">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12a9 9 0 1 1-2.6-6.4" />
-          <path d="M21 3v6h-6" />
-        </svg>
-      </button>
-      <!-- ★ 压缩（B22）-->
-      <button id="btn-compact" class="tb-btn" title="压缩上下文（把前面的历史总结掉，省 token）">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 9h16M4 15h16M8 5l4 4 4-4M8 19l4-4 4 4"/>
-        </svg>
-      </button>
-      <!-- ★ 技能（B25）：在【压缩与设置中间】✗（用户定的 ✓）-->
-      <button id="btn-skills" class="tb-btn" title="打开技能面板（编辑器区）">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 3l2.4 5.1 5.6.7-4.1 3.9 1 5.6-4.9-2.7-4.9 2.7 1-5.6L4 8.8l5.6-.7z"/>
-        </svg>
-      </button>
-      <button id="btn-settings" class="tb-btn" title="设置（pi 的 settings.json）">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M12 2a2 2 0 0 1 2 2v.2a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.2 2.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H2.8a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4.2V4a2 2 0 0 1 2-2z"/>
-        </svg>
-      </button>
-    </div>
+        // ① 接收后端消息
+        window.addEventListener("message", (event) => {
+            const msg = event.data;   // { kind, payload }
+            const out = document.getElementById("output");
+            out.textContent += "\\n[收到] " + msg.kind + ": " + JSON.stringify(msg.payload);
+        });
 
-    <!-- 第 4 行起：会话面板（点 [☰ 会话] 在按钮行下方滑出）-->
-    <!-- 结构：┌ 主体 ─ 左栏 + 右列表 ┐ + 底部收起热区 -->
-    <!-- ★★ B35：会话面板【搬到编辑器区了】✗
-         原位置：#session-panel（含 session-body / session-tools /
-         session-main / session-list / session-empty / session-panel-close ✓）
-         ⇒ 全部移到 media/session.html ✓ 这里不再留任何东西 ✓
-         （用户定的：侧栏【完全移走】✗ 不留副本 ✓）-->
-
-    <!-- ★ 设置面板（B24）：与 session-panel 【平级】✓
-         不能嵌在它里面 ✗ —— 否则会话面板一收起，设置面板也跟着看不见 ✓
-         （实测踩到：点 ⚙ 没反应，其实面板展开了但被父级隐藏 ✗）-->
-    <!-- ★★ B35：设置面板【也搬到编辑器区了】✗
-         原位置：#settings-panel（含 settings-head / settings-title /
-         settings-path / settings-save / settings-reload / settings-body ✓）
-         ⇒ 全部移到 media/settings.html ✓
-         ★ 侧栏只留「⚙ 设置」那个入口按钮 ✓ -->
-
-    <!-- 第 3 行起：通知列表（展开时滑出 ✓）-->
-    <div id="notice-panel" class="collapsed">
-      <div id="notice-list"></div>
-      <div id="notice-empty">暂无通知</div>
-      <div id="notice-collapse" title="点击收起">⌃</div>
-    </div>
-  </div>
-
-  <!-- ★★ 命令条（B32）：气泡区左侧、同高度的竖直按钮容器 ✓
-       先放【假按钮】看样式 ✗ 看好了再换成真实数据 ✓ -->
-  <!-- ★★ 命令条（B32）：气泡区左侧的竖向按钮容器 ✓
-       【为什么是两层？】（用户把两种单层写法都试过 ✓）
-         bottom:0 + padding-bottom → 不被遮挡 ✓ 但滑到底有空区域 ✗
-         bottom:输入区高度         → 没空区域 ✓ 但右边框在中间断掉 ✗
-       ⇒ 外层：盒子【一直到底】→ 边框/背景连续 ✓
-         内层：滚动区用【margin】让出输入区
-               ★ 关键：margin 不算进滚动内容 ✗ 所以不会有空白 ✓ -->
-  <div id="cmd-rail">
-    <!-- ★★ 内层：滚动区（按钮由 src/webview/cmdrail.ts 渲染 ✓）-->
-    <div id="cmd-rail-list"></div>
-  </div>
-
-  <div id="messages"></div>
-
-  <div id="input-area">
-    <!-- ★ 「待插话」条（B20）：在输入区【内部最前】✓
-         为什么不能放外面？input-area 是 position:absolute 沉在底部 ✗
-         放外面会被它盖住（实测：条建好了但看不见 ✗）-->
-    <div id="queue-bar"></div>
-    <!-- ★ 扩展交互（B25 回复桥）：pi 需要你回答的问答 ✓
-         同样放 input-area 内部 ✗（否则被盖 ✓）-->
-    <div id="ui-request"></div>
-    <div id="input-box">
-      <!-- ★ B27：斜杠命令补全（按下 / 就列出所有命令 ✓）
-           为什么放这里？→ 它属于输入框的附件 ✗ 靠在 textarea 上方 ✓ -->
-      <div id="slash-menu" data-empty="true"></div>
-      <textarea id="input" rows="1" placeholder="给 pi 发送消息（Enter 发送，Shift+Enter 换行）"></textarea>
-      <div id="input-bar">
-        <!-- ★★ B25：模型 / 思考 / 重载【已搬到按钮栏】✗（用户要求 ✓）
-             这里只留【发送】✗ → 输入区宽敞 ✓
-             而“发送”才是输入区的原生功能 ✓（其余都是状态/控制 ✓）-->
-        <button id="send" title="发送 (Enter)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8"
-               stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 19V5M5 12l7-7 7 7" />
-          </svg>
-        </button>
-      </div>
-    </div>
-    <!-- ★ 输入区下方极简栏：工作目录（居中）-->
-    <div id="foot-bar">
-      <span id="foot-cwd" title="工作目录"></span>
-    </div>
-  </div>
-
-  <script nonce="{{nonce}}" src="{{js}}"></script>
+        // ② 通知后端：我准备好了
+        vscode.postMessage({ kind: "ready" });
+    </script>
 </body>
+
 </html>

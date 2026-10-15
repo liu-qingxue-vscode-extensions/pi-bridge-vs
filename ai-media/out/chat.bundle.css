@@ -1,0 +1,2236 @@
+/* =====================================================================
+   chat.css —— 【入口】（这里不再直接写样式 ✗）
+   各部分按职责拆在 media/css/ 下，用 @import 串起来 ✓
+   （CSP 的 style-src 允许同源加载 ✓ · 本地文件无网络开销 ✓）
+   ===================================================================== */
+/* ══ 展开自 ./css/base.css ══ */
+/* ===== 基础：可调变量 + 对话区 + 滚动条 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
+   ★ 改这一块只需动本文件 ✓ */
+
+/* ===== 可调参数（CSS 变量）=====
+   这些是默认值；扩展会从 VS Code 设置生成覆盖（留空 = 用这里/主题变量）*/
+:root {
+  --pi-bubble-width: 88%;
+  --pi-bubble-radius: 6px;
+  --pi-bubble-padding: 8px 12px;
+
+  /* 气泡之间的竖直间距（挂 margin-top，不叠加）*/
+  --pi-gap-turn: 10px;
+  --pi-gap-user-first: 12px;
+  --pi-gap-thinking-text: 4px;
+  --pi-gap-thinking-tool: 4px;
+  --pi-gap-text-tool: 6px;
+  --pi-gap-tool-text: 4px;
+  --pi-gap-tool-thinking: 4px;
+  --pi-gap-text-thinking: 4px;
+
+  --pi-rail-width: 2px;
+  --pi-border-w: 1px;
+
+  /* ★★ B46：压缩气泡的默认值（想在 VS Code 设置里改的话
+     用 workbench.colorCustomizations 覆盖同名变量即可 ✓）*/
+  --pi-bg-compaction: transparent;
+  --pi-rail-color-compaction: var(--vscode-panel-border);
+  --pi-compaction-max-height: 420px;
+
+  /* ★ B47：完整历史面板的横幅高度（#messages 要让出这块 ✗ 否则被盖住 ✓）
+     实测约 28px（12px 字号 + 6px*2 padding + 1px 边框 ✓）*/
+  --pi-history-banner-h: 29px;
+
+  /* ★★ B45：完整历史面板里"已被压缩"那段
+     ★ 用【实色】而不是主题变量叠色 —— 上一版用 editorWidgetBackground（半透明）
+       ⇒ 叠在气泡底色上等于没变 ✗ 用户实测："完全看不出来"✓
+     ★ 也不用 opacity：那会把【文字】一起弄淡 ✗ 要的是"背景突出、文字照常"✓
+     深浅主题各一套（body 上有 vscode-dark / vscode-light 类 ✓）*/
+  /* ★ 上一版 #2d2a3e 与 VS Code 深色底 #1e1e1e 几乎同色 ⇒ 用户："完全看不出来"✓
+     ⇒ 提亮 + 提饱和，明显是"一块紫色区域"✓ */
+  --pi-compacted-bg: #3b3054;        /* 紫（深色主题）*/
+  --pi-compacted-split-bg: #7b68c9;  /* 分界色条 */
+  --pi-compacted-fg: #d8d0f0;
+  --pi-compacted-pad: 10px;          /* 整块区域的内边距（让它看起来是"一片"✓）*/
+
+  /* 输入框 */
+  --pi-input-radius: 14px;
+  --pi-input-width: 100%;
+  --pi-input-min-rows: 1;
+  --pi-input-max-rows: 8;
+  --pi-input-bottom-gap: 22px;
+
+  /* 顶部常驻状态栏（手机式）*/
+  --pi-topbar-height: 26px;
+  --pi-app-toolbar-height: 28px;   /* ★ 按钮行高度（顶栏下方那一行 ✓）*/
+
+  /* ★★ 输入区【实际占用的高度】（B32 ✗ 由 JS 实测后写入 ✓）
+     单一数据源 → 两个消费方：
+       ① #messages 的 padding-bottom（内容能滚到输入区后面 ✓）
+       ② #cmd-rail 的 bottom（命令条到输入区上方就截断 ✓）
+     ★ 为什么用变量而不是直接写 style？
+       因为有两个元素要用同一个值 ✗ 写两次容易忘掉一处 ✓ */
+  --pi-input-reserve: 120px;
+}
+/* 设置覆盖注入点已移到 chat.html 的 <style>{{styleVars}}</style>
+   （CSS 文件不经过 loader 替换，不能在这里放占位符 ✗）*/
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  position: relative;        /* 给底部悬浮的输入区定位 */
+  height: 100vh;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-sideBar-background);
+}
+#messages {
+  position: absolute;
+  /* ★ 顶部让出状态栏的高度（inset 展开写，方便单独改 top）*/
+  /* ★ 顶部让出：【顶栏 + 按钮行】两条的高度（inset 展开写，方便单独改 top）*/
+  top: calc(var(--pi-topbar-height) + var(--pi-app-toolbar-height, 28px));
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-y: auto;
+  /* 底部留白由 JS 动态同步（= 输入区实际高度）*/
+  /* 左右用 sideGap：控制气泡与视图左右边界的间距 */
+  /* ★★★ B32 重构（用户实测报“全部耦合”✓）：
+     左右内边距【不再用气泡的 leftGap / rightGap】✗ 一律为 0 ✓
+
+     【为什么？】
+       padding 会改变【内容区宽度】✗
+       而所有气泡的 width:90% 都是相对内容区的
+       ⇒ 改任何一个 gap ✗ AI 气泡 / 用户气泡 / 输入框【全跟着变】
+       ⇒ 症状：改右边距 → AI 气泡也被挤 ✗ 改左边距 → 输入框也动 ✓
+
+     ★ 正确做法：边距【下沉到气泡自己身上】（margin ✓）
+       AI 气泡   → margin-left: leftGap
+       用户气泡  → margin-right: rightGap
+       输入框    → 自己 width% + margin:auto 居中
+      ⇒ 三者互不影响 ✓ */
+  padding: 12px 0 var(--pi-input-reserve, 120px) 0;
+  /* 用 flex 纵向布局：靠左/靠右用 align-self —— 比 margin:auto 可靠得多 */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;   /* 默认靠左 */
+  /* ★ 顶部渐隐：与底部（输入区遮罩）对称 ✓
+     把状态栏的【硬下边框】换成这个 → 内容滚到顶时自然朦胧淡出 ✓ */
+  mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
+}
+
+/* ===== 滚动条美化（对话区 + 输入框 统一）=====
+   ★ 默认【完全透明】（系统默认滚动条很突兀 ✗）
+   ★ 只在鼠标悬停该区域时才显出（朦胧 ✓）
+   ★ 用 border + background-clip 做内缩 → 视觉更细 ✓ */
+#messages,
+#input {
+  scrollbar-width: thin;                                   /* Firefox */
+  scrollbar-color: transparent transparent;
+}
+#messages:hover,
+#input:hover {
+  scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, 0.35)) transparent;
+}
+#messages::-webkit-scrollbar,
+#input::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+#messages::-webkit-scrollbar-track,
+#input::-webkit-scrollbar-track {
+  background: transparent;
+}
+#messages::-webkit-scrollbar-thumb,
+#input::-webkit-scrollbar-thumb {
+  background: transparent;                                 /* 默认隐形 ✓ */
+  background-clip: content-box;                            /* ★ 只填 content 区 → 内缩 ✓ */
+  border: 4px solid transparent;                           /* ★ 4px 内缩 → 滑块更细 ✓ */
+  border-radius: 999px;
+}
+#messages:hover::-webkit-scrollbar-thumb,
+#input:hover::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, 0.35));
+}
+#messages::-webkit-scrollbar-thumb:hover,
+#input::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground, rgba(128, 128, 128, 0.55));
+}
+#messages::-webkit-scrollbar-thumb:active,
+#input::-webkit-scrollbar-thumb:active {
+  background: var(--vscode-scrollbarSlider-activeBackground, rgba(128, 128, 128, 0.7));
+}
+#messages::-webkit-scrollbar-corner,
+#input::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ══ 展开自 ./css/markdown.css ══ */
+/* ══ 展开自 ../out/katex.css ══ */
+@font-face{font-display:block;font-family:KaTeX_AMS;font-style:normal;font-weight:400;src:url(fonts/KaTeX_AMS-Regular.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Caligraphic;font-style:normal;font-weight:700;src:url(fonts/KaTeX_Caligraphic-Bold.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Caligraphic;font-style:normal;font-weight:400;src:url(fonts/KaTeX_Caligraphic-Regular.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Fraktur;font-style:normal;font-weight:700;src:url(fonts/KaTeX_Fraktur-Bold.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Fraktur;font-style:normal;font-weight:400;src:url(fonts/KaTeX_Fraktur-Regular.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Main;font-style:normal;font-weight:700;src:url(fonts/KaTeX_Main-Bold.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Main;font-style:italic;font-weight:700;src:url(fonts/KaTeX_Main-BoldItalic.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Main;font-style:italic;font-weight:400;src:url(fonts/KaTeX_Main-Italic.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Main;font-style:normal;font-weight:400;src:url(fonts/KaTeX_Main-Regular.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Math;font-style:italic;font-weight:700;src:url(fonts/KaTeX_Math-BoldItalic.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Math;font-style:italic;font-weight:400;src:url(fonts/KaTeX_Math-Italic.woff2) format("woff2")}@font-face{font-display:block;font-family:"KaTeX_SansSerif";font-style:normal;font-weight:700;src:url(fonts/KaTeX_SansSerif-Bold.woff2) format("woff2")}@font-face{font-display:block;font-family:"KaTeX_SansSerif";font-style:italic;font-weight:400;src:url(fonts/KaTeX_SansSerif-Italic.woff2) format("woff2")}@font-face{font-display:block;font-family:"KaTeX_SansSerif";font-style:normal;font-weight:400;src:url(fonts/KaTeX_SansSerif-Regular.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Script;font-style:normal;font-weight:400;src:url(fonts/KaTeX_Script-Regular.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Size1;font-style:normal;font-weight:400;src:url(fonts/KaTeX_Size1-Regular.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Size2;font-style:normal;font-weight:400;src:url(fonts/KaTeX_Size2-Regular.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Size3;font-style:normal;font-weight:400;src:url(fonts/KaTeX_Size3-Regular.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Size4;font-style:normal;font-weight:400;src:url(fonts/KaTeX_Size4-Regular.woff2) format("woff2")}@font-face{font-display:block;font-family:KaTeX_Typewriter;font-style:normal;font-weight:400;src:url(fonts/KaTeX_Typewriter-Regular.woff2) format("woff2")}.katex{font:normal 1.21em KaTeX_Main,math,Times New Roman,serif;line-height:1.2;position:relative;text-indent:0;text-rendering:auto}.katex *{-ms-high-contrast-adjust:none!important;border-color:currentColor}.katex .katex-version:after{content:"0.18.10"}.katex .katex-mathml{border:0;-webkit-clip-path:inset(50%);clip-path:inset(50%);height:1px;overflow:hidden;padding:0;position:absolute;width:1px}.katex .katex-html>.katex-newline{display:block}.katex .katex-base{position:relative;white-space:nowrap;width:-webkit-min-content;width:-moz-min-content;width:min-content}.katex .katex-base,.katex .katex-strut{display:inline-block}.katex .textbf{font-weight:700}.katex .textit{font-style:italic}.katex .textrm{font-family:KaTeX_Main}.katex .textsf{font-family:KaTeX_SansSerif}.katex .texttt{font-family:KaTeX_Typewriter}.katex .mathnormal{font-family:KaTeX_Math;font-style:italic}.katex .mathit{font-family:KaTeX_Main;font-style:italic}.katex .mathrm{font-style:normal}.katex .mathbf{font-family:KaTeX_Main;font-weight:700}.katex .boldsymbol{font-family:KaTeX_Math;font-style:italic;font-weight:700}.katex .amsrm,.katex .mathbb,.katex .textbb{font-family:KaTeX_AMS}.katex .mathcal{font-family:KaTeX_Caligraphic}.katex .mathfrak,.katex .textfrak{font-family:KaTeX_Fraktur}.katex .mathboldfrak,.katex .textboldfrak{font-family:KaTeX_Fraktur;font-weight:700}.katex .mathtt{font-family:KaTeX_Typewriter}.katex .mathscr,.katex .textscr{font-family:KaTeX_Script}.katex .mathsf,.katex .textsf{font-family:KaTeX_SansSerif}.katex .mathboldsf,.katex .textboldsf{font-family:KaTeX_SansSerif;font-weight:700}.katex .mathitsf,.katex .mathsfit,.katex .textitsf{font-family:KaTeX_SansSerif;font-style:italic}.katex .mainrm{font-family:KaTeX_Main;font-style:normal}.katex .vlist-t{border-collapse:collapse;display:inline-table;table-layout:fixed}.katex .vlist-r{display:table-row}.katex .vlist{display:table-cell;position:relative;vertical-align:bottom}.katex .vlist>span{display:block;height:0;position:relative}.katex .vlist>span>span{display:inline-block}.katex .vlist>span>.pstrut{overflow:hidden;width:0}.katex .vlist-t2{margin-right:-2px}.katex .vlist-s{display:table-cell;font-size:1px;min-width:2px;vertical-align:bottom;width:2px}.katex .katex-vbox{align-items:baseline;display:inline-flex;flex-direction:column}.katex .katex-thinbox{display:inline-flex;flex-direction:row;max-width:0;width:0}.katex .msupsub{text-align:left}.katex .mfrac>span>span{text-align:center}.katex .mfrac .frac-line{border-bottom-style:solid;display:inline-block;width:100%}.katex .katex-hdashline,.katex .katex-hline,.katex .katex-overline .overline-line,.katex .katex-rule,.katex .katex-underline .underline-line,.katex .mfrac .frac-line{min-height:1px}.katex .mspace{display:inline-block}.katex .katex-smash{display:inline;line-height:0}.katex .clap,.katex .llap,.katex .rlap{position:relative;width:0}.katex .clap>.katex-inner,.katex .llap>.katex-inner,.katex .rlap>.katex-inner{position:absolute}.katex .clap>.katex-fix,.katex .llap>.katex-fix,.katex .rlap>.katex-fix{display:inline-block}.katex .llap>.katex-inner{right:0}.katex .clap>.katex-inner,.katex .rlap>.katex-inner{left:0}.katex .clap>.katex-inner>span{margin-left:-50%;margin-right:50%}.katex .katex-rule{border:0 solid;display:inline-block;position:relative}.katex .katex-hline,.katex .katex-overline .overline-line,.katex .katex-underline .underline-line{border-bottom-style:solid;display:inline-block;width:100%}.katex .katex-hdashline{border-bottom-style:dashed;display:inline-block;width:100%}.katex .sqrt>.katex-root{margin-left:.2777777778em;margin-right:-.5555555556em}.katex .fontsize-ensurer.reset-size1.size1,.katex .katex-sizing.reset-size1.size1{font-size:1em}.katex .fontsize-ensurer.reset-size1.size2,.katex .katex-sizing.reset-size1.size2{font-size:1.2em}.katex .fontsize-ensurer.reset-size1.size3,.katex .katex-sizing.reset-size1.size3{font-size:1.4em}.katex .fontsize-ensurer.reset-size1.size4,.katex .katex-sizing.reset-size1.size4{font-size:1.6em}.katex .fontsize-ensurer.reset-size1.size5,.katex .katex-sizing.reset-size1.size5{font-size:1.8em}.katex .fontsize-ensurer.reset-size1.size6,.katex .katex-sizing.reset-size1.size6{font-size:2em}.katex .fontsize-ensurer.reset-size1.size7,.katex .katex-sizing.reset-size1.size7{font-size:2.4em}.katex .fontsize-ensurer.reset-size1.size8,.katex .katex-sizing.reset-size1.size8{font-size:2.88em}.katex .fontsize-ensurer.reset-size1.size9,.katex .katex-sizing.reset-size1.size9{font-size:3.456em}.katex .fontsize-ensurer.reset-size1.size10,.katex .katex-sizing.reset-size1.size10{font-size:4.148em}.katex .fontsize-ensurer.reset-size1.size11,.katex .katex-sizing.reset-size1.size11{font-size:4.976em}.katex .fontsize-ensurer.reset-size2.size1,.katex .katex-sizing.reset-size2.size1{font-size:.8333333333em}.katex .fontsize-ensurer.reset-size2.size2,.katex .katex-sizing.reset-size2.size2{font-size:1em}.katex .fontsize-ensurer.reset-size2.size3,.katex .katex-sizing.reset-size2.size3{font-size:1.1666666667em}.katex .fontsize-ensurer.reset-size2.size4,.katex .katex-sizing.reset-size2.size4{font-size:1.3333333333em}.katex .fontsize-ensurer.reset-size2.size5,.katex .katex-sizing.reset-size2.size5{font-size:1.5em}.katex .fontsize-ensurer.reset-size2.size6,.katex .katex-sizing.reset-size2.size6{font-size:1.6666666667em}.katex .fontsize-ensurer.reset-size2.size7,.katex .katex-sizing.reset-size2.size7{font-size:2em}.katex .fontsize-ensurer.reset-size2.size8,.katex .katex-sizing.reset-size2.size8{font-size:2.4em}.katex .fontsize-ensurer.reset-size2.size9,.katex .katex-sizing.reset-size2.size9{font-size:2.88em}.katex .fontsize-ensurer.reset-size2.size10,.katex .katex-sizing.reset-size2.size10{font-size:3.4566666667em}.katex .fontsize-ensurer.reset-size2.size11,.katex .katex-sizing.reset-size2.size11{font-size:4.1466666667em}.katex .fontsize-ensurer.reset-size3.size1,.katex .katex-sizing.reset-size3.size1{font-size:.7142857143em}.katex .fontsize-ensurer.reset-size3.size2,.katex .katex-sizing.reset-size3.size2{font-size:.8571428571em}.katex .fontsize-ensurer.reset-size3.size3,.katex .katex-sizing.reset-size3.size3{font-size:1em}.katex .fontsize-ensurer.reset-size3.size4,.katex .katex-sizing.reset-size3.size4{font-size:1.1428571429em}.katex .fontsize-ensurer.reset-size3.size5,.katex .katex-sizing.reset-size3.size5{font-size:1.2857142857em}.katex .fontsize-ensurer.reset-size3.size6,.katex .katex-sizing.reset-size3.size6{font-size:1.4285714286em}.katex .fontsize-ensurer.reset-size3.size7,.katex .katex-sizing.reset-size3.size7{font-size:1.7142857143em}.katex .fontsize-ensurer.reset-size3.size8,.katex .katex-sizing.reset-size3.size8{font-size:2.0571428571em}.katex .fontsize-ensurer.reset-size3.size9,.katex .katex-sizing.reset-size3.size9{font-size:2.4685714286em}.katex .fontsize-ensurer.reset-size3.size10,.katex .katex-sizing.reset-size3.size10{font-size:2.9628571429em}.katex .fontsize-ensurer.reset-size3.size11,.katex .katex-sizing.reset-size3.size11{font-size:3.5542857143em}.katex .fontsize-ensurer.reset-size4.size1,.katex .katex-sizing.reset-size4.size1{font-size:.625em}.katex .fontsize-ensurer.reset-size4.size2,.katex .katex-sizing.reset-size4.size2{font-size:.75em}.katex .fontsize-ensurer.reset-size4.size3,.katex .katex-sizing.reset-size4.size3{font-size:.875em}.katex .fontsize-ensurer.reset-size4.size4,.katex .katex-sizing.reset-size4.size4{font-size:1em}.katex .fontsize-ensurer.reset-size4.size5,.katex .katex-sizing.reset-size4.size5{font-size:1.125em}.katex .fontsize-ensurer.reset-size4.size6,.katex .katex-sizing.reset-size4.size6{font-size:1.25em}.katex .fontsize-ensurer.reset-size4.size7,.katex .katex-sizing.reset-size4.size7{font-size:1.5em}.katex .fontsize-ensurer.reset-size4.size8,.katex .katex-sizing.reset-size4.size8{font-size:1.8em}.katex .fontsize-ensurer.reset-size4.size9,.katex .katex-sizing.reset-size4.size9{font-size:2.16em}.katex .fontsize-ensurer.reset-size4.size10,.katex .katex-sizing.reset-size4.size10{font-size:2.5925em}.katex .fontsize-ensurer.reset-size4.size11,.katex .katex-sizing.reset-size4.size11{font-size:3.11em}.katex .fontsize-ensurer.reset-size5.size1,.katex .katex-sizing.reset-size5.size1{font-size:.5555555556em}.katex .fontsize-ensurer.reset-size5.size2,.katex .katex-sizing.reset-size5.size2{font-size:.6666666667em}.katex .fontsize-ensurer.reset-size5.size3,.katex .katex-sizing.reset-size5.size3{font-size:.7777777778em}.katex .fontsize-ensurer.reset-size5.size4,.katex .katex-sizing.reset-size5.size4{font-size:.8888888889em}.katex .fontsize-ensurer.reset-size5.size5,.katex .katex-sizing.reset-size5.size5{font-size:1em}.katex .fontsize-ensurer.reset-size5.size6,.katex .katex-sizing.reset-size5.size6{font-size:1.1111111111em}.katex .fontsize-ensurer.reset-size5.size7,.katex .katex-sizing.reset-size5.size7{font-size:1.3333333333em}.katex .fontsize-ensurer.reset-size5.size8,.katex .katex-sizing.reset-size5.size8{font-size:1.6em}.katex .fontsize-ensurer.reset-size5.size9,.katex .katex-sizing.reset-size5.size9{font-size:1.92em}.katex .fontsize-ensurer.reset-size5.size10,.katex .katex-sizing.reset-size5.size10{font-size:2.3044444444em}.katex .fontsize-ensurer.reset-size5.size11,.katex .katex-sizing.reset-size5.size11{font-size:2.7644444444em}.katex .fontsize-ensurer.reset-size6.size1,.katex .katex-sizing.reset-size6.size1{font-size:.5em}.katex .fontsize-ensurer.reset-size6.size2,.katex .katex-sizing.reset-size6.size2{font-size:.6em}.katex .fontsize-ensurer.reset-size6.size3,.katex .katex-sizing.reset-size6.size3{font-size:.7em}.katex .fontsize-ensurer.reset-size6.size4,.katex .katex-sizing.reset-size6.size4{font-size:.8em}.katex .fontsize-ensurer.reset-size6.size5,.katex .katex-sizing.reset-size6.size5{font-size:.9em}.katex .fontsize-ensurer.reset-size6.size6,.katex .katex-sizing.reset-size6.size6{font-size:1em}.katex .fontsize-ensurer.reset-size6.size7,.katex .katex-sizing.reset-size6.size7{font-size:1.2em}.katex .fontsize-ensurer.reset-size6.size8,.katex .katex-sizing.reset-size6.size8{font-size:1.44em}.katex .fontsize-ensurer.reset-size6.size9,.katex .katex-sizing.reset-size6.size9{font-size:1.728em}.katex .fontsize-ensurer.reset-size6.size10,.katex .katex-sizing.reset-size6.size10{font-size:2.074em}.katex .fontsize-ensurer.reset-size6.size11,.katex .katex-sizing.reset-size6.size11{font-size:2.488em}.katex .fontsize-ensurer.reset-size7.size1,.katex .katex-sizing.reset-size7.size1{font-size:.4166666667em}.katex .fontsize-ensurer.reset-size7.size2,.katex .katex-sizing.reset-size7.size2{font-size:.5em}.katex .fontsize-ensurer.reset-size7.size3,.katex .katex-sizing.reset-size7.size3{font-size:.5833333333em}.katex .fontsize-ensurer.reset-size7.size4,.katex .katex-sizing.reset-size7.size4{font-size:.6666666667em}.katex .fontsize-ensurer.reset-size7.size5,.katex .katex-sizing.reset-size7.size5{font-size:.75em}.katex .fontsize-ensurer.reset-size7.size6,.katex .katex-sizing.reset-size7.size6{font-size:.8333333333em}.katex .fontsize-ensurer.reset-size7.size7,.katex .katex-sizing.reset-size7.size7{font-size:1em}.katex .fontsize-ensurer.reset-size7.size8,.katex .katex-sizing.reset-size7.size8{font-size:1.2em}.katex .fontsize-ensurer.reset-size7.size9,.katex .katex-sizing.reset-size7.size9{font-size:1.44em}.katex .fontsize-ensurer.reset-size7.size10,.katex .katex-sizing.reset-size7.size10{font-size:1.7283333333em}.katex .fontsize-ensurer.reset-size7.size11,.katex .katex-sizing.reset-size7.size11{font-size:2.0733333333em}.katex .fontsize-ensurer.reset-size8.size1,.katex .katex-sizing.reset-size8.size1{font-size:.3472222222em}.katex .fontsize-ensurer.reset-size8.size2,.katex .katex-sizing.reset-size8.size2{font-size:.4166666667em}.katex .fontsize-ensurer.reset-size8.size3,.katex .katex-sizing.reset-size8.size3{font-size:.4861111111em}.katex .fontsize-ensurer.reset-size8.size4,.katex .katex-sizing.reset-size8.size4{font-size:.5555555556em}.katex .fontsize-ensurer.reset-size8.size5,.katex .katex-sizing.reset-size8.size5{font-size:.625em}.katex .fontsize-ensurer.reset-size8.size6,.katex .katex-sizing.reset-size8.size6{font-size:.6944444444em}.katex .fontsize-ensurer.reset-size8.size7,.katex .katex-sizing.reset-size8.size7{font-size:.8333333333em}.katex .fontsize-ensurer.reset-size8.size8,.katex .katex-sizing.reset-size8.size8{font-size:1em}.katex .fontsize-ensurer.reset-size8.size9,.katex .katex-sizing.reset-size8.size9{font-size:1.2em}.katex .fontsize-ensurer.reset-size8.size10,.katex .katex-sizing.reset-size8.size10{font-size:1.4402777778em}.katex .fontsize-ensurer.reset-size8.size11,.katex .katex-sizing.reset-size8.size11{font-size:1.7277777778em}.katex .fontsize-ensurer.reset-size9.size1,.katex .katex-sizing.reset-size9.size1{font-size:.2893518519em}.katex .fontsize-ensurer.reset-size9.size2,.katex .katex-sizing.reset-size9.size2{font-size:.3472222222em}.katex .fontsize-ensurer.reset-size9.size3,.katex .katex-sizing.reset-size9.size3{font-size:.4050925926em}.katex .fontsize-ensurer.reset-size9.size4,.katex .katex-sizing.reset-size9.size4{font-size:.462962963em}.katex .fontsize-ensurer.reset-size9.size5,.katex .katex-sizing.reset-size9.size5{font-size:.5208333333em}.katex .fontsize-ensurer.reset-size9.size6,.katex .katex-sizing.reset-size9.size6{font-size:.5787037037em}.katex .fontsize-ensurer.reset-size9.size7,.katex .katex-sizing.reset-size9.size7{font-size:.6944444444em}.katex .fontsize-ensurer.reset-size9.size8,.katex .katex-sizing.reset-size9.size8{font-size:.8333333333em}.katex .fontsize-ensurer.reset-size9.size9,.katex .katex-sizing.reset-size9.size9{font-size:1em}.katex .fontsize-ensurer.reset-size9.size10,.katex .katex-sizing.reset-size9.size10{font-size:1.2002314815em}.katex .fontsize-ensurer.reset-size9.size11,.katex .katex-sizing.reset-size9.size11{font-size:1.4398148148em}.katex .fontsize-ensurer.reset-size10.size1,.katex .katex-sizing.reset-size10.size1{font-size:.2410800386em}.katex .fontsize-ensurer.reset-size10.size2,.katex .katex-sizing.reset-size10.size2{font-size:.2892960463em}.katex .fontsize-ensurer.reset-size10.size3,.katex .katex-sizing.reset-size10.size3{font-size:.337512054em}.katex .fontsize-ensurer.reset-size10.size4,.katex .katex-sizing.reset-size10.size4{font-size:.3857280617em}.katex .fontsize-ensurer.reset-size10.size5,.katex .katex-sizing.reset-size10.size5{font-size:.4339440694em}.katex .fontsize-ensurer.reset-size10.size6,.katex .katex-sizing.reset-size10.size6{font-size:.4821600771em}.katex .fontsize-ensurer.reset-size10.size7,.katex .katex-sizing.reset-size10.size7{font-size:.5785920926em}.katex .fontsize-ensurer.reset-size10.size8,.katex .katex-sizing.reset-size10.size8{font-size:.6943105111em}.katex .fontsize-ensurer.reset-size10.size9,.katex .katex-sizing.reset-size10.size9{font-size:.8331726133em}.katex .fontsize-ensurer.reset-size10.size10,.katex .katex-sizing.reset-size10.size10{font-size:1em}.katex .fontsize-ensurer.reset-size10.size11,.katex .katex-sizing.reset-size10.size11{font-size:1.1996142719em}.katex .fontsize-ensurer.reset-size11.size1,.katex .katex-sizing.reset-size11.size1{font-size:.2009646302em}.katex .fontsize-ensurer.reset-size11.size2,.katex .katex-sizing.reset-size11.size2{font-size:.2411575563em}.katex .fontsize-ensurer.reset-size11.size3,.katex .katex-sizing.reset-size11.size3{font-size:.2813504823em}.katex .fontsize-ensurer.reset-size11.size4,.katex .katex-sizing.reset-size11.size4{font-size:.3215434084em}.katex .fontsize-ensurer.reset-size11.size5,.katex .katex-sizing.reset-size11.size5{font-size:.3617363344em}.katex .fontsize-ensurer.reset-size11.size6,.katex .katex-sizing.reset-size11.size6{font-size:.4019292605em}.katex .fontsize-ensurer.reset-size11.size7,.katex .katex-sizing.reset-size11.size7{font-size:.4823151125em}.katex .fontsize-ensurer.reset-size11.size8,.katex .katex-sizing.reset-size11.size8{font-size:.578778135em}.katex .fontsize-ensurer.reset-size11.size9,.katex .katex-sizing.reset-size11.size9{font-size:.6945337621em}.katex .fontsize-ensurer.reset-size11.size10,.katex .katex-sizing.reset-size11.size10{font-size:.8336012862em}.katex .fontsize-ensurer.reset-size11.size11,.katex .katex-sizing.reset-size11.size11{font-size:1em}.katex .delimsizing.size1{font-family:KaTeX_Size1}.katex .delimsizing.size2{font-family:KaTeX_Size2}.katex .delimsizing.size3{font-family:KaTeX_Size3}.katex .delimsizing.size4{font-family:KaTeX_Size4}.katex .delimsizing.mult .delim-size1>span{font-family:KaTeX_Size1}.katex .delimsizing.mult .delim-size4>span{font-family:KaTeX_Size4}.katex .nulldelimiter{display:inline-block;width:.12em}.katex .delimcenter,.katex .op-symbol{position:relative}.katex .op-symbol.small-op{font-family:KaTeX_Size1}.katex .op-symbol.large-op{font-family:KaTeX_Size2}.katex .katex-accent>.vlist-t,.katex .op-limits>.vlist-t{text-align:center}.katex .katex-accent .accent-body{position:relative}.katex .katex-accent .accent-body:not(.accent-full){width:0}.katex .katex-overlay{display:block}.katex .mtable .vertical-separator{display:inline-block;min-width:1px}.katex .mtable .arraycolsep{display:inline-block}.katex .mtable .col-align-c>.vlist-t{text-align:center}.katex .mtable .col-align-l>.vlist-t{text-align:left}.katex .mtable .col-align-r>.vlist-t{text-align:right}.katex .svg-align{text-align:left}.katex svg{fill:currentColor;stroke:currentColor;display:block;height:inherit;position:absolute;width:100%}.katex svg path{stroke:none}.katex svg{fill-rule:nonzero;fill-opacity:1;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1}.katex img{border-style:none;max-height:none;max-width:none;min-height:0;min-width:0}.katex .katex-stretchy{display:block;overflow:hidden;position:relative;width:100%}.katex .katex-stretchy:after,.katex .katex-stretchy:before{content:""}.katex .hide-tail{overflow:hidden;position:relative;width:100%}.katex .halfarrow-left{left:0;overflow:hidden;position:absolute;width:50.2%}.katex .halfarrow-right{overflow:hidden;position:absolute;right:0;width:50.2%}.katex .brace-left{left:0;overflow:hidden;position:absolute;width:25.1%}.katex .brace-center{left:25%;overflow:hidden;position:absolute;width:50%}.katex .brace-right{overflow:hidden;position:absolute;right:0;width:25.1%}.katex .x-arrow-pad{padding:0 .5em}.katex .cd-arrow-pad{padding:0 .55556em 0 .27778em}.katex .mover,.katex .munder,.katex .x-arrow{text-align:center}.katex .boxpad{padding:0 .3em}.katex .fbox,.katex .fcolorbox{border:.04em solid;box-sizing:border-box}.katex .cancel-pad{padding:0 .2em}.katex .cancel-lap{margin-left:-.2em;margin-right:-.2em}.katex .katex-sout{border-bottom-style:solid;border-bottom-width:.08em}.katex .angl{border-right:.049em solid;border-top:.049em solid;box-sizing:border-box;margin-right:.03889em}.katex .anglpad{padding:0 .03889em}.katex .reflectbox{display:inline-block;transform:scaleX(-1)}.katex .eqn-num:before{content:"(" counter(katexEqnNo) ")";counter-increment:katexEqnNo}.katex .mml-eqn-num:before{content:"(" counter(mmlEqnNo) ")";counter-increment:mmlEqnNo}.katex .mtr-glue{width:50%}.katex .cd-vert-arrow{display:inline-block;position:relative}.katex .cd-label-left{display:inline-block;position:absolute;right:calc(50% + .3em);text-align:left}.katex .cd-label-right{display:inline-block;left:calc(50% + .3em);position:absolute;text-align:right}.katex-display{display:block;margin:1em 0;text-align:center}.katex-display>.katex{display:block;text-align:center;white-space:nowrap}.katex-display>.katex>.katex-html{display:block;position:relative}.katex-display>.katex>.katex-html>.katex-tag{position:absolute;right:0}.katex-display.leqno>.katex>.katex-html>.katex-tag{left:0;right:auto}.katex-display.fleqn>.katex{padding-left:2em;text-align:left}body{counter-reset:katexEqnNo mmlEqnNo}
+
+/* =====================================================================
+   markdown.css —— 正文气泡里的 MD 排版（B29）
+   =====================================================================
+   【★ 核心原则】
+     · 这是【气泡内部】✗ 所以要克制：不要大标题、不要夸张间距 ✓
+     · 首尾不留多余 margin ✗ 否则气泡上下会鼓出空白 ✓
+     · 全部用 VS Code 主题变量 ✗ 自动跟随明暗 ✓
+   ===================================================================== */
+
+.md { line-height: 1.6; word-break: break-word; }
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+
+/* ── 段落 ── */
+.md p { margin: 0 0 10px; }
+
+/* ── 标题：气泡里所以收着用 ✗ 靠字号层次而不是夸张间距 ✓ ── */
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  margin: 14px 0 8px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.md h1 { font-size: 1.35em; }
+.md h2 { font-size: 1.22em; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 4px; }
+.md h3 { font-size: 1.1em; }
+.md h4, .md h5, .md h6 { font-size: 1em; }
+
+/* ── 列表 ── */
+.md ul, .md ol { margin: 0 0 10px; padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md li > ul, .md li > ol { margin: 2px 0; }
+
+/* ── 行内代码 ── */
+.md code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: .92em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, .18));
+}
+
+/* ══════════ ★★ B29 P0：代码块（参照用户给的形式 ✗）══════════
+   ┌─ python ───────────── [复制] ─┐
+   │ 代码……                          │
+   └────────────────────────────────┘
+   ① 标题栏：左语言名 ✗ 右按钮容器 ✓
+   ② 按钮容器 .code-actions 是可插拔的 ✗ 以后加东西只改这里 ✓
+   ③ 代码区自己横向滚 ✗ 标题栏不动 ✓ */
+
+.code-block {
+  margin: 0 0 10px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, .3));
+  border-radius: 6px;
+  overflow: hidden;                /* ★ 让标题栏的底色贴住圆角 ✓ */
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, .1));
+}
+
+.code-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 10px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, .16));
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, .22));
+  font-size: 11px;
+}
+.code-lang {
+  flex: 0 0 auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  opacity: .75;
+  text-transform: lowercase;
+}
+/* ★ 按钮容器：以后加“下载 / 折叠 / 行号”都往这里塞 ✓ */
+.code-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.code-btn {
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: .7;
+}
+.code-btn:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+}
+
+/* 代码本体：只有底色 ✗ 语法高亮以后再说 ✓ */
+/* ★ B41：过宽的代码自动缩放（scale 由 code-fit.ts 量出来 ✗ 默认 1 ⇒ 不生效）
+   ★ 只影响 .code-block（read/write 的代码 / MD 代码块）
+     bash 输出(.part-text) 和 diff(.diff-lc) 是折行的 ✗ 不走这条 */
+.code-block pre {
+  font-size: calc(100% * var(--code-scale, 1));
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.code-block pre code {
+  padding: 0;
+  background: transparent;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: .9em;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+/* ══════════ 表格（B29 修正 ✗）══════════
+   ★ 旧做法的坑：在 table 上写 display:block + overflow ✗
+     → thead/tbody 变成独立块 ✗ 表头与内容“断开”✓
+   ★ 正确：容器负责滚 ✗ table 保持原生表格布局 ✓ */
+.table-wrap {
+  margin: 0 0 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.table-wrap::-webkit-scrollbar { height: 8px; }
+.table-wrap::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, .35));
+  border-radius: 4px;
+}
+.md table {
+  /* ★ width:100% = 撑满 ✗（用户要求的 ✓）*/
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .95em;
+}
+.md table + .md table { margin-top: 0; }
+
+/* ── 引用 ── */
+.md blockquote {
+  margin: 0 0 10px;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--vscode-focusBorder, rgba(128, 128, 128, .5));
+  opacity: .88;
+}
+.md blockquote > *:last-child { margin-bottom: 0; }
+
+/* ── 表格：单元格样式（布局在文件上面那份 ✗ 别在这里重复 table 规则 ✓）── */
+.md th, .md td {
+  padding: 5px 10px;
+  border: 1px solid var(--vscode-panel-border);
+  text-align: left;
+}
+.md th { background: var(--vscode-editorWidget-background, rgba(128, 128, 128, .12)); font-weight: 600; }
+
+/* ── 链接 / 分隔线 / 图片 ── */
+.md a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+.md a:hover { text-decoration: underline; color: var(--vscode-textLink-activeForeground); }
+.md hr {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+.md img { max-width: 100%; border-radius: 6px; }
+.md strong { font-weight: 600; }
+
+/* ══════════ ★ B29 P1：行内扩展 + 脚注 ══════════ */
+
+/* 高亮 ==文本== ✗ 用 VS Code 的“查找命中”底色 ✓ 自动跟随主题 ✓ */
+.md mark {
+  background: var(--vscode-editor-findMatchHighlightBackground, rgba(255, 214, 0, .32));
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+/* 插入 ++文本++ */
+.md ins { text-decoration: underline; text-decoration-style: dotted; }
+/* 上标 ^文本^ ✗ 与脚注共用一个 sup 规则 ✓ */
+.md sup { font-size: .78em; line-height: 0; vertical-align: super; }
+
+/* ── 脚注（marked-footnote 的结构 ✓）──
+   行内：<sup><a id="footnote-ref-1" href="#footnote-1">1</a></sup>
+   末尾：<section class="footnotes"><h2 class="sr-only">Footnotes</h2><ol>… */
+.md sup a {
+  padding: 0 3px;
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+  font-weight: 600;
+}
+.md sup a:hover { text-decoration: underline; }
+
+/* ★ 那个 h2 是给读屏用的 ✗ 视觉上要藏掉 ✓ */
+.md .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.md [data-footnotes] {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--vscode-panel-border);
+  font-size: .9em;
+  opacity: .85;
+}
+.md [data-footnotes] ol { margin: 0; padding-left: 20px; }
+.md [data-footnotes] li { margin: 4px 0; }
+.md [data-footnotes] p { margin: 0; display: inline; }
+.md [data-footnotes] a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+
+/* ══════════ ★ B29 P2：Mermaid 图 ══════════
+   ★ 设计：源码【折叠起来】✗ 图显示在下面 ✓
+     （保留源码很重要 ✗ 出错了用户还能看到原文 ✓）*/
+/* ★ 默认【只显示图】✗ 源码折叠 ✓（用户定的 ✓）
+   点「源码」按钮 → 给块加 data-show-src ✗ 源码才出来 ✓ */
+.code-mermaid pre { display: none; }
+.code-mermaid[data-show-src] pre { display: block; }
+/* 没渲染出图之前（流式中）不要把源码藏死 ✗ 否则一片空白 ✓ */
+.code-mermaid:not([data-mermaid-done]):not([data-show-src]) pre { display: block; }
+/* 渲染出来的图 */
+.mermaid-out {
+  padding: 10px;
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  background: transparent;
+}
+.mermaid-out svg { max-width: 100%; height: auto; }
+
+/* 渲染失败时的一行提示 ✗ 不遮挡上面的源码 ✓ */
+.mermaid-err {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--vscode-errorForeground, #f48771);
+  border-top: 1px solid var(--vscode-panel-border);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ══ 展开自 ./css/topbar.css ══ */
+/* ===== 顶栏（topbar）：按钮容器 + 统计栏 + 电池 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
+   ★ 改这一块只需动本文件 ✓ */
+
+/* ===== 顶部区域（手机式三层：容器 / 统计栏 / 通知列表）=====
+   ★ 收起时只有 #status-bar 露在外面（= 原来的样子 ✓ 没有按钮 ✓）
+   ★ 展开时容器从上方撑开、列表从下方滑出 → 统计栏自然落到第 2 行 ✓
+   ★ 它是 absolute + 不透明底色 → 【盖住】对话区（不推挤 ✗ 不会跳动 ✓）*/
+#top-area {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-sideBar-background);
+  /* 收起 → 展开时，圆角与阴影跟着淡入 ✓ */
+  transition: border-radius .22s ease, box-shadow .22s ease;
+}
+#top-area.expanded {
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .32);
+}
+
+/* 第 1 行：按钮容器（★ 只在展开时存在 → ⚙ 日常碰不到 ✓）*/
+#notice-toolbar {
+  height: var(--pi-topbar-height);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-top: 1px solid var(--vscode-panel-border, transparent);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--vscode-descriptionForeground);
+  user-select: none;
+  overflow: hidden;
+  transition: height .22s ease, opacity .22s ease;
+}
+#notice-toolbar.collapsed {
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+#notice-toolbar .spacer { flex: 1; }
+#notice-toolbar button {
+  border: none;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font: inherit;
+  padding: 2px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+#notice-toolbar button:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .2));
+  color: var(--vscode-foreground);
+}
+#notice-settings { font-size: 13px; }
+
+/* ===== 按钮行（顶栏下方常驻一行）=====
+   ★ 左端留间距（不贴左边界 ✓）· 两端分布（会话在左、新建在右 ✓）*/
+/* ★ 弹性留白：把压缩顶到最右 ✓ */
+#app-toolbar .tb-spacer { flex: 1 1 auto; }
+
+/* ★ 左组两个按钮【紧贴】（用户：“它俩紧贴着”✓）——
+   覆盖 toolbar 的 gap:8px ✓ 只让 #btn-new-session 往左靠 ✓ */
+#app-toolbar #btn-sessions + #btn-new-session { margin-left: -5px; }
+
+#app-toolbar {
+  height: var(--pi-app-toolbar-height, 36px);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  /* ★ 改 flex-start + 弹性留白（B22）——
+     原来用 space-between 三个元素时会“三边撑开”✗ 现在右侧有两个按钮要【挨着】✓ */
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 12px;              /* ★ 左端不贴边 ✓ */
+  /* ★ 常驻行：“跟随主题”（不是面板色 ✗）
+     用户的要求：横栏和面板要【能分开调】 ——
+     否则面板弹下来时颜色一样，看不出弹了东西 ✗ */
+  background: var(--vscode-sideBar-background);
+  border-top: 1px solid var(--vscode-panel-border, transparent);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--vscode-descriptionForeground);
+  user-select: none;
+}
+
+/* ★ 方块按钮：宽 = 高（aspect-ratio: 1）
+   → 调 --pi-app-toolbar-height 时按钮【等比放大】✓
+   内容只放图标（去掉文字，否则正方形里塞不下 ✓）*/
+.tb-btn {
+  flex-shrink: 0;
+  aspect-ratio: 1;
+  height: calc(var(--pi-app-toolbar-height, 36px) - 12px); /* 上下各留 6px ✓ */
+  max-height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background .14s ease, color .14s ease;
+}
+/* ★ 按钮里的 SVG 图标（B22 压缩按钮用 ✓）——
+   不加宽度它会撑满整个方框 ✗ */
+.tb-btn svg { width: 16px; height: 16px; }
+
+.tb-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+  color: var(--vscode-foreground);
+}
+
+/* ★ 当前会话名（按钮行中间）—— 既是展示也是按钮（点击改名 ✓）
+   ★ 固定宽度（可配）：不撑满中间 ✗ —— 否则看着像一条滑轨 ✓
+     width 用 max-width + flex:1 实现：
+       · flex:1 让它在两侧按钮之间【居中】✓
+       · max-width 把它【封顶】成固定宽度 ✓
+       · 两个合起来 = 一块居中、宽度固定的区域 ✓ */
+#session-title {
+  flex: 1;
+  min-width: 0;
+  max-width: var(--pi-session-title-width, 160px);
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font: inherit;
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background .14s ease;
+}
+#session-title:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+}
+#session-title.empty {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+/* ===== 顶部常驻状态栏（手机式）=====
+   数据源：message_end.message.usage / model（每轮对话结束更新一次 ✓）*/
+#status-bar {
+  position: relative;          /* ★ 改为 relative：外层 #top-area 已是 absolute ✓ */
+  height: var(--pi-topbar-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;   /* 右对齐：电池在最右端 ✓ */
+  gap: 9px;
+  padding: 0 10px;
+  /* ★ 上边框：把本栅与 VS Code 自己的顶部栅分开（否则看着像一体的 ✗）*/
+  border-top: 1px solid var(--vscode-panel-border, transparent);
+  /* ★ 下边框【去掉】：硬线生硬 ✗ → 改用 #messages 的顶部 mask 做朦胧过渡 ✓ */
+  font-size: 12px;
+  line-height: 1;
+  color: var(--vscode-descriptionForeground);
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  /* ★ 整个栏就是展开/收起的点击热区 ✓ */
+  cursor: pointer;
+}
+#status-bar:hover { color: var(--vscode-foreground); }
+
+/* ★ 🔔 徽标：放顶栏最左端（其余统计项靠右 ✓）*/
+#notice-badge {
+  margin-right: auto;        /* ← 把它自己推到最左，其余内容自然靠右 ✓ */
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+#notice-badge.has-unread { color: var(--vscode-notificationsWarningIcon-foreground, #cca700); }
+.sb-item { display: inline-flex; align-items: center; }
+.sb-sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 13px;
+  background: var(--vscode-panel-border, currentColor);
+  opacity: 0.6;
+}
+
+/* 电池：一个外形 + 内部填充 + 内部数字（显示【剩余】占比 ✓）*/
+.battery {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 16px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+}
+.battery::after {          /* 电池正极小凸起 */
+  content: "";
+  position: absolute;
+  right: -4px;
+  top: 4.5px;
+  width: 2px;
+  height: 6px;
+  background: currentColor;
+  border-radius: 0 1px 1px 0;
+}
+.battery-fill {
+  position: absolute;
+  left: 1px;
+  top: 1px;
+  bottom: 1px;
+  width: 0%;
+  background: currentColor;
+  opacity: 0.42;             /* ★ 半透明：内部的数字才看得清 ✓ */
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.battery-pct {
+  position: relative;        /* 在填充之上 ✓ */
+  font-size: 11px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;   /* 等宽数字：跳动时不抽 ✗ */
+}
+/* 剩余不多 → 变色提醒（阈值是【剩余】语义 ✓）*/
+.battery.low { color: var(--vscode-editorWarning-foreground, #cca700); }
+.battery.empty { color: var(--vscode-errorForeground, #f48771); }
+/* 拿不到上下文窗口大小 → 整个电池区变成一个问号 ✓ */
+#status-bar.no-limit .battery { display: none; }
+#status-bar.no-limit #sb-battery-pct { font-size: 12px; }
+
+/* ===== ★ B25：搬上来的状态类按钮 =====
+   [模型] [思考] 放到会话名旁边 ✓ · [⟳ 重载] 放到压缩旁边 ✓
+   ★ 为什么搬？→ 它们本质是“当前状态/控制”，不是“输入辅助”✓
+     留在输入区会【挤位置】✗ 而且和“发送”不同类 ✓ */
+
+/* ★ 文字型按钮（模型 / 思考深度）——
+   它们是文字而不是图标 ✗ 所以不能套 .tb-btn 的方框（aspect-ratio:1 ✓） */
+#app-toolbar .tb-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 22%;
+  padding: 2px 7px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+}
+#app-toolbar .tb-text:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+  color: var(--vscode-foreground);
+}
+/* ★ 空值时不占位（没模型/没思考等级时隐藏 ✓）*/
+#app-toolbar .tb-text[data-empty="true"] { display: none; }
+
+/* ★ 重载按钮（搬上来后仍保持圆形图标 ✓）*/
+#app-toolbar #btn-reload:active svg { animation: spin .6s linear; }
+
+/* ══ 展开自 ./css/notices.css ══ */
+/* ===== 通知面板（手机式下拉） =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
+   ★ 改这一块只需动本文件 ✓ */
+
+/* ===== 第 3 行起：通知列表（展开时滑出；高度可配 ✓）=====
+   ★ 【固定】高度，不是 max-height：
+     用 max-height 时，内容不够就够不到设定值 ✗（看起来像“设置没生效”）
+     固定高度后：拉下来就那么高，内容多了出滚动条 ✓ */
+#notice-panel {
+  flex-shrink: 0;
+  height: var(--pi-notice-panel-height, 40vh);
+  /* ★ 内部用纵向 flex：列表滚动、底部收起热区钉住不动 ✓ */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: height .22s ease, opacity .22s ease;
+}
+#notice-panel.collapsed {
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+#notice-list {
+  display: flex;
+  flex-direction: column;
+  /* ★ 只有列表区滚（热区留在底部 ✓）*/
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+#notice-empty {
+  padding: 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.notice-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  /* ★ 可配（设置：pi-bridge.style.noticeItemPadding）*/
+  padding: var(--pi-notice-item-padding, 6px 8px 6px 10px);
+  border-top: 1px solid var(--vscode-panel-border, transparent);
+  /* ★ 可配（设置：pi-bridge.style.noticeFontSize）*/
+  font-size: var(--pi-notice-font-size, 12px);
+  line-height: 1.45;
+}
+.notice-item .ni-icon { flex-shrink: 0; }
+/* ★ 时间戳（HH:MM:SS）—— 等宽数字让多行的时间列对齐 ✓ */
+.notice-item .ni-time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+  opacity: .7;
+  font-size: .92em;
+}
+.notice-item .ni-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  /* ★ 点击本体 → 留接口（暂不绑行为 ✓）；给个可点手感 */
+  cursor: pointer;
+}
+.notice-item .ni-text:hover { text-decoration: underline; }
+.notice-item .ni-btn {
+  flex-shrink: 0;
+  opacity: 0;                  /* 平时隐藏 → hover 才显出 ✓ */
+  border: none;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font: inherit;
+  padding: 0 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity .12s ease;
+}
+.notice-item:hover .ni-btn { opacity: .7; }
+/* ★ 实心背景 + 高不透明度：让两个按钮【一眼可见】（之前太淡看着像没实装 ✗）*/
+.notice-item .ni-btn:hover {
+  opacity: 1;
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .28));
+}
+
+/* 级别颜色（图标）*/
+.notice-item[data-level="error"] .ni-icon { color: var(--vscode-errorForeground); }
+.notice-item[data-level="warn"] .ni-icon { color: var(--vscode-editorWarning-foreground, #cca700); }
+.notice-item[data-level="success"] .ni-icon { color: var(--vscode-testing-iconPassed, #73c991); }
+.notice-item[data-level="info"] .ni-icon { color: var(--vscode-descriptionForeground); }
+
+/* 底部：点击收起热区 */
+#notice-collapse {
+  text-align: center;
+  padding: 4px 0 6px;
+  font-size: var(--pi-notice-font-size, 12px);
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  user-select: none;
+}
+#notice-collapse:hover { color: var(--vscode-foreground); }
+
+/* ===== ★ 压缩气泡（B22）=====
+   和重连提示同构（.bubble-wrap.notice + .bubble.notice ✓）
+   三种结局用颜色区分：完成 ok / 失败 failed / 其他中性 ✓ */
+.bubble.compact {
+  font-size: 12px;
+  opacity: .9;
+}
+.bubble.compact.ok { color: var(--vscode-charts-green, #4caf50); }
+.bubble.compact.failed { color: var(--vscode-charts-red, #e05252); }
+
+/* ★ 压缩按钮转圈（压缩要跑十几秒 ✗ 不反馈像没反应 ✓）*/
+@keyframes pi-tb-spin { to { transform: rotate(360deg); } }
+#btn-compact.spinning svg { animation: pi-tb-spin 1.1s linear infinite; }
+#btn-compact.spinning { color: var(--vscode-charts-yellow, #d7a12c); }
+
+/* ══ 展开自 ./css/bubbles.css ══ */
+/* ===== 气泡：基础 / 用户 / 思考 / 占位三点 / 异常与重连提示 / 间距 / 居中列 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
+   ★ 改这一块只需动本文件 ✓ */
+
+/* ===== 气泡（每个内容段 = 一个气泡）=====
+   ★ 结构：wrapper（布局） + .bubble（视觉）
+     .bubble-wrap    ← 管【宽度 / 对齐 / 间距】（参与 #messages 的 flex 布局 ✓）
+       ├ .bubble     ← 管【背景 / 边框 / 圆角 / padding】（视觉 ✓）
+       └ .bubble-actions  ← 悬浮动作区（宽度跟随 ✓）
+
+   【为什么拆开？】
+     动作区要【跟气泡同宽】✓ 而它在气泡【外面】✗
+     → 必须有个共同的父（wrapper）来定宽度 ✓
+     否则【把按钮塞进气泡】会被背景包住 ✗（用户否掉的方案 ✓）
+
+   ★ 间距只用 margin-top（相邻 wrapper），避免和 margin-bottom 叠加 ✓
+*/
+.bubble-wrap {
+    display: flex;
+    flex-direction: column;   /* 气泡 + 动作区 上下排 ✓ */
+    /* ★★ 左边距：只作用于【AI 气泡自己】（B32 修耦合 ✓）
+       为什么不放在 #messages 的 padding 上？
+         那会改变内容区宽度 ✗ 把所有子元素全连在一起 ✓
+       放这里 ⇒ 只影响 AI 气泡 ✗ 用户气泡和输入框完全不受影响 ✓ */
+    margin-left: var(--pi-left-gap, 3%);
+    /* ★★ 用 min() 兜底：
+       就算 leftGap + bubbleWidth 超过 100% ✗ 也不会溢出 ✓
+       而是一直被夹在“对话区减去左边距”之内 ✓ */
+    width: min(var(--pi-bubble-width, 88%), calc(100% - var(--pi-left-gap, 3%)));
+    /* ★★ 禁止 flex 压缩 —— 否则内容变多时会被挤成一条线 ✗ */
+    flex-shrink: 0;
+}
+/* 默认间距（相邻气泡之间）*/
+.bubble-wrap + .bubble-wrap { margin-top: var(--pi-gap-turn, 10px); }
+
+/* ---- 用户消息：靠右 + 【自适应宽度】（不固定）---- */
+/* ★ 宽度全用【百分比】（用户要求 ✓）—— 这样在任何视口宽度下比例一致 ✓ */
+.bubble-wrap.user {
+    align-self: flex-end;                     /* ★ 可靠右对齐 */
+    /* ★★ 右边距：只作用于用户气泡自己 ✓（B32 新增 ✗ 用户抓到的缺口 ✓）*/
+    margin-right: var(--pi-right-gap, 3%);
+    margin-left: 0;                           /* ★ 取消 AI 那条左边距 ✓ */
+    width: auto;                              /* 内容多宽就多宽 */
+    min-width: var(--pi-user-min-width, 5%);  /* ★ 最小宽度（百分比 ✓）短消息不缩成一条线 */
+    /* ★★ 最大宽度：【独立配置】+ min() 兜底（防配得太大溢出 ✓）*/
+    max-width: min(var(--pi-user-max-width, 88%), calc(100% - var(--pi-right-gap, 3%)));
+}
+/* ★ 用户气泡的【颜色/边框】（视觉属性 —— 仍在 .bubble 上 ✓）*/
+.bubble.user {
+    background: var(--pi-bg-user, var(--vscode-button-background));
+    color: var(--vscode-button-foreground);
+    border-color: var(--pi-border-user, var(--pi-border-bubble, transparent));
+}
+/* 用户消息 → AI 第一个气泡（覆盖默认间距）*/
+.bubble-wrap.user + .bubble-wrap { margin-top: var(--pi-gap-user-first, 12px); }
+
+/* ===== 气泡本体（只管视觉）===== */
+.bubble {
+    width: 100%;                          /* ★ 跟随 wrapper（同一宽度 ✓）*/
+    padding: var(--pi-bubble-padding, 8px 12px);
+    border-radius: var(--pi-bubble-radius, 6px);
+    /* ★ 默认透明：各类型自己指定背景，避免“改一处动全部” */
+    background: transparent;
+    border: var(--pi-border-w, 1px) solid var(--pi-border-bubble, transparent);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ===== ★ 悬浮动作区（无边框无背景 → 悬空感 ✓）=====
+   ★ 宽度：width:100% → 自动 = 上面那个气泡的宽度 ✓
+   ★ 平时透明 → 鼠标进气泡才显 ✓（不抢戏 ✓）
+   ★ 它【在气泡区内占高】✓ 但【不侵入间距】✗（间距在 wrapper 之间 ✓）*/
+.bubble-actions {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 2px 0;
+    opacity: 0;
+    transition: opacity .12s ease;
+    user-select: none;
+}
+.bubble-wrap:hover .bubble-actions { opacity: 1; }
+/* ★ 空动作区不占位（思考/工具气泡都建了动作区 ✗ 但非组尾时是空的 ✓）*/
+.bubble-actions:empty { display: none; }
+/* ★ 用户气泡：动作区【右对齐】（左到右第一个也是复制 ✓ 靠右端 ✓）*/
+/* ★ 用户气泡单独调右对齐（用户定的 ✓）
+   它只有【复制】✗ 没有克隆/分叉（那两个只属于 AI 组末尾 ✓ 由 refreshForkButtons 控制 ✓）*/
+.bubble-wrap.user .bubble-actions { justify-content: flex-end; }
+
+.bubble-action {
+    padding: 1px 6px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease;
+}
+.bubble-action:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
+    color: var(--vscode-foreground);
+}
+
+/* ---- 思考气泡：可折叠（点头部切换）---- */
+/* ===== 通用折叠头（思考 / 工具共用）=====
+   左：【名字串】整体是一个按钮（点击折叠）· 右：操作区（未来放复制等按钮）*/
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 12px;
+}
+.head-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.head-toggle:hover { color: var(--vscode-foreground); }
+/* 箭头用 SVG：尺寸可控、和文字同高（之前用字符太小 ✗）*/
+.head-caret {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: transform 0.15s;
+}
+[data-open="false"] .head-caret { transform: rotate(-90deg); }
+/* 右侧操作区（未来的按钮位）*/
+.head-actions { margin-left: auto; display: inline-flex; gap: 6px; }
+
+/* ---- 思考气泡 ---- */
+.bubble.thinking {
+  background: var(--pi-bg-thinking, transparent);
+  border-left: none;
+  padding: 0;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.95em;
+}
+.bubble.thinking .head { padding: 2px 0; }
+.think-body {
+  border-left: var(--pi-rail-width, 2px) solid
+    var(--pi-rail-color-thinking, var(--vscode-panel-border));
+  padding: 2px 0 2px 10px;
+  margin: 2px 0 2px 4px;
+  font-style: italic;
+}
+.bubble.thinking[data-open="false"] .think-body { display: none; }
+
+/* ★★ B45：完整历史面板里"已被压缩"那段的气泡 =====
+   ★ 实色背景 + 左侧色条 ⇒ 一眼能扫出一整片"这段已经过去了"✓
+   ★ 不用 opacity（那会把文字一起淡掉 ✗ 用户要的是"背景显眼、字照常读"✓）
+   ★ 浅色主题单独覆盖（见下方 body.vscode-light ✓）*/
+/* ★★ B45：已压缩区段的气泡 =====
+   【目标】"气泡以外的区域"有底色 ✗ 而气泡自己保持原样 ✓
+     · 用户气泡仍然右对齐、仍然是蓝底 ✓（一眼能找到它 ✓）
+     · 左右两侧的"间距"也在这片底色里 ✓（用户："左右间距加颜色"✓）
+
+   【★ 怎么做到不改布局】（踩了三版的坑 ✓）
+     #messages 的左右 padding 是 0 ✗ "左右间距"其实是【气泡自己的 margin】✓
+       AI   → margin-left: leftGap
+       用户 → margin-right: rightGap
+     ⇒ 所以：负 margin 把背景【撑到两侧】✗ padding 再把内容【推回原位】✓
+       净效果 = 宽度多了一个 gap ✗ 但内容位置不变 ✓
+     ★ 关键是【成对出现】（负 margin 与 padding 同值 ✗ 否则会歪 ✓）
+
+   前两版错在：
+     ① 只染 .bubble ⇒ 只剩沿边一条线
+     ② 染每块 wrapper 但把 margin 归零 ⇒ 一个个紫方块 + 中间黑缝
+     ③ 包大容器 ⇒ ★ 用户气泡跑左对齐 + 左右间距全丢（破坏了 flex 上下文 ✓）*/
+.bubble-wrap.compacted {
+  background: var(--pi-compacted-bg);
+  /* ★ 撑满两侧的间距（再等量 padding 补回来 ⇒ 内容纹丝不动 ✓）*/
+  padding-left: var(--pi-left-gap, 3%);
+  margin-left: calc(-1 * var(--pi-left-gap, 3%));
+  padding-right: var(--pi-right-gap, 3%);
+  margin-right: calc(-1 * var(--pi-right-gap, 3%));
+  padding-top: 4px;
+  padding-bottom: 4px;
+  /* ★ 左侧书脊线 */
+  box-shadow: inset 3px 0 0 0 var(--pi-compacted-split-bg);
+}
+
+/* ★★ 用户气泡也要撑到右边（它的 margin-right 覆盖了上面那条 ✓）
+   —— 特异性要够（`.bubble-wrap.user` 在后面 ✗ 会赢 ✓）*/
+.bubble-wrap.compacted.user {
+  margin-right: calc(-1 * var(--pi-right-gap, 3%));
+  padding-right: var(--pi-right-gap, 3%);
+}
+
+/* ★★ 让【气泡】和【气泡以外的区域】区分开（这一版才终于对了 ✓）
+   【用户要的形态】
+       ┌─紫─┐ ╔═气泡（原样底色）═╗ ┌─紫─┐
+         ↑ 左右两侧的空白（气泡以外）是紫的
+         气泡自己保持原样 ⇒ 边界一眼可见 ✓
+   【为什么之前不对】
+     AI 气泡的默认背景是 transparent ✗ 于是紫底【直接透上来】
+     ⇒ 气泡和背景融为一体 ⇒ 用户："我怎么感觉还是没什么改动啊"✓
+   ⇒ 所以：给它一个【实底】（编辑器底色 ✗ 和外面紫底形成对比 ✓）
+   ★ 用户气泡不动：它本来就有自己的蓝底 ✓*/
+.bubble-wrap.compacted > .bubble {
+  background: var(--vscode-editor-background, #1e1e1e);
+}
+/* ★ 内部有自己底色的块（工具结果等）保持原样 ⇒ 它们本身就是"气泡里的内容"✓*/
+.bubble-wrap.compacted .tool-result,
+.bubble-wrap.compacted .part-text {
+  background: transparent;
+}
+
+/* 浅色主题单独一套 */
+html.vscode-light,
+body.vscode-light {
+  --pi-compacted-bg: #e6dff7;
+  --pi-compacted-split-bg: #8b7ac0;
+  --pi-compacted-fg: #4a3f6b;
+}
+
+/* 已压缩 → 未压缩 的分界线：做成一条【有底色的大提示条】✗ 不再用灰虚线 ✓
+   （用户实测："很难找到这条分界线"✓）*/
+.compacted-split {
+  margin: 20px 0 14px;
+  padding: 7px 12px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: #fff;
+  background: var(--pi-compacted-split-bg);
+  border-radius: 4px;
+}
+
+/* ===== ★★ B46：压缩气泡 =====
+   代表"此时刻之前的所有对话已被压缩成这段摘要"（见 bridge/session-file.ts ✓）
+   ★ 折叠机制与 thinking 同构（dataset.open + 整块显示/隐藏 ✓）
+     而不是 tool 那套"折叠单元"（压缩摘要没有"单元"的概念 ✗ 它是一整段 ✓）*/
+.bubble.compaction {
+  background: var(--pi-bg-compaction, transparent);
+  border-left: var(--pi-rail-width, 2px) solid
+    var(--pi-rail-color-compaction, var(--vscode-panel-border));
+  padding: 2px 0 2px 10px;
+  margin: 2px 0 2px 4px;
+  /* ★ 字号略小 + 灰色：它是一段"背景资料"✗ 不是当前对话 ✓ */
+  font-size: 0.95em;
+  color: var(--vscode-descriptionForeground);
+}
+.bubble.compaction .head { padding: 2px 0; }
+.bubble.compaction[data-open="false"] .comp-body { display: none; }
+.comp-body {
+  margin-top: 4px;
+  /* ★ 摘要可能很长 ⇒ 限高 + 滚动 ✗ 免得一个气泡占满整屏 ✓ */
+  max-height: var(--pi-compaction-max-height, 420px);
+  overflow: auto;
+  /* ★ 摘要是 markdown ✗ 这里把颜色还原成正文色（不然整块都是灰的 ✓）*/
+  color: var(--vscode-foreground);
+}
+.comp-body .comp-time {
+  font-size: 0.85em;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+/* 压缩气泡的头部标签（与 thinking 的头部同款处理）*/
+.head-label.comp-label { font-style: normal; }
+
+/* ---- 占位三点（发送后、等第一个数据包）---- */
+/* ★ 宽度由 wrapper 控制（现在 wrapper 才是 #messages 的直接子项 ✓）*/
+.bubble.pending {
+    background: none;
+    border: none;
+    padding: 2px 0;
+    color: var(--vscode-descriptionForeground);
+}
+/* 三点所在的那一行宽度【自适应】（不占满 ✓）*/
+.bubble-wrap.pending { width: auto; }
+.dots { display: inline-flex; gap: 4px; align-items: center; height: 1.1em; }
+.dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: dotPulse 1.2s infinite;
+}
+.dots i:nth-child(2) { animation-delay: 0.15s; }
+.dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes dotPulse {
+  0%, 60%, 100% { opacity: 0.3; }
+  30% { opacity: 1; }
+}
+
+/* ---- 正文气泡 ---- */
+/* ===== 异常结束提示（截断 / 中断 / 出错）=====
+   ★ 突发情况 → 【正常字号、正常颜色】，不做弱化 ✓ */
+.bubble-note {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+.bubble-note.warn { color: var(--vscode-editorWarning-foreground, #cca700); }
+.bubble-note.error { color: var(--vscode-errorForeground, #f48771); }
+.bubble-note.info { color: inherit; }
+
+/* ===== 重连提示气泡（auto_retry_start / auto_retry_end）=====
+   不进快照 → webview 重建后自然消失（和字段语义一致 ✓）*/
+.bubble.notice {
+  /* ★ 宽度/对齐/间距【现在由 wrapper 负责】
+       （.bubble-wrap.notice → 继承默认：88% 宽 + 靠左 ✓）*/
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  display: flex;                 /* 图标 + 文字横排 ✓ */
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--vscode-panel-border, transparent);
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-descriptionForeground);
+}
+/* 重试中：红色 + 转圈图标（比三个点更明确 ✓）*/
+.bubble.notice.retrying {
+  color: var(--vscode-errorForeground, #f48771);
+  border-color: currentColor;
+}
+.retry-spin {
+  flex-shrink: 0;
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;   /* 缺口 → 看得见在转 ✓ */
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+/* 最终结果 */
+.bubble.notice.failed { color: var(--vscode-errorForeground, #f48771); }
+.bubble.notice.ok { color: var(--vscode-charts-green, #4caf50); }
+.notice-mark { flex-shrink: 0; }
+.notice-text { min-width: 0; word-break: break-word; }
+
+/* ===== 气泡之间的间距（按【前 → 后】分别控制；只写 margin-top，不叠加）===== */
+.bubble-wrap.thinking + .bubble-wrap.text { margin-top: var(--pi-gap-thinking-text, 4px); }
+.bubble-wrap.thinking + .bubble-wrap.tool { margin-top: var(--pi-gap-thinking-tool, 4px); }
+.bubble-wrap.text + .bubble-wrap.tool { margin-top: var(--pi-gap-text-tool, 6px); }
+.bubble-wrap.tool + .bubble-wrap.text { margin-top: var(--pi-gap-tool-text, 4px); }
+.bubble-wrap.tool + .bubble-wrap.thinking { margin-top: var(--pi-gap-tool-thinking, 4px); }
+.bubble-wrap.text + .bubble-wrap.thinking { margin-top: var(--pi-gap-text-thinking, 4px); }
+
+/* ===== 居中内容列模式（centerColumn = true）=====
+   ★★ 它控制的是一套【对齐方案】✗ 不是某个气泡的属性 ✓
+     这一套同时管三个东西：AI 气泡 / 用户气泡 / 输入框 ✓
+
+   【列宽】
+     直接用 --pi-bubble-width ✗ 不再单设一个 centerWidth
+       （用户指出：两个宽度是多余的 ✓ 一个就够 ✓）
+
+   【列的位置】
+     padding = (100% − 列宽) / 2 ✗ 【算出来的】✓
+     ⇒ 也不需要 centerPadX 这种参数
+        想让列窄一点？直接调小 bubbleWidth ✓ 效果一样 ✓
+
+   【为什么这里不是 leftGap / rightGap？】
+     非居中：AI 左对齐 · 用户右对齐 ✗ 两边是【两种语义】✓
+     居中  ：列整体居中 ✗ 左右【对称】✗ 由算式决定 ✓
+     ★ 两套参数共存 ✗ 各自只在对应场景生效 ✗ 互不干扰 ✓ */
+:root.centered #messages {
+  padding-left: calc((100% - var(--pi-bubble-width, 88%)) / 2);
+  padding-right: calc((100% - var(--pi-bubble-width, 88%)) / 2);
+}
+:root.centered #input-area {
+  padding-left: calc((100% - var(--pi-bubble-width, 88%)) / 2);
+  padding-right: calc((100% - var(--pi-bubble-width, 88%)) / 2);
+}
+:root.centered .bubble-wrap {
+    width: 100%;
+    /* ★★ 居中模式：两条边距【归零】（B32 ✓）
+       因为位置由 (100% − 列宽)/2 自动算 ✗ 再叠一个 margin 就偏了 ✓ */
+    margin-left: 0;
+}
+:root.centered .bubble { width: 100%; }       /* 内层跟 wrapper ✓ */
+:root.centered .bubble-wrap.user {
+    width: auto;
+    margin-right: 0;
+    /* ★ 用配置（以前写死 100% → 把用户的 userMaxWidth 覆盖了 ✗ 实测踩到 ✓）*/
+    max-width: var(--pi-user-max-width, 88%);
+    align-self: flex-end;
+}
+:root.centered #input-box { width: 100%; margin: 0; }   /* 输入框与气泡同宽 ✓ */
+/* ★★ B32：居中时输入区也不再用 leftGap / rightGap 当 padding ✗
+   这里直接用列宽算式 ✓ */
+:root.centered #input-area {
+  /* 已在上面统一处理 ✓ 这里仅作位置声明 */
+}
+
+/* ══ 展开自 ./css/cmdrail.css ══ */
+/* ===== 命令条（B32）：气泡区左侧、同高度的竖直按钮容器 =====
+   ★ 用户定的位置：
+     “容器位置放到气泡区同高度，就放到左侧，不是独立的 web，
+       肯定要放到气泡区的旁边呀，要不然怎么承担快捷的功能性？”
+   ⇒ 所以它是【侧栏聊天页内部】的一根竖直条 ✗ 不是编辑器区的独立面板 ✓
+
+   【布局方式】
+     #messages 本身是 position:absolute 铺满的 ✗
+     所以这里做两件事 ✗：
+       ① 加一根 absolute 的 #cmd-rail ✗ 左贴边 + top/bottom 跟气泡区一样 ✓
+       ② 把 #messages 的 left 从 0 改成 rail 的宽度 ✗ 让出左侧 ✓
+     ⇒ 两者【高度天然一致】✗ 因为它们用同一个 top / bottom ✓
+
+   ★ 宽度由 CSS 变量控制 → 以后可以接到 VS Code 设置里 ✓ */
+
+:root {
+  --pi-cmd-rail-w: 42px;      /* 命令条宽度（0 = 隐藏 ✓）*/
+  --pi-cmd-btn-size: 28px;    /* 按钮正方形边长 ✓*/
+  --pi-cmd-gap: 5px;          /* 按钮之间的间距 ✓*/
+}
+
+/* ★ 给命令条让出左侧空间（覆盖 base.css 里的 left: 0 ✓）*/
+#messages {
+  left: var(--pi-cmd-rail-w, 42px);
+}
+
+#cmd-rail {
+  position: absolute;
+  /* ★★ z-index：它必须盖在 #messages 【上面】（B32 修 ✗）
+     症状（用户实测）：“滚轮不存在 ✗ 在上面滚的时候直接滚动了旁边的消息”✓
+     原因：#cmd-rail 和 #messages 都是 absolute ✗
+         而 #messages 在 DOM 里排【后面】→ 盖在上面 ✓
+         透明背景让你【看得见】rail ✗ 但鼠标事件全被 messages 截走 ✓
+     ⇒ 加 z-index 后：看得见 → 也点得到 / 滚得到 ✓
+     （不用改 HTML 顺序 ✗ 那种修法太“隐形”了 ✓ 以后有人调顺序又坏 ✓）*/
+  z-index: 2;
+  /* ★ 顶部让出：【顶栏 + 按钮行】两条（跟 #messages 完全一致 ✓）*/
+  top: calc(var(--pi-topbar-height) + var(--pi-app-toolbar-height, 28px));
+  left: 0;
+  /* ★★ 底部到【输入区上方】就截断（B32 ✓）
+     为什么不像 #messages 一样用 bottom:0 + padding？
+       气泡区需要“内容能滑到输入区后面”那种穿透感 ✓
+       命令条是【按钮】✗ 被盖住一部分就点不到了 ✓ 直接截断最干净 ✓ */
+  /* ★★ 底部【在输入区上方截断】
+
+     【试过的两种写法（B32 ✗ 用户实测把两种都测了 ✓）】
+       ① bottom: var(--pi-input-reserve) ✗ 盒子停在输入区上方
+          ⇒ 右边框在 876 就结束（但这是【正确位置】✓）
+       ② bottom: 0 + padding-bottom: reserve
+          ⇒ 盒子到底、边框连续 ✓ 但 ★ padding 【会被算进可滚动区】
+            ⇒ 滑到底时下面空出 152px 一块 ✗（用户实测报的 ✓）
+
+     ⇒ 回到 ① ✓ 它才是对的：
+        容器的可用范围【本来就应该】到输入区上方为止 ✓
+        线在那里结束不是“被截断”✗ 是边界 ✗ 合理 ✓
+        （之前觉得像被遮挡 ✗ 是因为当时 CSS 整个乱了 ✓）*/
+  bottom: 0;                  /* ★ 到底 ✗ 边框/背景连续 ✓ */
+  width: var(--pi-cmd-rail-w, 42px);
+  /* ★ 右边界：一条很淡的分隔线 ✗ 让“容器”这件事看得出来 ✓ */
+  border-right: 1px solid var(--vscode-sideBar-border, rgba(128, 128, 128, 0.18));
+  /* ★★ 不透明背景（B32 ✓ 用户要求 ✓）
+     原话：“你既然都已经放到左侧去滚动那里 ✗ 宽度计算也和对话区区分开了 ✗
+            那你这个消息的遮挡怎么还是在挡？下面直接别让消息遮挡它”✓
+     ⇒ 即使 #messages 的滚动区比 rail 长（bottom:0 vs bottom:input-reserve ✓）
+       消息也【穿不过】rail 这一块 —— 直接被挡住 ✓
+     ★ 用侧栏背景色 ✗ 跟 body 一致 ✗ 看不出“多了一层” ✓ */
+  background: var(--vscode-sideBar-background);
+  display: var(--pi-cmd-rail-display, flex);
+  flex-direction: column;
+  /* ★ 内层溢出被裁（真正的滚动在内层 ✓）*/
+  overflow: hidden;
+}
+
+/* ══════════ 内层：真正的滚动区 ══════════
+   ★★ 【不要再加 margin-bottom】（B32 ✗ 我加了一轮又删了 ✓）
+     试错记录：
+       加了 margin-bottom: 输入区高度 → 底部空出 152px 空壳 ✗
+         看起来像“容器被拉进输入区里”✗（用户报的 ✓）
+       ★ 其实根本不需要让位：
+         输入区已经 left: 42 让开了左侧 ✗ 它不会盖到命令条 ✓
+         ⇒ 命令条整条一直到屏幕底都是【干净的】✓✓✓
+         ⇒ 按钮直排到底 ✗ 滑到底就是「＋」✗ 线也一路到底 ✓ */
+#cmd-rail-list {
+  flex: 1 1 auto;
+  min-height: 0;              /* ★ flex 子项要能收缩 ✗ 否则根本不滚 ✓ */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--pi-cmd-gap, 5px);
+  padding: 8px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* ★★ 滚到头也【不把滚轮事件传染给气泡区】（B32 ✓）
+     用户实测：“在上面滚的时候直接滚动了旁边的消息”✓
+     ⇒ contain = 滚到我头就不往外冒了 ✗ 气泡区不会跟着动 ✓ */
+  overscroll-behavior: contain;
+}
+
+/* ★★ 滚动条【完全隐形】（B32 ✗ 用户要求 ✓）
+   原话：“你做滚动的时候不要有滑块 ✗ 本身就很窄了 ✗ 还来个滑块”✓
+   ⇒ 仍然能滚 ✗ 只是没有视觉的滑块 ✓ */
+#cmd-rail-list {
+  scrollbar-width: none;            /* Firefox */
+  -ms-overflow-style: none;         /* 旧 Edge */
+}
+#cmd-rail-list::-webkit-scrollbar {
+  display: none;                    /* Chrome / Electron ✓ */
+  width: 0;
+  height: 0;
+}
+
+/* ===== 按钮 =====
+   ★ 先做成【正方形图标按钮】✗ 名字走悬停提示 ✓
+     因为 42px 宽放不下"图标 + 文字"两行 ✓
+   （以后如果加宽，可以改成"图标在上、文字在下"✓）*/
+/* ══════════════ ★★ B34：小光标 + 拖拽动画 ══════════════
+
+   【① 自定义小光标】（用户要求 ✓）
+     原话：“鼠标好大呀 ✗ 相比较于里面的按钮 ✗ 里面按钮本来就不咋地大 ✗
+            这鼠标还挺大一个 ✗ 能不能做到一个自定义的鼠标 ✗
+            让它进来的时候鼠标变小？”✓
+     ★ 做法：内联 SVG（data URI ✗ 不用额外文件 ✓）
+     ★★ 限制：光标图【最大 32×32】✗ 而且必须给【热点坐标】✓
+        格式：url(...) <x> <y>, <回退光标> ✓
+     ★★★ 拖动时那个“大手”是浏览器画的 ✗ 改不了 ✓
+         —— 但可以把【指到按钮上】的光标换小 ✓ */
+.cmd-btn,
+.cmd-btn.add {
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 13 13"><path d="M1 1 L1 10.5 L3.6 7.8 L5.8 12.4 L7.4 11.6 L5.2 7.2 L9 7.2 Z" fill="%23ffffff" stroke="%23000000" stroke-width="1"/></svg>') 1 1, pointer;
+}
+
+/* ② ★ 正在拖的那个：缩小 + 半透明（B34 ✗ 用户要的“变小”✓）*/
+.cmd-btn.dragging {
+  opacity: .3;
+  transform: scale(.75);
+}
+
+/* ★★ 拖拽图像（幕后 clone ✗ 缩到 .62 ✓）
+   用户要的：“拖动出来的图标变小一点”✓
+   ★ position: fixed + 移出屏外 ✗ 只为了能被 setDragImage 拿到 ✓ */
+.cmd-ghost {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  transform: scale(.62);
+  opacity: .9;
+  pointer-events: none;
+}
+
+/* ③ ★★ 落点标记：脉冲（快点 ✗ 0.45s ✓）*/
+@keyframes pi-drop-pulse {
+  0%, 100% { opacity: .5; }
+  50% { opacity: 1; }
+}
+
+/* ④ ★★ 落点：【两侧一起让开】✗ 空位看得清清楚楚（用户要求 ✓）
+
+   【为什么两个都要动？】
+     用户：“移动的时候只有一个在移动 ✗ 没有两个一起移动”✓
+     只动一个 → 看不出“空位在哪”✗
+     两侧分别往两边让 ✗ 中间就真的空出来 ✓
+
+   【方向】竖条用 y ✗ 弹层用 x ✓
+     插到它前面 → 它往下让 ✗ 它前面那个往上让 ✓
+     插到它后面 → 它往上让 ✗ 它后面那个往下让 ✓ */
+.cmd-btn.drop-before { transform: translateY(8px); }
+.cmd-btn.drop-after { transform: translateY(-8px); }
+.cmd-btn.shift-up { transform: translateY(-8px); }
+.cmd-btn.shift-down { transform: translateY(8px); }
+
+.rail-pop .cmd-btn.drop-before { transform: translateX(8px); }
+.rail-pop .cmd-btn.drop-after { transform: translateX(-8px); }
+.rail-pop .cmd-btn.shift-up { transform: translateX(-8px); }
+.rail-pop .cmd-btn.shift-down { transform: translateX(8px); }
+
+.cmd-btn {
+  flex: 0 0 auto;
+  /* ★★ B34：落点标记用伪元素定位 ✗ 需要它是定位上下文 ✓ */
+  position: relative;
+  /* ★ 平移让开要平滑 ✓ */
+  transition: transform .14s ease-out;
+  width: var(--pi-cmd-btn-size, 28px);
+  height: var(--pi-cmd-btn-size, 28px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+  font-size: 14px;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+  opacity: .78;
+  transition: opacity .1s, background .1s;
+}
+.cmd-btn:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.22));
+}
+.cmd-btn:active {
+  background: var(--vscode-toolbar-activeBackground, rgba(128, 128, 128, 0.32));
+}
+/* ★ 没有图标时的【首字兜底】✗（用户提的"文字转图标"✓）*/
+.cmd-btn.text {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ★ 分组（收纳器）的标记：右下角一个小三角 ✗ 表示"点开会展开"✓ */
+.cmd-btn.group::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  border-left: 3px solid transparent;
+  border-bottom: 3px solid currentColor;
+}
+.cmd-btn.group { position: relative; }
+
+/* ★「＋」（新建入口 ✗ 列表最后一项永远是加 ✓）*/
+.cmd-btn.add {
+  border-style: dashed;
+  border-color: var(--vscode-sideBar-border, rgba(128, 128, 128, 0.35));
+  opacity: .55;
+}
+.cmd-btn.add:hover {
+  opacity: 1;
+  border-color: var(--vscode-focusBorder, #0078d4);
+}
+
+/* ★★ 本地图片图标（B32 ✓）
+   主机把 icons/xxx 复制到标准位置并转成 webview URI ✗
+   前端只管把它当 img 摆进去 ✓ */
+.cmd-btn .cmd-ico {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  /* ★ 图片别把按钮撑变形 ✓ */
+  display: block;
+}
+
+/* ★★ 文字兜底（B33 ✗ 规则见 cmdrail.ts）
+   中文开头 → 只显示一个字（12px 够大 ✓）
+   其他    → ★ 全量渲染 ✗ 太长就缩字号（不截断 ✓）*/
+.cmd-btn.text {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.1;
+  /* ★ 全量渲染时可能要换行 ✗ 让它紧凑地断 ✓ */
+  word-break: break-all;
+  overflow: hidden;
+}
+.cmd-btn.text.sm { font-size: 10px; }
+.cmd-btn.text.tiny { font-size: 8px; }
+
+/* ══════════════ ★★ B33：横向弹层（收纳器）══════════════
+   点收纳器 → 在它右边横排弹出一排子按钮 + 最后一项「＋」✓
+
+   ★ 为什么 position: fixed + 挂在 document.body？
+     #cmd-rail 写了 overflow: hidden ✗（B32 为了隐滚动条 ✓）
+     挂它里面会被【裁掉】✗ 所以飘在外面 ✓
+
+   ★★ 风格：【跟竖条完全一致】✗（用户要求 ✓）
+     用户原话：
+       “我们这个容器的样式就是对的 ✗ 单纯一条线 ✗ 非常的简洁”
+       “把那个洽接部分边缘的线给去掉 ✗ 自然弹出，
+         然后尽头一个圆角处理就完事儿了”
+       “你这个边框是白色 ✗ 应该与我们的风格一致”
+     ⇒ ① 边框用【跟竖条同一个变量】✗ 不是白色 ✓
+        ② 衔接的那一边【不画线】✗ 自然弹出 ✓
+        ③ 只在【尽头】（右侧）收圆角 ✓
+        ④ 不要阴影（要简洁 ✓）*/
+.rail-pop {
+  position: fixed;
+  /* ★ 只需比竖条高（竖条是 z-index: 2 ✓）*/
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--pi-cmd-gap, 5px);
+  padding: 5px 8px 5px 6px;
+  /* ① 与竖条完全同一条线 ✓ */
+  border: 1px solid var(--vscode-sideBar-border, rgba(128, 128, 128, 0.18));
+  /* ② 衔接处不画线 ✗ 自然弹出 ✓ */
+  border-left: none;
+  /* ③ 只在尽头收圆角 ✓ */
+  border-radius: 0 8px 8px 0;
+  background: var(--vscode-sideBar-background);
+  /* ④ 不要阴影（用户定的：简洁 ✓）*/
+  /* ★ 子按钮很多时横向滚 ✗ 不要撑破窗口 ✓ */
+  max-width: calc(100vw - 8px);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* ★ 翻到左边时：圆角方向跟着翻 ✗ 否则圆角跑到衔接处 ✓ */
+.rail-pop.flip {
+  border-left: 1px solid var(--vscode-sideBar-border, rgba(128, 128, 128, 0.18));
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  padding: 5px 6px 5px 8px;
+}
+/* ══════════════ ★★ B34：拖拽反馈 ══════════════
+   ① 正在拖的那个 → 半透明（让人看到它在动 ✓）
+   ② 落点 → 一条高亮线（插到哪一目了然 ✓）
+
+   ★★ 两个方向：
+     竖条里是【纵向】✗ 标记画成横线 ✓
+     弹层里是【横向】✗ 标记画成竖线 ✓
+     （判断靠 .rail-pop 祖先 ✗ 不用 JS ✓）*/
+.cmd-btn.dragging { opacity: .35; }
+
+.cmd-btn.drop-before::before,
+.cmd-btn.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  height: 2px;
+  background: var(--vscode-focusBorder, #0078d4);
+  border-radius: 1px;
+  z-index: 1;
+  animation: pi-drop-pulse .45s ease-in-out infinite;
+}
+.cmd-btn.drop-before::before { top: -3px; }
+.cmd-btn.drop-after::after { bottom: -3px; }
+
+/* ★ 弹层里的：把横线转成竖线 ✓ */
+.rail-pop .cmd-btn.drop-before::before,
+.rail-pop .cmd-btn.drop-after::after {
+  left: auto;
+  right: auto;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  height: auto;
+}
+.rail-pop .cmd-btn.drop-before::before { left: -3px; }
+.rail-pop .cmd-btn.drop-after::after { right: -3px; }
+
+/* ★ 空收纳器的提示 ✓ */
+.rail-pop-hint {
+  padding: 0 4px;
+  font-size: 10px;
+  opacity: .55;
+  white-space: nowrap;
+}
+
+/* ══ 展开自 ./css/tool.css ══ */
+/* ===== 工具气泡：外框 / 参数键值对 / 结果 / 状态图标 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
+   ★ 改这一块只需动本文件 ✓ */
+
+.bubble.text {
+  background: var(--pi-bg-text, var(--vscode-textBlockQuote-background));
+}
+
+/* ---- 工具气泡：外框 + 上下两部分（调用 / 结果），中间无线 ----
+   ★ 一个外框画出全部四条边 → 视觉上是【一个】气泡 ✓
+   ★ overflow: hidden → 内部背景被外框圆角裁剪 ✓ */
+.bubble.tool {
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  border: var(--pi-border-w, 1px) solid var(--pi-border-tool, var(--vscode-panel-border));
+  border-left: var(--pi-rail-width, 2px) solid
+    var(--pi-rail-color-tool, var(--vscode-charts-orange));
+}
+.bubble.tool .tool-body .tool-call,
+.bubble.tool .tool-body .tool-result {
+  padding: 6px 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.bubble.tool .head { color: var(--vscode-charts-orange); }
+/* ★ B38：整个内容区一个背景（不再分调用/结果两半）*/
+.bubble.tool .tool-body { background: var(--vscode-textBlockQuote-background); }
+/* ★ B38：分区背景已删（统一在 .tool-body）*/
+/* ★ B38：折叠由顶栏控 ✗ 不再整体隐藏 */
+.bubble.tool .tool-result {
+  background: transparent;
+}
+/* ★ B38：结果区不再有自己的折叠头 */
+
+/* ===== 结果区“收起时洏几行”（配置 toolPeekLines，如 "3:2"）=====
+   part-text 里存两份 DOM：
+     .part-full  全文（展开时显示）
+     .part-peek  头 + …（已折叠 N 行）+ 尾（收起时显示）
+   默认：只显示全文，精简版隐藏 ✓ */
+.part-text .part-peek { display: none; }
+
+/* ★ 启用了精简版（data-peek=true）且【收起】→ 全文隐藏、精简版显示 ✓ */
+.fold-collapsed .part-text[data-peek="true"] .part-full { display: none; }
+.fold-collapsed .part-text[data-peek="true"] .part-peek { display: block; }
+
+/* ★ B38：下面两条 data-open 规则已删（peek 开关改成 .fold-collapsed）*/
+
+/* 折叠提示行（…已折叠 N 行）—— 弱化色，不抢戏 ✓ */
+.peek-more {
+  color: var(--vscode-descriptionForeground);
+  opacity: .75;
+  font-style: italic;
+  user-select: none;
+}
+
+/* ===== 工具：参数键值对（通用渲染）=====
+   用 grid → 多行值的续行自动对齐到第二列 ✓ */
+.arg-row {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 10px;
+  /* ★ 不能用 baseline：左侧是 inline-flex（箭头+名字），
+     其 baseline 会取【第一个 item（SVG）】的 baseline → 名字被抬高 ✗ */
+  align-items: start;
+}
+.arg-key { color: var(--vscode-charts-orange); }
+.arg-key::after { content: ":"; }
+.arg-val {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* ★ B38：参数行不再能单独折叠（箭头已删）→ data-open 那条规则已删 */
+
+
+/* ===== 工具：结果部分（按 type 分发）===== */
+.part-text { white-space: pre-wrap; word-break: break-word; }
+.part-image { display: block; max-width: 100%; border-radius: 4px; margin: 4px 0; }
+.part-unknown { white-space: pre-wrap; opacity: 0.7; font-size: 0.9em; }
+
+/* ===== 工具：状态图标（转圈 / 勾 / 叉）===== */
+.tool-state {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 0.95em;
+  line-height: 1;
+}
+.tool-state.running {
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+.tool-state.ok { color: var(--vscode-charts-green, #4caf50); }
+.tool-state.error { color: var(--vscode-charts-red, #f44336); }
+
+/* ===== ★★ B38：bash 工具块 → 终端 =====
+   命令行和输出画成一整块黑底，像终端一样连续 */
+.bubble.tool[data-tool="bash"] .tool-body {
+  background: var(--pi-bash-bg, #000000);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.55;
+}
+/* 两半都不另起底色 / 内边距 / 色条（由 .tool-body 统一给，才连成一整块）*/
+.bubble.tool[data-tool="bash"] .tool-call,
+.bubble.tool[data-tool="bash"] .tool-result {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.term-line { white-space: pre-wrap; word-break: break-all; margin-bottom: 4px; }
+.term-prompt { color: #7ee787; user-select: none; margin-right: 6px; }
+.term-cmd .line { display: inline; }
+.term-cmd { color: #e6edf3; }
+.bubble.tool[data-tool="bash"] .part-text { color: #e6edf3; background: transparent; }
+.bubble.tool[data-tool="bash"] .peek-more { color: #8b949e; }
+
+/* ===== ★★ B38：折叠单元（tool-fold.ts 控制）===== */
+.fold-unit.fold-hidden { display: none; }
+.fold-more { color: var(--vscode-descriptionForeground); font-size: 11px; padding: 2px 0; opacity: .8; }
+/* 行级折叠的显示切换：收起 → 精简版；展开 → 全文 */
+.part-text[data-peek="true"] .part-peek { display: none; }
+.fold-collapsed .part-text[data-peek="true"] .part-full { display: none; }
+.fold-collapsed .part-text[data-peek="true"] .part-peek { display: block; }
+
+/* ★★ B38：整块可点折叠 → 统一手型（不要 I 型；选字仍然可用）*/
+.bubble.tool,
+.bubble.tool .tool-body { cursor: pointer; user-select: text; }
+.bubble.tool button { cursor: pointer; }
+
+/* ===== ★★ B38：read / write 的文件渲染 ===== */
+/* 路径行（固定单元）：等宽 + 可选中 */
+.path-line {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  word-break: break-all;
+}
+/* 工具里的 markdown 正文容器（复用正文渲染器的样式，只清掉额外外边距）*/
+.md-in-tool > :first-child { margin-top: 0; }
+.md-in-tool > :last-child { margin-bottom: 0; }
+
+/* 行号：靠 shiki 自带的 .line 元素 + CSS 计数器（不动它的 token 结构）*/
+.code-block.with-ln { counter-reset: ln var(--ln-start, 0); }
+.code-block.with-ln code { display: block; }
+.code-block.with-ln .line { display: block; }
+.code-block.with-ln .line::before {
+  counter-increment: ln;
+  content: counter(ln);
+  display: inline-block;
+  width: 2.6em;
+  margin-right: .8em;
+  text-align: right;
+  color: var(--vscode-editorLineNumber-foreground, #6e7681);
+  user-select: none;   /* 行号不要被选中 */
+}
+/* 高亮还没跑完时（纯文本阶段）也给个左侧留白，避免编号出现后跳动 */
+.code-block.with-ln:not([data-hl-done]) code { padding-left: 0; }
+/* 工具里的代码块：去掉正文那种下外边距（否则底部多一截空）*/
+.tool-result .code-block:last-child { margin-bottom: 0; }
+
+/* ===== ★★ B38：摘要行（顶栏下面一行，各工具自己填）===== */
+.tool-meta {
+  padding: 1px 12px 3px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  word-break: break-all;
+}
+.tool-meta:empty { display: none; }   /* 空 = 不占高度 */
+
+/* 工具里的语言标签隐藏（★ 只隐藏不删 —— highlightBlock 要靠它识别语言）*/
+.tool-result .code-lang { display: none; }
+
+/* ===== ★★ B38：摘要行里的命令主体（chip）===== */
+.tool-meta .cmd-chip { margin-right: 8px; }
+
+/* ★★ B38：行级折叠的代码块（两版都高亮 ✗ 只切显示）*/
+.fold-code .fold-peek { display: none; }
+.fold-collapsed .fold-code .fold-full { display: none; }
+.fold-collapsed .fold-code .fold-peek { display: block; }
+
+/* ===== ★★ B38：edit 的 diff ===== */
+.diff-box {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.diff-hunk { margin-bottom: 6px; }
+.diff-hunk-head {
+  color: var(--vscode-descriptionForeground);
+  opacity: .8;
+  padding: 2px 0;
+}
+.diff-line { display: flex; padding: 0 4px; border-radius: 2px; }
+.diff-ln {
+  flex: 0 0 auto;
+  width: 3em;
+  margin-right: .8em;
+  text-align: right;
+  color: var(--vscode-editorLineNumber-foreground, #6e7681);
+  user-select: none;
+}
+.diff-lc { white-space: pre-wrap; word-break: break-all; }
+.diff-line.add { background: rgba(76, 175, 80, .15); }
+.diff-line.add .diff-lc { color: #7ee787; }
+.diff-line.del { background: rgba(244, 67, 54, .15); }
+.diff-line.del .diff-lc { color: #ff7b72; }
+
+/* ===== ★★ B38：收起版代码块【视觉缝合】=====
+   头片段 + 折叠提示 + 尾片段 本来是三个独立块 ✗ 看起来"断开" ✓
+   → 去掉相邻处的边框/圆角，让它们连成一块 */
+.fold-peek .code-block:first-child { border-bottom: none; border-radius: 6px 6px 0 0; }
+.fold-peek .code-block:last-child { border-top: none; border-radius: 0 0 6px 6px; }
+.fold-peek .peek-more {
+  margin: 0;
+  padding: 3px 10px;
+  border-left: 1px solid var(--vscode-panel-border, rgba(128,128,128,.3));
+  border-right: 1px solid var(--vscode-panel-border, rgba(128,128,128,.3));
+  background: var(--vscode-textCodeBlock-background, rgba(128,128,128,.1));
+}
+/* 只有头片段（没有尾）时，头片段要自己收底 */
+.fold-peek .code-block:only-of-type { border-radius: 6px; border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,.3)); }
+/* 缝合：去掉片段自带的 margin（否则两框之间留一道缝）*/
+.fold-peek .code-block { margin-bottom: 0; }
+.fold-peek { display: none; }
+.fold-collapsed .fold-peek { display: block; }
+
+/* ═══ B41：工具块顶栏的"送去编辑器"按钮 ═══
+   跟折叠按钮同排（head-actions 区）✗ 平时淡出，hover 工具块才明显
+   ★ 用透明度而不是 display:none —— 后者会让顶栏宽度跳动 ✓ */
+.head-action {
+  background: none;
+  border: none;
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  /* ★ 常驻可见（不做 hover 才出现 —— 那样用户根本不知道有这个功能）*/
+  opacity: .75;
+  transition: opacity .12s ease, background .12s ease;
+}
+.bubble.tool:hover .head-action { opacity: .9; }
+.head-action:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .22));
+}
+/* ★ 文字按钮（不是图标）✗ 字号跟顶栏其它文字一致 */
+.head-action {
+  font-size: 11px;
+  font-family: inherit;
+  line-height: 1;
+}
+
+
+/* ═══ B43：diff 的 hunk 折叠 ═══
+   一个 hunk = 一处改动 = 一个折叠单元（用户定的 ✗ 不是"按行"）
+   · 顶栏折叠：按 hunk 个数裁（head/tail）
+   · 每个 hunk 的 @@ 头：自己也能点（单独折/展这一处）*/
+/* ★ 段之间的分隔（用户要的"分割"✗ 一眼看出几处改动）*/
+.diff-seg {
+  border-top: 1px dashed var(--vscode-panel-border, rgba(128, 128, 128, .28));
+  margin-top: 3px;
+  padding-top: 3px;
+}
+/* ★ 第一段（或紧跟在 hunk 头后面的）不要分隔线 */
+.diff-hunk > .diff-seg:first-of-type,
+.diff-box > .diff-seg:first-of-type {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+/* 被顶栏折叠起来的段 */
+.diff-seg.fold-hidden {
+  display: none;
+}
+
+/* ══ 展开自 ./css/input.css ══ */
+/* ===== 输入区：悬浮框 + 下方极简栏 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
+   ★ 改这一块只需动本文件 ✓ */
+
+/* ===== 输入区：悬浮在底部（圆角 + 悬空 + 与消息流无缝）=====
+   · 渐变遮罩：消息滚到框后面时自然淡出
+   · pointer-events: none 只作用于遮罩层（不挡鼠标），框本身可交互 ✓ */
+#input-area {
+  position: absolute;
+  /* ★ 左侧给命令条让位（B32）—— 原来这里是 padding 边距 ✗
+     现在改成了 0：输入框自己的 width% + margin:auto 就能居中 ✓
+     而气泡的边距下沉到了 .bubble-wrap 的 margin 上 ✓
+     ⇒ 两边彻底解耦：改气泡边距不会动输入框 ✓ */
+  left: var(--pi-cmd-rail-w, 42px);
+  right: 0;
+  bottom: 0;
+  /* ★★★ B32：左右内边距一律【为 0】
+     为什么？→ 输入框自己的 width% + margin:auto 就能居中 ✗
+       而用 leftGap / rightGap 当 padding 会【和气泡耦合】：
+       改气泡的左边距 → 这里跟着变 → 输入框莫名其妙滑动 ✓
+     ⇒ 输入区的位置只由【自己】决定 ✓ 别人改什么都不影响它 ✓ */
+  padding: 10px 0 var(--pi-input-bottom-gap, 22px) 0;
+  background: linear-gradient(
+    to top,
+    var(--vscode-sideBar-background) 62%,
+    transparent
+  );
+  pointer-events: none;
+}
+#input-box {
+  pointer-events: auto;
+  width: var(--pi-input-width, 100%);
+  margin: 0 auto;                                        /* 调窄后居中 */
+  border-radius: var(--pi-input-radius, 14px);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+  padding: 8px 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.18);
+  transition: border-color 0.15s;
+}
+#input-box:focus-within { border-color: var(--vscode-focusBorder); }
+
+/* ===== 输入区下方极简栏（工作目录，居中）=====
+   ★ 定位在 #input-area 的【padding 留白】里（bottom:0 + 高度 = 留白高度）
+     → 不会额外撑高整个输入区 ✓
+   ★ 垂直居中用的是【配置的高度】（改 inputBottomGap 会跟着居中 ✓）*/
+#foot-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--pi-input-bottom-gap, 22px);
+  display: flex;
+  align-items: center;          /* ★ 垂直居中 ✓ */
+  justify-content: center;      /* ★ 水平居中 ✓ */
+  pointer-events: auto;         /* #input-area 是 none → 这里恢复 ✓ */
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--vscode-descriptionForeground);
+  user-select: text;            /* 路径要能选中复制 ✓ */
+}
+#foot-cwd {
+  max-width: 100%;
+  min-width: 0;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* ★ 可点击（点了能改 cwd）→ 给出手感 ✓ */
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 1px 6px;
+  transition: background .14s ease, color .14s ease;
+}
+#foot-cwd:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .2));
+  color: var(--vscode-foreground);
+}
+
+#input {
+  border: none;
+  background: transparent;
+  color: var(--vscode-input-foreground);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+  min-height: 20px;
+  max-height: 180px;         /* ★ 最大高度：超过后出现滚动条（JS 控制）*/
+  overflow-y: hidden;
+}
+
+/* 固定栏：左=模型名（将来是按钮）· 右=操作按钮 */
+#input-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+}
+
+/* ★ 重启 pi 按钮（次级按钮：平时低调，hover 才明显 ✓）*/
+#send {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  transition: background 0.15s;
+}
+#send svg { width: 62%; height: 62%; }   /* 箭头占圆的比例（要粗、要大）*/
+#send:not(.busy):hover { background: var(--vscode-button-hoverBackground); }
+/* 工作中：隐藏箭头，变成一个转圈 */
+#send.busy {
+  background: transparent;
+  cursor: pointer;              /* ★ 转圈时点击 = 中断 ✓ */
+  position: relative;
+}
+#send.busy:hover { background: var(--vscode-toolbar-hoverBackground); }
+#send.busy svg { display: none; }
+#send.busy::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 2.5px solid var(--vscode-descriptionForeground);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== ★ 「待插话」条（B20）=====
+   挂在【输入框正上方】✗ 不进消息流 ✓（用户实测报的问题 ✓）
+   它只是【临时状态】✗ 不是一条历史消息 ✓
+   被投递后立即删除 → 接着走正常对话流程 ✓ */
+#queue-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 6px;   /* 与输入框留一点缝 ✓（padding 由 input-area 统一给 ✓）*/
+    pointer-events: auto; /* ★ 同 #ui-request：必须恢复 ✗（否则它也在 none 里 ✓）*/
+}
+#queue-bar[data-empty="true"], #queue-bar:empty { display: none; }
+
+.queue-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    opacity: .75;
+    border: 1px dashed var(--vscode-charts-yellow, #d7a12c);
+    background: color-mix(in srgb, var(--vscode-charts-yellow, #d7a12c) 8%, transparent);
+}
+.queue-text {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.queue-mark {
+    flex: 0 0 auto;
+    color: var(--vscode-charts-yellow, #d7a12c);
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    padding: 0 4px;
+    font-size: 10px;
+}
+
+/* ===== ★ 模型 / 思考深度（B23）=====
+   输入区下方那一排的最左端 ✓ 两个都是按钮（左键弹列表 ✓）
+   ★ 列表【向上】弹（因为它们在底部 ✗ 往下会出屏 ✓）*/
+/* ★ 向上弹出的候选列表（复用 .ctx-menu 的风格，但定位在按钮上方 ✓）*/
+.picker {
+  position: fixed;
+  z-index: 3000;
+  min-width: 190px;
+  max-height: 46vh;              /* ★ 超过就滚 ✓（滚轮 ✓）*/
+  overflow-y: auto;
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-radius: 5px;
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  background: var(--vscode-menu-background, var(--vscode-sideBar-background));
+  box-shadow: 0 -3px 10px rgba(0,0,0,.32);
+}
+.picker-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 9px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.picker-item:hover { background: var(--vscode-menu-selectionBackground, rgba(128,128,128,.22)); }
+.picker-item[data-current="true"] { color: var(--vscode-charts-blue, #4aa3df); }
+.picker-item .pk-sub { font-size: 10px; opacity: .62; }
+.picker-empty { padding: 6px 9px; font-size: 11px; opacity: .62; }
+
+/* ===== ★ 扩展交互（B25 回复桥）=====
+   位置：输入区【内部】✗（同 #queue-bar —— 放外面会被 input-area 盖住 ✓）
+   ★ 为什么要【醒目的边框】？
+     pi 在【等你回答】时是卡住的 ✗ 不能让它看着像普通提示 ✓ */
+#ui-request {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+  /* ★★ 必须恢复 pointer-events ✗（B25 踩的“死卡片”✓）
+   *   #input-area 是 pointer-events: none（让渐变背景不挡鼠标 ✓）
+   *   只有 #input-box / #foot-bar 自己恢复了 auto ✓
+   *   → 不写这行就会【继承 none】✓ → 整块交互卡片【点不动】✓
+   *     （用户：“有确认和取消按钮完全点不动”✓）*/
+  pointer-events: auto;
+}
+#ui-request[data-empty="true"], #ui-request:empty { display: none; }
+
+
+/* ★★ B25：按钮搬走后，输入区只剩发送 ✗
+   原来右侧的组（模型/思考/重载）靠 #btn-reload { margin-left: auto } 顶到右边 ✓
+   那条规则随搬迁删掉了 → ★ 发送会贴左 ✓
+   → 给发送自己加弹性 ✓ */
+#input-bar #send { margin-left: auto; }
+
+/* ══════════════ ★★ B26：交互提示条 ══════════════
+   完整问答（选项 / 输入 / 编辑）已【搬到编辑器面板】✗
+   侧栏这里只剩一条提示 + [前往] [取消] ✓
+   设计依据：一行高 ✓ 不抢输入区的视觉重量 ✓ 不占地方 ✓ */
+.hint-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 9px;
+  border: 1px solid var(--vscode-charts-yellow, #d7a12c);
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, .08));
+  font-size: 11px;
+}
+.hint-tag {
+  flex: 0 0 auto;
+  color: var(--vscode-charts-yellow, #d7a12c);
+  font-weight: 600;
+}
+.hint-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* ★ 一行截断（悬停看全文 ✓ 扩展的 title 可能非常长 ✓）*/
+  white-space: nowrap;
+  opacity: .9;
+}
+.hint-btn {
+  flex: 0 0 auto;
+  padding: 2px 9px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.hint-btn:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24)); }
+.hint-btn.danger { opacity: .75; }
+.hint-btn.danger:hover {
+  opacity: 1;
+  border-color: var(--vscode-charts-red, #e05252);
+  color: var(--vscode-charts-red, #e05252);
+}
+
+/* ══════════════ ★★ B27：斜杠命令补全 ══════════════ */
+/* 放在 #input-box 内部 ✗ 靠在 textarea 上方 ✓
+   为什么不用 absolute 浮层？→ #input-box 会自然长高 ✗ 不用算位置 ✓ */
+#slash-menu {
+  display: flex;
+  flex-direction: column;
+  /* ★★ 高度限制 + 滚动条 ✗（用户报：“缺少一个滑块 ✗ 下面明明有东西”✓）
+     列表现在显示【全部】候选 ✗ 靠这里限高 ✓ */
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, .35)) transparent;
+}
+#slash-menu::-webkit-scrollbar { width: 8px; }
+#slash-menu::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, .35));
+  border-radius: 4px;
+}
+#slash-menu::-webkit-scrollbar-track { background: transparent; }
+#slash-menu[data-empty="true"] { display: none; }
+
+.slash-item {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 5px 7px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+.slash-item:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .16)); }
+.slash-item.active {
+  background: var(--vscode-list-activeSelectionBackground, rgba(128, 128, 128, .26));
+}
+.slash-name { flex: 0 0 auto; font-weight: 600; }
+.slash-src {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid var(--vscode-panel-border);
+  opacity: .6;
+}
+.slash-desc {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: .72;
+}
+
+/* ★★ B43：pi 不可用时锁住输入区（用户定的："可以看 ✗ 但不能让它动手"）
+   （原来的位置写错了：我建了 media/css/chat.css ✗ 而入口 chat.css 并不 @import 它
+     ⇒ 样式压根不生效 ✓ 应该放在 input.css 这个已挂载的源里 ✓）*/
+#input.prompt-locked {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+/* ══ 展开自 ./css/context-menu.css ══ */
+/* ===== ★ 通用右键菜单（B21）=====
+   自绘而不是用原生 —— webview 的原生菜单是浏览器的（刷新/检查元素 ✗）与业务无关 ✓
+   定位用 position:fixed + clientX/clientY ✓（viewport 坐标 ✓ 不受滚动影响 ✓）*/
+.ctx-menu {
+  position: fixed;
+  z-index: 3000;              /* 盖过面板 / 通知 / 气泡 ✓ */
+  min-width: 132px;
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-radius: 5px;
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  background: var(--vscode-menu-background, var(--vscode-sideBar-background));
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .32);
+}
+.ctx-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ctx-item:hover { background: var(--vscode-menu-selectionBackground, rgba(128,128,128,.22)); }
+/* ★ 危险动作（删除 ✓）→ 红色，hover 变红底白字 ✓ */
+.ctx-item.danger { color: var(--vscode-charts-red, #e05252); }
+.ctx-item.danger:hover { background: var(--vscode-charts-red, #e05252); color: #fff; }
+
+/* ★★ B35：settings.css 不在这里了 ✗
+   设置面板搬到编辑器区 ✓ 样式跟着去了 media/settings.css
+   （它由 media/settings.html 自己加载 ✗ 侧栏不再需要 ✓）*/
