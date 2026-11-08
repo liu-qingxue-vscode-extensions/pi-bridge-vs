@@ -7,7 +7,9 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "${workspaceFolder}"
+        // ★ 位置参数 = 新窗口【打开哪个目录】（不是扩展路径）
+        //   用固定的测试工作区 ⇒ 提案落盘不会改到本项目的源码
+        "/tmp/test-vs"
       ],
       "outFiles": [
         "${workspaceFolder}/dist/**/*.js"

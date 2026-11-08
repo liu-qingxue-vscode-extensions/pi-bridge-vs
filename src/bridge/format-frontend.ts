@@ -13,6 +13,14 @@ import type { RpcCommand } from "@earendil-works/pi-coding-agent";
 /** 前端（webview）发给扩展宿主的消息 */
 export type FrontendMessage =
     | { kind: "prompt"; text: string }
+    // ★★ 提案决策（来自 in-pi 扩展产出的提案卡片上的按钮）
+    //   【本地】消息：由 main.ts 落盘 / 发消息给 pi，不进 format 层的通用翻译 ✓
+    | {
+          kind: "proposalAction";
+          action: "accept" | "reject" | "acceptAll" | "rejectAll" | "setAutoContinue";
+          proposalId?: string;
+          value?: boolean;
+      }
     // ★ 主动中断：对应发送按钮的“转圈”形态（点击转圈 = 中断 ✓）
     | { kind: "abort" }
     // ★ 通知板的【本地】消息 —— ★ 不是发给 pi 的，由 main.ts 直接处理，不进本层 ✓

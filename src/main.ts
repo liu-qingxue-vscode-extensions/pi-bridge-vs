@@ -46,6 +46,9 @@ import { CommandPanel } from "./view/command-panel.js";
 import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
 import { readSettings, resolveSessionRoot } from "./pi/settings.js";
 import { describeSelfCheck, runSelfCheck, type SelfCheck } from "./pi/pi-selfcheck.js";
+import type { WriteProposal } from "./bridge/proposal.js";
+import { ProposalComments } from "./view/proposal-comments.js";
+import { Walkthrough } from "./view/walkthrough.js";
 import {
     currentPiPackageDir,
     currentPiVersion,
@@ -117,8 +120,19 @@ export function activate(context: vscode.ExtensionContext): void {
     // ★ 关键：用【回调】而不是“现在读一次”✗
     //   启动参数只能影响 spawn 时刻 → 改完设置必须重启 pi ✓
     //   现读后，改完设置点一下 reload 按钮就能用新参数启动 ✓
+    // ★★ 我们自己的 pi 内线扩展（跑在 pi 进程里，见 src/in-pi/index.ts）
+    //
+    // 【为什么是 dist/ 而不是 src/】
+    //   .vscodeignore 里排除了 src/** ⇒ 打包后的 vsix 里没有源码
+    //   所以它必须跟 main.cjs 一样是【构建产物】（esbuild 打成单文件 .mjs ✓）
+    //
+    // 【为什么用 -e 显式指定】
+    //   · 不往用户的 ~/.pi/agent/extensions 里塞东西（不污染 ✓）
+    //   · -e 的路径不受项目信任、也不受 --no-extensions 影响（docs/cli.md ✓）
+    const piExtPath = vscode.Uri.joinPath(context.extensionUri, "dist", "in-pi", "index.mjs").fsPath;
+
     const pi = new PiClient(cwd, {
-        readArgs: () => readLaunchArgs(),
+        readArgs: () => [...readLaunchArgs(), "-e", piExtPath],
         // ★ B42：每次启动都现读（含用户的 piCliPath 覆盖）
         //   否则"改设置 → reload / 切换会话"仍用旧路径（启动是多处共用的核心 ✗ 必须现读）
         readCliPath: () => resolvePiCliPath(),
@@ -279,12 +293,16 @@ export function activate(context: vscode.ExtensionContext): void {
         if (event.type === "thinking_level_changed") {
             void pushPiState();
         } else if (event.type === "entry_appended") {
-            const e = event as { entry?: { type?: string } };
+            const e = event as {
+                entry?: { type?: string; customType?: string; data?: unknown };
+            };
             if (e.entry?.type === "model_change") void pushPiState();
             // ★★ B46：压缩条目【落盘】⇒ 重放会话
             //   为什么必须重放：压缩把"此刻之前的一切"变成了摘要 ⇒ 界面也要跟着塌缩 ✓
             //   （不重放的话：气泡还停在压缩前的样子 ✗ 与 pi 的实际上下文脱节 ✓）
             else if (e.entry?.type === "compaction") void onCompactionDone();
+            // ★★ 我们自己的 in-pi 扩展写的数据（提案 / 讨论回答）
+            else if (e.entry?.type === "custom") onOurEntry(e.entry.customType, e.entry.data);
         }
 
         // ★★ 函数【出口】不参与侧效应 ✗ —— 调试板必须【无遗漏】
@@ -334,6 +352,23 @@ export function activate(context: vscode.ExtensionContext): void {
                 prefill?: string;
                 timeout?: number;
             };
+            // 我们自己的扩展发起的内部请求（不是问用户）：
+            // 宿主直接算完，把结果塞进 extension_ui_response 回给 pi。
+            // 扩展那边 await ctx.ui.input(...) 立刻拿到结果，等价于一次普通的工具调用。
+            const INTERNAL = "pi-bridge:";
+            if (ev.method === "input" && ev.id && (ev.title ?? "").startsWith(INTERNAL)) {
+                const payload = (ev.title ?? "").slice(INTERNAL.length);
+                const reqId = ev.id;
+                void handleInternalRequest(payload).then((value) => {
+                    pi.replyExtensionUi({
+                        type: "extension_ui_response",
+                        id: reqId,
+                        value,
+                    } as never);
+                });
+                return;
+            }
+
             const needReply = ["select", "confirm", "input", "editor"];
             if (ev.method && needReply.includes(ev.method) && ev.id) {
                 logInfo(`扩展交互请求：${ev.method} ← ${ev.title ?? ""}`);
@@ -747,7 +782,472 @@ export function activate(context: vscode.ExtensionContext): void {
      *   但这里是【闭包】✗ 调用时才解析 ✓（只有 webview 发消息才会跑 ✓）
      *   与 interactionPanel 同一情况 ✓ 安全 ✓
      */
+    /**
+     * ★★ 我们自己的 in-pi 扩展写进会话的数据
+     *
+     * 【为什么不走 ChatPatch】
+     *   提案不是"对话气泡"✗ 它是有生命周期的交互对象
+     *   （待审核 / 讨论中 / 已接受 / 已拒绝）⇒ 单独一条消息类，前端单独渲染 ✓
+     */
+    /**
+     * 编辑器侧的提案展示（VS Code 原生 Comment UI）。
+     *
+     * 放这里是因为它需要 chatView 之外的资源（编辑器 / 命令），
+     * 而且生命周期跟扩展一致，所以直接挂在 main 里。
+     */
+    /** 用户是否要求"所有提案处理完就自动继续"（存在扩展全局状态里，重启保留）*/
+    let autoContinue = context.globalState.get<boolean>("pi-bridge.autoContinue", false);
+
+    function pushProposalList(): void {
+        chatView.post("proposalList", {
+            items: proposalComments.list(),
+            autoContinue,
+        });
+    }
+
+    /** 讲解播放器（自研，不依赖 CodeTour） */
+    const walkthrough = new Walkthrough(cwd);
+    context.subscriptions.push(
+        walkthrough,
+        vscode.commands.registerCommand("pi-bridge.tourNext", () => walkthrough.next()),
+        vscode.commands.registerCommand("pi-bridge.tourPrev", () => walkthrough.prev()),
+        vscode.commands.registerCommand("pi-bridge.tourStop", () => walkthrough.stop()),
+        vscode.commands.registerCommand("pi-bridge.injectSelection", () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) return;
+            const doc = editor.document;
+            const sel = editor.selection;
+            const text = sel.isEmpty
+                ? doc.lineAt(sel.active.line).text
+                : doc.getText(sel);
+            const startLine = sel.start.line + 1;
+            const endLine = sel.end.line + 1;
+            const range = startLine === endLine ? `${startLine}` : `${startLine}-${endLine}`;
+            const file = vscode.workspace.asRelativePath(doc.uri, false);
+            const fence = String.fromCharCode(96, 96, 96);
+            const block = `[${file}:${range}]\n${fence}${doc.languageId}\n${text}\n${fence}\n`;
+            logInfo(`注入选区：${file}:${range}（${text.length} 字符）`);
+            chatView.post("insertToInput", { text: block });
+        }),
+        vscode.commands.registerCommand("pi-bridge.tourHere", () => walkthrough.playHere()),
+        vscode.commands.registerCommand("pi-bridge.tourPick", () => walkthrough.pickAll()),
+        vscode.commands.registerCommand("pi-bridge.tourPrune", () => walkthrough.prune()),
+    );
+
+    const proposalComments = new ProposalComments(
+        cwd,
+        (id, text) => void askAboutProposal(id, text),
+        () => {
+            pushProposalList();
+            void maybeAutoContinue();
+        },
+    );
+    context.subscriptions.push(
+        proposalComments,
+        vscode.commands.registerCommand("pi-bridge.proposalAccept", (arg: { id?: string }) => {
+            if (arg?.id) void proposalComments.accept(arg.id);
+        }),
+        vscode.commands.registerCommand("pi-bridge.proposalReject", (arg: { id?: string }) => {
+            if (arg?.id) proposalComments.reject(arg.id);
+        }),
+        vscode.commands.registerCommand(
+            "pi-bridge.proposalReply",
+            (reply: vscode.CommentReply) => {
+                proposalComments.handleReply(reply.thread, reply.text);
+            },
+        ),
+    );
+
+    /**
+     * 处理来自我们自己的 pi 扩展的内部请求。
+     *
+     * 目前只有一种：symbols:<file> —— 用 VS Code 的语言服务列符号。
+     * 这就是"让 VS Code 赋能"的地方：pi 那边没有 LSP，这里有。
+     */
+    async function handleInternalRequest(payload: string): Promise<string> {
+        // 参数是 JSON（避免文件路径里的冒号把解析搞乱）
+        let req: { cmd?: string; file?: string; line?: number; char?: number };
+        try {
+            req = JSON.parse(payload) as typeof req;
+        } catch {
+            // 兼容旧格式 symbols:<file>
+            const idx = payload.indexOf(":");
+            req = { cmd: payload.slice(0, idx), file: payload.slice(idx + 1) };
+        }
+
+        const cmd = req.cmd ?? "";
+        const file = req.file ?? "";
+        if (!file) return JSON.stringify({ ok: false, error: "缺少 file" });
+
+        const uri = vscode.Uri.file(path.resolve(cwd, file));
+
+        // 语言服务是惰性的：先把它叫醒
+        let doc: vscode.TextDocument | undefined;
+        try {
+            doc = await vscode.workspace.openTextDocument(uri);
+        } catch {
+            doc = undefined;
+        }
+
+        const position = (): vscode.Position =>
+            new vscode.Position(Math.max(0, (req.line ?? 1) - 1), Math.max(0, (req.char ?? 1) - 1));
+
+        try {
+            if (cmd === "symbols") {
+                return await querySymbols(uri, doc, file);
+            }
+            if (cmd === "hover") {
+                const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+                    "vscode.executeHoverProvider",
+                    uri,
+                    position(),
+                );
+                if (!hovers || hovers.length === 0) {
+                    return JSON.stringify({ ok: false, error: "这个位置没有悬停信息" });
+                }
+                const texts: string[] = [];
+                for (const h of hovers) {
+                    for (const c of h.contents) {
+                        texts.push(typeof c === "string" ? c : c.value);
+                    }
+                }
+                logInfo(`悬停查询 ${file}:${req.line}:${req.char} -> ${texts.length} 段`);
+                return JSON.stringify({ ok: true, text: texts.join("\n\n") });
+            }
+            if (cmd === "definition") {
+                const defs = await vscode.commands.executeCommand<
+                    Array<vscode.Location | vscode.LocationLink>
+                >("vscode.executeDefinitionProvider", uri, position());
+                if (!defs || defs.length === 0) {
+                    return JSON.stringify({ ok: false, error: "没找到定义" });
+                }
+                const out = defs.map((d) => {
+                    const loc = (d as vscode.LocationLink).targetUri
+                        ? {
+                              uri: (d as vscode.LocationLink).targetUri,
+                              range: (d as vscode.LocationLink).targetRange,
+                          }
+                        : (d as vscode.Location);
+                    return {
+                        file: vscode.workspace.asRelativePath(loc.uri),
+                        startLine: loc.range.start.line + 1,
+                        endLine: loc.range.end.line + 1,
+                    };
+                });
+                logInfo(`定义查询 ${file}:${req.line}:${req.char} -> ${out.length} 处`);
+                return JSON.stringify({ ok: true, definitions: out });
+            }
+            if (cmd === "references") {
+                const refs = await vscode.commands.executeCommand<vscode.Location[]>(
+                    "vscode.executeReferenceProvider",
+                    uri,
+                    position(),
+                );
+                if (!refs || refs.length === 0) {
+                    return JSON.stringify({ ok: false, error: "没找到引用" });
+                }
+                const out = refs.slice(0, 100).map((loc) => ({
+                    file: vscode.workspace.asRelativePath(loc.uri),
+                    startLine: loc.range.start.line + 1,
+                }));
+                logInfo(`引用查询 ${file}:${req.line}:${req.char} -> ${out.length} 处`);
+                return JSON.stringify({ ok: true, total: refs.length, references: out });
+            }
+        } catch (err) {
+            return JSON.stringify({ ok: false, error: String(err) });
+        }
+
+        return JSON.stringify({ ok: false, error: `未知的内部请求：${cmd}` });
+    }
+
+    /** 列符号（独立出来，因为里面逻辑比较多） */
+    async function querySymbols(
+        uri: vscode.Uri,
+        doc: vscode.TextDocument | undefined,
+        file: string,
+    ): Promise<string> {
+        let raw = await vscode.commands.executeCommand<
+            Array<vscode.DocumentSymbol | vscode.SymbolInformation>
+        >("vscode.executeDocumentSymbolProvider", uri);
+
+        if (!raw || raw.length === 0) {
+            // 语言服务会失活（文件关掉之后）⇒ 强制把它打开一次（不抢焦点）再试
+            try {
+                if (doc) {
+                    await vscode.window.showTextDocument(doc, {
+                        preview: true,
+                        preserveFocus: true,
+                    });
+                }
+            } catch {
+                /* 打不开就算了 */
+            }
+            await new Promise((r) => setTimeout(r, 600));
+            raw = await vscode.commands.executeCommand<
+                Array<vscode.DocumentSymbol | vscode.SymbolInformation>
+            >("vscode.executeDocumentSymbolProvider", uri);
+        }
+
+        if (!raw || raw.length === 0) {
+            return JSON.stringify({
+                ok: false,
+                error: "没有语言服务能解析这个文件（可能是纯文本或未安装对应扩展）",
+            });
+        }
+
+        interface Flat {
+            name: string;
+            kind: string;
+            startLine: number;
+            endLine: number;
+            parent?: string;
+            /** 声明行的原文。kind 是 LSP 的粗枚举，跨语言常失真，看这行最准 */
+            head?: string;
+        }
+        const flat: Flat[] = [];
+
+        const srcLines = doc ? doc.getText().split(/\r?\n/) : [];
+        const headOf = (line: number): string => (srcLines[line - 1] ?? "").trim().slice(0, 120);
+        const kindName = (k: vscode.SymbolKind): string => vscode.SymbolKind[k] ?? String(k);
+
+        /**
+         * 用声明行纠正 kind。
+         *
+         * LSP 的 SymbolKind 只有二十几个值，没有 TypeAlias / Trait / Impl / Macro，
+         * 语言服务只能硬塞进最接近的桶（type alias 塞 Variable，trait 塞 Interface）。
+         * 声明行是原文，不会骗人，所以拿它覆盖掉那个粗枚举。
+         */
+        const refineKind = (kind: string, head: string): string => {
+            const h = head.trim();
+            if (/^impl\b/.test(h)) return "Impl";
+            if (/^trait\b/.test(h)) return "Trait";
+            if (/^macro_rules!/.test(h)) return "Macro";
+            if (/^(export\s+)?(declare\s+)?type\s+\w/.test(h)) return "TypeAlias";
+            if (/^(export\s+)?(declare\s+)?interface\s+\w/.test(h)) return "Interface";
+            if (/^(export\s+)?(abstract\s+)?class\s+\w/.test(h)) return "Class";
+            if (/^(export\s+)?(async\s+)?function\s+\w/.test(h)) return "Function";
+            if (/^(export\s+)?(const|let|var)\s+\w+\s*(:[^=]+)?=\s*(async\s*)?(\(|function\b)/.test(h)) {
+                return "Function";
+            }
+            if (/^(export\s+)?(const|let|var)\s+\w+\s*=/.test(h) && kind === "Variable") {
+                return "Const";
+            }
+            if (/^(pub\s+)?(async\s+)?fn\s+\w/.test(h)) return "Function";
+            if (/^(pub\s+)?struct\s+\w/.test(h)) return "Struct";
+            if (/^(pub\s+)?enum\s+\w/.test(h)) return "Enum";
+            if (/^(pub\s+)?mod\s+\w/.test(h)) return "Module";
+            if (/^(async\s+)?def\s+\w/.test(h)) return "Function";
+            if (/^class\s+\w/.test(h)) return "Class";
+            return kind;
+        };
+
+        const walkTree = (list: vscode.DocumentSymbol[], parent?: string): void => {
+            for (const sym of list) {
+                flat.push({
+                    name: sym.name,
+                    kind: refineKind(kindName(sym.kind), headOf(sym.range.start.line + 1)),
+                    startLine: sym.range.start.line + 1,
+                    endLine: sym.range.end.line + 1,
+                    parent,
+                    head: headOf(sym.range.start.line + 1),
+                });
+                if (sym.children?.length) walkTree(sym.children, sym.name);
+            }
+        };
+
+        const first = raw[0] as unknown as {
+            location?: vscode.Location;
+            range?: vscode.Range;
+            children?: unknown[];
+        };
+
+        // VS Code 返回的常常是【混合体】：既有扁平形态的 location，
+        // 又保留了树形的 range/children。所以不能拿 location 判断形态，
+        // 否则 children 会被整个丢掉（嵌套类/方法全消失）。
+        const hasTree = first.range != null || Array.isArray(first.children);
+        logInfo(
+            `[symbols] ${file} raw=${raw.length} 形态=${hasTree ? "树" : "扁平"} ` +
+                `children=${first.children?.length ?? "-"}`,
+        );
+
+        // 诊断用：看清语言服务到底回的是什么形态、有没有 children
+        logInfo(
+            `[symbols] ${file} raw=${raw.length} 首项键=${
+                Object.keys(raw[0] as object).join(",")
+            } children=${(raw[0] as vscode.DocumentSymbol).children?.length ?? "(无该字段)"}`,
+        );
+        if (!hasTree) {
+            for (const item of raw as vscode.SymbolInformation[]) {
+                flat.push({
+                    name: item.name,
+                    kind: refineKind(kindName(item.kind), headOf(item.location.range.start.line + 1)),
+                    startLine: item.location.range.start.line + 1,
+                    endLine: item.location.range.end.line + 1,
+                    parent: item.containerName || undefined,
+                    head: headOf(item.location.range.start.line + 1),
+                });
+            }
+        } else {
+            walkTree(raw as vscode.DocumentSymbol[]);
+        }
+
+        // 滤掉伪符号（import 语句、匿名 default 导出）：它们不是可改的单元
+        for (let i = flat.length - 1; i >= 0; i--) {
+            const f = flat[i];
+            const single = f.startLine === f.endLine;
+            const head = f.head ?? "";
+            if ((single && /^import\b/.test(head)) || (single && f.name === "default")) {
+                flat.splice(i, 1);
+            }
+        }
+
+        logInfo(
+            `符号查询 ${file}：${flat.length} 个（${
+                first.location ? "SymbolInformation" : "DocumentSymbol"
+            }）`,
+        );
+        return JSON.stringify({ ok: true, count: flat.length, symbols: flat });
+    }
+
+    /** in-pi 扩展写进会话的数据 */
+    function onOurEntry(customType?: string, data?: unknown): void {
+        if (customType === "vs-proposal") {
+            const p = data as WriteProposal | undefined;
+            if (!p?.proposalId) return;
+            logInfo(`收到提案 ${p.proposalId}：${p.file}`);
+            proposalComments.show(p);
+            return;
+        }
+        if (customType === "vs-tour") {
+            const t = data as
+                | {
+                      tourId: string;
+                      title: string;
+                      file: string;
+                      steps: Array<{ line: number; endLine?: number; description: string }>;
+                  }
+                | undefined;
+            if (!t?.steps?.length) return;
+            logInfo(`收到讲解剧本 ${t.tourId}：「${t.title}」${t.steps.length} 帧`);
+            void walkthrough.show(t).then((r) => {
+                if (!r.ok) {
+                    logWarn(`讲解播放失败：${r.error ?? "未知"}`);
+                    void vscode.window.showWarningMessage(`无法播放讲解：${r.error ?? "未知原因"}`);
+                }
+            });
+            return;
+        }
+        if (customType === "vs-answer") {
+            const a = data as { proposalId?: string; text?: string } | undefined;
+            if (a?.proposalId && typeof a.text === "string") {
+                logInfo(`讨论回答（提案 ${a.proposalId}，${a.text.length} 字）`);
+                proposalComments.setAnswer(a.proposalId, a.text);
+            }
+        }
+    }
+
+    /**
+     * 结算所有未处理的提案，返回一段给 AI 看的反馈文本。
+     *
+     * 时机：即将开启新一轮（用户发消息 / 自动继续）。
+     * AI 提交提案后就 abort 了，它不知道用户到底处理了哪些，
+     * 所以每次开启新一轮都要把上一轮的结果交代清楚。
+     */
+    function settlePending(): string {
+        const left = proposalComments.settleAll();
+        if (!left.length) return "";
+        const lines = left.map((r) => {
+            const why =
+                r.status === "accepted"
+                    ? "已接受，已写入"
+                    : r.status === "rejected"
+                      ? "已拒绝，未写入"
+                      : "未处理，已自动拒绝";
+            return `- ${r.proposalId}（${r.file}）：${why}`;
+        });
+        logInfo(`结算 ${left.length} 个提案`);
+        return `\n\n[本轮提案结算]\n${lines.join("\n")}`;
+    }
+
+    /** 防止批量操作时重复触发自动继续 */
+    let settling = false;
+
+    /** 本轮提案是不是全处理完了 */
+    function allHandled(): boolean {
+        const list = proposalComments.list();
+        return list.length > 0 && list.every((x) => x.status !== "pending");
+    }
+
+    /**
+     * 处理完最后一票时，如果开关打开就自动发一条继续。
+     *
+     * 不发的话也没关系：用户下一次发正文时，
+     * handleFrontendMessage 里的结算会把结果一起带回去。
+     */
+    async function maybeAutoContinue(): Promise<void> {
+        if (settling || !autoContinue || !allHandled()) return;
+        settling = true;
+        try {
+            const tail = settlePending();
+            logInfo("提案全部处理完，自动继续");
+            await pi.send({
+                type: "prompt",
+                message: `用户已处理完本轮所有提案。${tail}`,
+            });
+        } finally {
+            settling = false;
+        }
+    }
+
+    /** 面板 / 编辑器里的按钮动作 */
+    async function handleProposalAction(msg: {
+        action: string;
+        proposalId?: string;
+        value?: boolean;
+    }): Promise<void> {
+        switch (msg.action) {
+            case "accept":
+                if (msg.proposalId) await proposalComments.accept(msg.proposalId);
+                break;
+            case "reject":
+                if (msg.proposalId) proposalComments.reject(msg.proposalId);
+                break;
+            case "acceptAll":
+                await proposalComments.acceptAllPending();
+                break;
+            case "rejectAll":
+                proposalComments.rejectAllPending();
+                break;
+            case "setAutoContinue":
+                autoContinue = msg.value === true;
+                await context.globalState.update("pi-bridge.autoContinue", autoContinue);
+                pushProposalList();
+                void maybeAutoContinue();
+                break;
+            default:
+                logWarn(`未知的提案动作：${msg.action}`);
+        }
+    }
+
+    /** 用户在讨论区提问：让模型用 vs_answer 回答，别改代码 */
+    async function askAboutProposal(proposalId: string, text: string): Promise<void> {
+        logInfo(`提案 ${proposalId} 收到提问：${text.slice(0, 60)}`);
+        await pi.send({
+            type: "prompt",
+            message:
+                `用户对提案 ${proposalId} 有疑问：\n\n${text}\n\n` +
+                `请调用 vs_answer 工具（proposalId 填 "${proposalId}"）回答。` +
+                `不要修改代码，不要提交新提案。`,
+        });
+    }
+
     const handleFrontendMessage = async (msg: FrontendMessage): Promise<void> => {
+            // 提案面板的动作（本地处理，不发 pi）
+            if (msg.kind === "proposalAction") {
+                await handleProposalAction(msg);
+                return;
+            }
+
             // ★★ B32：自由按钮容器的三个动作
             //
             // 【★ 为什么放在最前面？】
@@ -1228,6 +1728,11 @@ export function activate(context: vscode.ExtensionContext): void {
                 //     steer       → queue_update 入队 ✓ 下一 turn 投递 ✓ 消息 2 条 ✓
                 //   所以：busy 时自动改发 steer（用户：“自动判断是不是插话即可”✓）
                 let toSend = cmd;
+                // 用户发新消息 = 开启新一轮，旧提案按拒绝结算
+                if (cmd.type === "prompt") {
+                    const tail = settlePending();
+                    if (tail) toSend = { ...cmd, message: cmd.message + tail };
+                }
                 if (cmd.type === "prompt" && piBusy) {
                     logInfo(`agent 正在跑 → prompt 自动转为 steer（避免静默丢失 ✓）`);
                     toSend = { type: "steer", message: cmd.message };

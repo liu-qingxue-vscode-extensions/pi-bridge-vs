@@ -28,6 +28,9 @@ import { createToolBubble, fillToolBubble, fillToolBubbleSnapshot } from "./tool
 import { createCompactionBubbleSnapshot, fillCompactionBubble } from "./compact-bubble.js";
 import type { CompactionData } from "./compact-bubble.js";
 import { appendStopNote, showRetryNotice } from "./notices.js";
+// ★★ 提案卡片（AI 要改代码 ⇒ 先让用户审 ✗ 不是消息气泡 ✓）
+import { renderProposalList } from "./proposal-panel.js";
+import type { ProposalListPayload } from "./proposal-panel.js";
 import { showCompactionEnd, showCompactionStart } from "./compact.js";
 import { setModelInfo, showModelPicker, showThinkingPicker } from "./model-picker.js";
 import { showInteractionHint } from "./ui-request.js";
@@ -452,6 +455,17 @@ export function setupHostBridge(): void {
             case "railCommands":
                 setRailCommands(data.payload);
                 return;
+            // ★★ 提案：宿主从 entry_appended 里拿到的（in-pi 扩展写的）
+            case "proposalList": {
+                const p = data.payload as ProposalListPayload;
+                try {
+                    renderProposalList(p);
+                    log.info(`[proposal] 面板更新：${p?.items?.length ?? 0} 个`);
+                } catch (err) {
+                    log.error(`[proposal] 面板渲染失败: ${String(err)}`);
+                }
+                return;
+            }
             case "styleVars":
                 applyStyleVars(data.payload as Record<string, string>);
                 setFoldRules((data.payload as Record<string, string>)?.["--pi-tool-fold"] ?? "");

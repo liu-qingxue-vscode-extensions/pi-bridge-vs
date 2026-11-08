@@ -18,6 +18,7 @@
     "src/**/*.ts"
   ],
   "exclude": [
-    "src/webview"
+    "src/webview",
+    "src/in-pi"
   ]
 }

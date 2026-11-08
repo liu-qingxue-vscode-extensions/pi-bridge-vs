@@ -1,0 +1,123 @@
+/* ===== 提案调控面板 =====
+   它是聊天流里的一个气泡，只放状态、按钮、批量操作。
+   diff 和讨论在编辑器里的 Comment 中看，这里不重复渲染。 */
+
+.bubble.proposal {
+    border: 1px solid var(--vscode-focusBorder, #7b68c9);
+    background: var(--vscode-editorWidget-background, #252526);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.pp-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.pp-title {
+    font-weight: 600;
+}
+
+.pp-count {
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.pp-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pp-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+}
+
+.pp-file {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1 1 auto;
+}
+
+.pp-status {
+    font-size: 11px;
+    padding: 0 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
+.pp-status.pending {
+    background: var(--vscode-inputValidation-warningBackground, #5a4a1f);
+    color: var(--vscode-foreground);
+}
+
+.pp-status.accepted {
+    background: var(--vscode-inputValidation-infoBackground, #1f4a3a);
+    color: var(--vscode-foreground);
+}
+
+.pp-status.rejected,
+.pp-status.invalid {
+    background: var(--vscode-inputValidation-errorBackground, #4a1f1f);
+    color: var(--vscode-foreground);
+}
+
+.pp-mini {
+    border: none;
+    border-radius: 3px;
+    padding: 1px 8px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.pp-mini.ok {
+    background: var(--vscode-button-background, #0e639c);
+    color: var(--vscode-button-foreground, #fff);
+}
+
+.pp-mini.no {
+    background: var(--vscode-button-secondaryBackground, #3a3d41);
+    color: var(--vscode-button-secondaryForeground, #fff);
+}
+
+.pp-bulk {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-top: 1px solid var(--vscode-panel-border, #3c3c3c);
+    padding-top: 8px;
+}
+
+.pp-bulk button {
+    border: none;
+    border-radius: 3px;
+    padding: 3px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    background: var(--vscode-button-secondaryBackground, #3a3d41);
+    color: var(--vscode-button-secondaryForeground, #fff);
+}
+
+.pp-bulk button:hover {
+    background: var(--vscode-button-secondaryHoverBackground, #45494e);
+}
+
+.pp-auto {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+    font-size: 11px;
+    cursor: pointer;
+    user-select: none;
+}
