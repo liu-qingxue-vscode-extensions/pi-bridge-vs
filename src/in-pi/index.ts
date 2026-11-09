@@ -385,15 +385,23 @@ export default function (pi: ExtensionAPI): void {
             "把讲解内容以逐帧剧本的形式显示在编辑器里：每一帧定位到某个文件的某一行，" +
             "旁边显示你的说明。用户可以用快捷键一帧一帧往下走。" +
             "适合讲解一段代码是怎么运转的、某个 bug 出在哪、一次改动影响哪些地方。" +
+            "每一帧可以指向不同的文件，一份剧本就能顺着一条链路跨好几个文件讲下去。" +
             "每帧的说明要短（一两句），长了旁边栏放不下。",
         parameters: Type.Object({
             title: Type.String({ description: "剧本标题（简短）" }),
             file: Type.String({
-                description: "讲解的主文件（相对工作区根目录）。所有帧都在这个文件里时填它",
+                description: "默认文件（相对工作区根目录）。某帧不填 file 时用它",
             }),
             steps: Type.Array(
                 Type.Object({
-                    line: Type.Number({ description: "定位到第几行（1-based）" }),
+                    file: Type.Optional(
+                        Type.String({
+                            description: "这一帧所在文件（相对工作区根目录），不填就用默认 file",
+                        }),
+                    ),
+                    line: Type.Number({
+                        description: "文件里的绝对行号（1-based），就是你读文件看到的那个行号",
+                    }),
                     endLine: Type.Optional(
                         Type.Number({ description: "选中范围结束行（1-based），不填就是单行" }),
                     ),
@@ -407,7 +415,12 @@ export default function (pi: ExtensionAPI): void {
             params: {
                 title: string;
                 file: string;
-                steps: Array<{ line: number; endLine?: number; description: string }>;
+                steps: Array<{
+                    file?: string;
+                    line: number;
+                    endLine?: number;
+                    description: string;
+                }>;
             },
         ): Promise<{
             content: { type: "text"; text: string }[];

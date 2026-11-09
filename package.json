@@ -110,6 +110,14 @@
       {
         "command": "pi-bridge.injectSelection",
         "title": "注入代码信息"
+      },
+      {
+        "command": "pi-bridge.tourDig",
+        "title": "VS 剧本：深入"
+      },
+      {
+        "command": "pi-bridge.tourBack",
+        "title": "VS 剧本：返回上层"
       }
     ],
     "keybindings": [
@@ -721,7 +729,10 @@
     "watch:webview": "node scripts/build-webview.mjs --watch",
     "check:webview": "tsc -p tsconfig.webview.json --noEmit",
     "check:in-pi": "tsc -p tsconfig.in-pi.json --noEmit",
-    "build:in-pi": "npx esbuild src/in-pi/index.ts --bundle --platform=node --format=esm --external:typebox --external:@earendil-works/* --sourcemap --outfile=dist/in-pi/index.mjs"
+    "build:in-pi": "npx esbuild src/in-pi/index.ts --bundle --platform=node --format=esm --external:typebox --external:@earendil-works/* --sourcemap --outfile=dist/in-pi/index.mjs",
+    "pack": "bash scripts/pack.sh",
+    "dev:link": "bash scripts/dev-link.sh",
+    "sync": "bash scripts/sync.sh"
   },
   "engines": {
     "vscode": "^1.135.0"
