@@ -1,75 +1,75 @@
-/* ===== 气泡：基础 / 用户 / 思考 / 占位三点 / 异常与重连提示 / 间距 / 居中列 =====
-   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
-   ★ 改这一块只需动本文件 ✓ */
+/* ===== 气泡:基础 / 用户 / 思考 / 占位三点 / 异常与重连提示 / 间距 / 居中列 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出(一次性重构)
+   改这一块只需动本文件 */
 
-/* ===== 气泡（每个内容段 = 一个气泡）=====
-   ★ 结构：wrapper（布局） + .bubble（视觉）
-     .bubble-wrap    ← 管【宽度 / 对齐 / 间距】（参与 #messages 的 flex 布局 ✓）
-       ├ .bubble     ← 管【背景 / 边框 / 圆角 / padding】（视觉 ✓）
-       └ .bubble-actions  ← 悬浮动作区（宽度跟随 ✓）
+/* ===== 气泡(每个内容段 = 一个气泡)=====
+   结构:wrapper(布局) + .bubble(视觉)
+     .bubble-wrap    ← 管[宽度 / 对齐 / 间距](参与 #messages 的 flex 布局 )
+       ├ .bubble     ← 管[背景 / 边框 / 圆角 / padding](视觉 )
+       └ .bubble-actions  ← 悬浮动作区(宽度跟随 )
 
-   【为什么拆开？】
-     动作区要【跟气泡同宽】✓ 而它在气泡【外面】✗
-     → 必须有个共同的父（wrapper）来定宽度 ✓
-     否则【把按钮塞进气泡】会被背景包住 ✗（用户否掉的方案 ✓）
+   [为什么拆开?]
+     动作区要[跟气泡同宽]而它在气泡[外面]
+     → 必须有个共同的父(wrapper)来定宽度
+     否则[把按钮塞进气泡]会被背景包住 (用户否掉的方案 )
 
-   ★ 间距只用 margin-top（相邻 wrapper），避免和 margin-bottom 叠加 ✓
+   间距只用 margin-top(相邻 wrapper),避免和 margin-bottom 叠加
 */
 .bubble-wrap {
     display: flex;
-    flex-direction: column;   /* 气泡 + 动作区 上下排 ✓ */
-    /* ★★ 左边距：只作用于【AI 气泡自己】（B32 修耦合 ✓）
-       为什么不放在 #messages 的 padding 上？
-         那会改变内容区宽度 ✗ 把所有子元素全连在一起 ✓
-       放这里 ⇒ 只影响 AI 气泡 ✗ 用户气泡和输入框完全不受影响 ✓ */
+    flex-direction: column;   /* 气泡 + 动作区 上下排 */
+    /* 左边距:只作用于[AI 气泡自己](B32 修耦合 )
+       为什么不放在 #messages 的 padding 上?
+         那会改变内容区宽度 把所有子元素全连在一起
+       放这里 ⇒ 只影响 AI 气泡 用户气泡和输入框完全不受影响 */
     margin-left: var(--pi-left-gap, 3%);
-    /* ★★ 用 min() 兜底：
-       就算 leftGap + bubbleWidth 超过 100% ✗ 也不会溢出 ✓
-       而是一直被夹在“对话区减去左边距”之内 ✓ */
+    /* 用 min() 兜底:
+       就算 leftGap + bubbleWidth 超过 100% 也不会溢出
+       而是一直被夹在“对话区减去左边距”之内 */
     width: min(var(--pi-bubble-width, 88%), calc(100% - var(--pi-left-gap, 3%)));
-    /* ★★ 禁止 flex 压缩 —— 否则内容变多时会被挤成一条线 ✗ */
+    /* 禁止 flex 压缩 - 否则内容变多时会被挤成一条线 */
     flex-shrink: 0;
 }
-/* 默认间距（相邻气泡之间）*/
+/* 默认间距(相邻气泡之间)*/
 .bubble-wrap + .bubble-wrap { margin-top: var(--pi-gap-turn, 10px); }
 
-/* ---- 用户消息：靠右 + 【自适应宽度】（不固定）---- */
-/* ★ 宽度全用【百分比】（用户要求 ✓）—— 这样在任何视口宽度下比例一致 ✓ */
+/* ---- 用户消息:靠右 + [自适应宽度](不固定)---- */
+/* 宽度全用[百分比](用户要求 )- 这样在任何视口宽度下比例一致 */
 .bubble-wrap.user {
-    align-self: flex-end;                     /* ★ 可靠右对齐 */
-    /* ★★ 右边距：只作用于用户气泡自己 ✓（B32 新增 ✗ 用户抓到的缺口 ✓）*/
+    align-self: flex-end;                     /* 可靠右对齐 */
+    /* 右边距:只作用于用户气泡自己 (B32 新增 用户抓到的缺口 )*/
     margin-right: var(--pi-right-gap, 3%);
-    margin-left: 0;                           /* ★ 取消 AI 那条左边距 ✓ */
+    margin-left: 0;                           /* 取消 AI 那条左边距 */
     width: auto;                              /* 内容多宽就多宽 */
-    min-width: var(--pi-user-min-width, 5%);  /* ★ 最小宽度（百分比 ✓）短消息不缩成一条线 */
-    /* ★★ 最大宽度：【独立配置】+ min() 兜底（防配得太大溢出 ✓）*/
+    min-width: var(--pi-user-min-width, 5%);  /* 最小宽度(百分比 )短消息不缩成一条线 */
+    /* 最大宽度:[独立配置]+ min() 兜底(防配得太大溢出 )*/
     max-width: min(var(--pi-user-max-width, 88%), calc(100% - var(--pi-right-gap, 3%)));
 }
-/* ★ 用户气泡的【颜色/边框】（视觉属性 —— 仍在 .bubble 上 ✓）*/
+/* 用户气泡的[颜色/边框](视觉属性 - 仍在 .bubble 上 )*/
 .bubble.user {
     background: var(--pi-bg-user, var(--vscode-button-background));
     color: var(--vscode-button-foreground);
     border-color: var(--pi-border-user, var(--pi-border-bubble, transparent));
 }
-/* 用户消息 → AI 第一个气泡（覆盖默认间距）*/
+/* 用户消息 → AI 第一个气泡(覆盖默认间距)*/
 .bubble-wrap.user + .bubble-wrap { margin-top: var(--pi-gap-user-first, 12px); }
 
-/* ===== 气泡本体（只管视觉）===== */
+/* ===== 气泡本体(只管视觉)===== */
 .bubble {
-    width: 100%;                          /* ★ 跟随 wrapper（同一宽度 ✓）*/
+    width: 100%;                          /* 跟随 wrapper(同一宽度 )*/
     padding: var(--pi-bubble-padding, 8px 12px);
     border-radius: var(--pi-bubble-radius, 6px);
-    /* ★ 默认透明：各类型自己指定背景，避免“改一处动全部” */
+    /* 默认透明:各类型自己指定背景,避免“改一处动全部” */
     background: transparent;
     border: var(--pi-border-w, 1px) solid var(--pi-border-bubble, transparent);
     white-space: pre-wrap;
     word-break: break-word;
 }
 
-/* ===== ★ 悬浮动作区（无边框无背景 → 悬空感 ✓）=====
-   ★ 宽度：width:100% → 自动 = 上面那个气泡的宽度 ✓
-   ★ 平时透明 → 鼠标进气泡才显 ✓（不抢戏 ✓）
-   ★ 它【在气泡区内占高】✓ 但【不侵入间距】✗（间距在 wrapper 之间 ✓）*/
+/* ===== 悬浮动作区(无边框无背景 → 悬空感 )=====
+   宽度:width:100% → 自动 = 上面那个气泡的宽度
+   平时透明 → 鼠标进气泡才显 (不抢戏 )
+   它[在气泡区内占高]但[不侵入间距](间距在 wrapper 之间 )*/
 .bubble-actions {
     width: 100%;
     display: flex;
@@ -81,11 +81,11 @@
     user-select: none;
 }
 .bubble-wrap:hover .bubble-actions { opacity: 1; }
-/* ★ 空动作区不占位（思考/工具气泡都建了动作区 ✗ 但非组尾时是空的 ✓）*/
+/* 空动作区不占位(思考/工具气泡都建了动作区 但非组尾时是空的 )*/
 .bubble-actions:empty { display: none; }
-/* ★ 用户气泡：动作区【右对齐】（左到右第一个也是复制 ✓ 靠右端 ✓）*/
-/* ★ 用户气泡单独调右对齐（用户定的 ✓）
-   它只有【复制】✗ 没有克隆/分叉（那两个只属于 AI 组末尾 ✓ 由 refreshForkButtons 控制 ✓）*/
+/* 用户气泡:动作区[右对齐](左到右第一个也是复制 靠右端 )*/
+/* 用户气泡单独调右对齐(用户定的 )
+   它只有[复制]没有克隆/分叉(那两个只属于 AI 组末尾 由 refreshForkButtons 控制 )*/
 .bubble-wrap.user .bubble-actions { justify-content: flex-end; }
 
 .bubble-action {
@@ -104,9 +104,9 @@
     color: var(--vscode-foreground);
 }
 
-/* ---- 思考气泡：可折叠（点头部切换）---- */
-/* ===== 通用折叠头（思考 / 工具共用）=====
-   左：【名字串】整体是一个按钮（点击折叠）· 右：操作区（未来放复制等按钮）*/
+/* ---- 思考气泡:可折叠(点头部切换)---- */
+/* ===== 通用折叠头(思考 / 工具共用)=====
+   左:[名字串]整体是一个按钮(点击折叠)· 右:操作区(未来放复制等按钮)*/
 .head {
   display: flex;
   align-items: center;
@@ -127,7 +127,7 @@
   text-align: left;
 }
 .head-toggle:hover { color: var(--vscode-foreground); }
-/* 箭头用 SVG：尺寸可控、和文字同高（之前用字符太小 ✗）*/
+/* 箭头用 SVG:尺寸可控,和文字同高(之前用字符太小 )*/
 .head-caret {
   width: 14px;
   height: 14px;
@@ -136,7 +136,7 @@
   transition: transform 0.15s;
 }
 [data-open="false"] .head-caret { transform: rotate(-90deg); }
-/* 右侧操作区（未来的按钮位）*/
+/* 右侧操作区(未来的按钮位)*/
 .head-actions { margin-left: auto; display: inline-flex; gap: 6px; }
 
 /* ---- 思考气泡 ---- */
@@ -157,61 +157,61 @@
 }
 .bubble.thinking[data-open="false"] .think-body { display: none; }
 
-/* ★★ B45：完整历史面板里"已被压缩"那段的气泡 =====
-   ★ 实色背景 + 左侧色条 ⇒ 一眼能扫出一整片"这段已经过去了"✓
-   ★ 不用 opacity（那会把文字一起淡掉 ✗ 用户要的是"背景显眼、字照常读"✓）
-   ★ 浅色主题单独覆盖（见下方 body.vscode-light ✓）*/
-/* ★★ B45：已压缩区段的气泡 =====
-   【目标】"气泡以外的区域"有底色 ✗ 而气泡自己保持原样 ✓
-     · 用户气泡仍然右对齐、仍然是蓝底 ✓（一眼能找到它 ✓）
-     · 左右两侧的"间距"也在这片底色里 ✓（用户："左右间距加颜色"✓）
+/* B45:完整历史面板里"已被压缩"那段的气泡 =====
+   实色背景 + 左侧色条 ⇒ 一眼能扫出一整片"这段已经过去了"
+   不用 opacity(那会把文字一起淡掉 用户要的是"背景显眼,字照常读")
+   浅色主题单独覆盖(见下方 body.vscode-light )*/
+/* B45:已压缩区段的气泡 =====
+   [目标]"气泡以外的区域"有底色 而气泡自己保持原样
+     · 用户气泡仍然右对齐,仍然是蓝底 (一眼能找到它 )
+     · 左右两侧的"间距"也在这片底色里 (用户:"左右间距加颜色")
 
-   【★ 怎么做到不改布局】（踩了三版的坑 ✓）
-     #messages 的左右 padding 是 0 ✗ "左右间距"其实是【气泡自己的 margin】✓
+   [怎么做到不改布局](踩了三版的坑 )
+     #messages 的左右 padding 是 0 "左右间距"其实是[气泡自己的 margin]
        AI   → margin-left: leftGap
        用户 → margin-right: rightGap
-     ⇒ 所以：负 margin 把背景【撑到两侧】✗ padding 再把内容【推回原位】✓
-       净效果 = 宽度多了一个 gap ✗ 但内容位置不变 ✓
-     ★ 关键是【成对出现】（负 margin 与 padding 同值 ✗ 否则会歪 ✓）
+     ⇒ 所以:负 margin 把背景[撑到两侧]padding 再把内容[推回原位]
+       净效果 = 宽度多了一个 gap 但内容位置不变
+     关键是[成对出现](负 margin 与 padding 同值 否则会歪 )
 
-   前两版错在：
+   前两版错在:
      ① 只染 .bubble ⇒ 只剩沿边一条线
      ② 染每块 wrapper 但把 margin 归零 ⇒ 一个个紫方块 + 中间黑缝
-     ③ 包大容器 ⇒ ★ 用户气泡跑左对齐 + 左右间距全丢（破坏了 flex 上下文 ✓）*/
+     ③ 包大容器 ⇒ 用户气泡跑左对齐 + 左右间距全丢(破坏了 flex 上下文 )*/
 .bubble-wrap.compacted {
   background: var(--pi-compacted-bg);
-  /* ★ 撑满两侧的间距（再等量 padding 补回来 ⇒ 内容纹丝不动 ✓）*/
+  /* 撑满两侧的间距(再等量 padding 补回来 ⇒ 内容纹丝不动 )*/
   padding-left: var(--pi-left-gap, 3%);
   margin-left: calc(-1 * var(--pi-left-gap, 3%));
   padding-right: var(--pi-right-gap, 3%);
   margin-right: calc(-1 * var(--pi-right-gap, 3%));
   padding-top: 4px;
   padding-bottom: 4px;
-  /* ★ 左侧书脊线 */
+  /* 左侧书脊线 */
   box-shadow: inset 3px 0 0 0 var(--pi-compacted-split-bg);
 }
 
-/* ★★ 用户气泡也要撑到右边（它的 margin-right 覆盖了上面那条 ✓）
-   —— 特异性要够（`.bubble-wrap.user` 在后面 ✗ 会赢 ✓）*/
+/* 用户气泡也要撑到右边(它的 margin-right 覆盖了上面那条 )
+   - 特异性要够(`.bubble-wrap.user` 在后面 会赢 )*/
 .bubble-wrap.compacted.user {
   margin-right: calc(-1 * var(--pi-right-gap, 3%));
   padding-right: var(--pi-right-gap, 3%);
 }
 
-/* ★★ 让【气泡】和【气泡以外的区域】区分开（这一版才终于对了 ✓）
-   【用户要的形态】
-       ┌─紫─┐ ╔═气泡（原样底色）═╗ ┌─紫─┐
-         ↑ 左右两侧的空白（气泡以外）是紫的
-         气泡自己保持原样 ⇒ 边界一眼可见 ✓
-   【为什么之前不对】
-     AI 气泡的默认背景是 transparent ✗ 于是紫底【直接透上来】
-     ⇒ 气泡和背景融为一体 ⇒ 用户："我怎么感觉还是没什么改动啊"✓
-   ⇒ 所以：给它一个【实底】（编辑器底色 ✗ 和外面紫底形成对比 ✓）
-   ★ 用户气泡不动：它本来就有自己的蓝底 ✓*/
+/* 让[气泡]和[气泡以外的区域]区分开(这一版才终于对了 )
+   [用户要的形态]
+       ┌─紫─┐ ╔═气泡(原样底色)═╗ ┌─紫─┐
+         ↑ 左右两侧的空白(气泡以外)是紫的
+         气泡自己保持原样 ⇒ 边界一眼可见
+   [为什么之前不对]
+     AI 气泡的默认背景是 transparent 于是紫底[直接透上来]
+     ⇒ 气泡和背景融为一体 ⇒ 用户:"我怎么感觉还是没什么改动啊"
+   ⇒ 所以:给它一个[实底](编辑器底色 和外面紫底形成对比 )
+   用户气泡不动:它本来就有自己的蓝底 */
 .bubble-wrap.compacted > .bubble {
   background: var(--vscode-editor-background, #1e1e1e);
 }
-/* ★ 内部有自己底色的块（工具结果等）保持原样 ⇒ 它们本身就是"气泡里的内容"✓*/
+/* 内部有自己底色的块(工具结果等)保持原样 ⇒ 它们本身就是"气泡里的内容"*/
 .bubble-wrap.compacted .tool-result,
 .bubble-wrap.compacted .part-text {
   background: transparent;
@@ -225,8 +225,8 @@ body.vscode-light {
   --pi-compacted-fg: #4a3f6b;
 }
 
-/* 已压缩 → 未压缩 的分界线：做成一条【有底色的大提示条】✗ 不再用灰虚线 ✓
-   （用户实测："很难找到这条分界线"✓）*/
+/* 已压缩 → 未压缩 的分界线:做成一条[有底色的大提示条]不再用灰虚线
+   (用户实测:"很难找到这条分界线")*/
 .compacted-split {
   margin: 20px 0 14px;
   padding: 7px 12px;
@@ -239,17 +239,17 @@ body.vscode-light {
   border-radius: 4px;
 }
 
-/* ===== ★★ B46：压缩气泡 =====
-   代表"此时刻之前的所有对话已被压缩成这段摘要"（见 bridge/session-file.ts ✓）
-   ★ 折叠机制与 thinking 同构（dataset.open + 整块显示/隐藏 ✓）
-     而不是 tool 那套"折叠单元"（压缩摘要没有"单元"的概念 ✗ 它是一整段 ✓）*/
+/* ===== B46:压缩气泡 =====
+   代表"此时刻之前的所有对话已被压缩成这段摘要"(见 bridge/session-file.ts )
+   折叠机制与 thinking 同构(dataset.open + 整块显示/隐藏 )
+     而不是 tool 那套"折叠单元"(压缩摘要没有"单元"的概念 它是一整段 )*/
 .bubble.compaction {
   background: var(--pi-bg-compaction, transparent);
   border-left: var(--pi-rail-width, 2px) solid
     var(--pi-rail-color-compaction, var(--vscode-panel-border));
   padding: 2px 0 2px 10px;
   margin: 2px 0 2px 4px;
-  /* ★ 字号略小 + 灰色：它是一段"背景资料"✗ 不是当前对话 ✓ */
+  /* 字号略小 + 灰色:它是一段"背景资料"不是当前对话 */
   font-size: 0.95em;
   color: var(--vscode-descriptionForeground);
 }
@@ -257,10 +257,10 @@ body.vscode-light {
 .bubble.compaction[data-open="false"] .comp-body { display: none; }
 .comp-body {
   margin-top: 4px;
-  /* ★ 摘要可能很长 ⇒ 限高 + 滚动 ✗ 免得一个气泡占满整屏 ✓ */
+  /* 摘要可能很长 ⇒ 限高 + 滚动 免得一个气泡占满整屏 */
   max-height: var(--pi-compaction-max-height, 420px);
   overflow: auto;
-  /* ★ 摘要是 markdown ✗ 这里把颜色还原成正文色（不然整块都是灰的 ✓）*/
+  /* 摘要是 markdown 这里把颜色还原成正文色(不然整块都是灰的 )*/
   color: var(--vscode-foreground);
 }
 .comp-body .comp-time {
@@ -268,18 +268,18 @@ body.vscode-light {
   opacity: 0.7;
   margin-bottom: 4px;
 }
-/* 压缩气泡的头部标签（与 thinking 的头部同款处理）*/
+/* 压缩气泡的头部标签(与 thinking 的头部同款处理)*/
 .head-label.comp-label { font-style: normal; }
 
-/* ---- 占位三点（发送后、等第一个数据包）---- */
-/* ★ 宽度由 wrapper 控制（现在 wrapper 才是 #messages 的直接子项 ✓）*/
+/* ---- 占位三点(发送后,等第一个数据包)---- */
+/* 宽度由 wrapper 控制(现在 wrapper 才是 #messages 的直接子项 )*/
 .bubble.pending {
     background: none;
     border: none;
     padding: 2px 0;
     color: var(--vscode-descriptionForeground);
 }
-/* 三点所在的那一行宽度【自适应】（不占满 ✓）*/
+/* 三点所在的那一行宽度[自适应](不占满 )*/
 .bubble-wrap.pending { width: auto; }
 .dots { display: inline-flex; gap: 4px; align-items: center; height: 1.1em; }
 .dots i {
@@ -297,8 +297,8 @@ body.vscode-light {
 }
 
 /* ---- 正文气泡 ---- */
-/* ===== 异常结束提示（截断 / 中断 / 出错）=====
-   ★ 突发情况 → 【正常字号、正常颜色】，不做弱化 ✓ */
+/* ===== 异常结束提示(截断 / 中断 / 出错)=====
+   突发情况 → [正常字号,正常颜色],不做弱化 */
 .bubble-note {
   margin-top: 6px;
   padding-top: 6px;
@@ -308,22 +308,22 @@ body.vscode-light {
 .bubble-note.error { color: var(--vscode-errorForeground, #f48771); }
 .bubble-note.info { color: inherit; }
 
-/* ===== 重连提示气泡（auto_retry_start / auto_retry_end）=====
-   不进快照 → webview 重建后自然消失（和字段语义一致 ✓）*/
+/* ===== 重连提示气泡(auto_retry_start / auto_retry_end)=====
+   不进快照 → webview 重建后自然消失(和字段语义一致 )*/
 .bubble.notice {
-  /* ★ 宽度/对齐/间距【现在由 wrapper 负责】
-       （.bubble-wrap.notice → 继承默认：88% 宽 + 靠左 ✓）*/
+  /* 宽度/对齐/间距[现在由 wrapper 负责]
+       (.bubble-wrap.notice → 继承默认:88% 宽 + 靠左 )*/
   padding: 5px 12px;
   border-radius: 999px;
   font-size: 12px;
-  display: flex;                 /* 图标 + 文字横排 ✓ */
+  display: flex;                 /* 图标 + 文字横排 */
   align-items: center;
   gap: 7px;
   border: 1px solid var(--vscode-panel-border, transparent);
   background: var(--vscode-editorWidget-background);
   color: var(--vscode-descriptionForeground);
 }
-/* 重试中：红色 + 转圈图标（比三个点更明确 ✓）*/
+/* 重试中:红色 + 转圈图标(比三个点更明确 )*/
 .bubble.notice.retrying {
   color: var(--vscode-errorForeground, #f48771);
   border-color: currentColor;
@@ -333,7 +333,7 @@ body.vscode-light {
   width: 11px;
   height: 11px;
   border: 2px solid currentColor;
-  border-top-color: transparent;   /* 缺口 → 看得见在转 ✓ */
+  border-top-color: transparent;   /* 缺口 → 看得见在转 */
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -343,7 +343,7 @@ body.vscode-light {
 .notice-mark { flex-shrink: 0; }
 .notice-text { min-width: 0; word-break: break-word; }
 
-/* ===== 气泡之间的间距（按【前 → 后】分别控制；只写 margin-top，不叠加）===== */
+/* ===== 气泡之间的间距(按[前 → 后]分别控制;只写 margin-top,不叠加)===== */
 .bubble-wrap.thinking + .bubble-wrap.text { margin-top: var(--pi-gap-thinking-text, 4px); }
 .bubble-wrap.thinking + .bubble-wrap.tool { margin-top: var(--pi-gap-thinking-tool, 4px); }
 .bubble-wrap.text + .bubble-wrap.tool { margin-top: var(--pi-gap-text-tool, 6px); }
@@ -351,23 +351,23 @@ body.vscode-light {
 .bubble-wrap.tool + .bubble-wrap.thinking { margin-top: var(--pi-gap-tool-thinking, 4px); }
 .bubble-wrap.text + .bubble-wrap.thinking { margin-top: var(--pi-gap-text-thinking, 4px); }
 
-/* ===== 居中内容列模式（centerColumn = true）=====
-   ★★ 它控制的是一套【对齐方案】✗ 不是某个气泡的属性 ✓
-     这一套同时管三个东西：AI 气泡 / 用户气泡 / 输入框 ✓
+/* ===== 居中内容列模式(centerColumn = true)=====
+   它控制的是一套[对齐方案]不是某个气泡的属性
+     这一套同时管三个东西:AI 气泡 / 用户气泡 / 输入框
 
-   【列宽】
-     直接用 --pi-bubble-width ✗ 不再单设一个 centerWidth
-       （用户指出：两个宽度是多余的 ✓ 一个就够 ✓）
+   [列宽]
+     直接用 --pi-bubble-width 不再单设一个 centerWidth
+       (用户指出:两个宽度是多余的 一个就够 )
 
-   【列的位置】
-     padding = (100% − 列宽) / 2 ✗ 【算出来的】✓
+   [列的位置]
+     padding = (100% − 列宽) / 2 [算出来的]
      ⇒ 也不需要 centerPadX 这种参数
-        想让列窄一点？直接调小 bubbleWidth ✓ 效果一样 ✓
+        想让列窄一点?直接调小 bubbleWidth 效果一样
 
-   【为什么这里不是 leftGap / rightGap？】
-     非居中：AI 左对齐 · 用户右对齐 ✗ 两边是【两种语义】✓
-     居中  ：列整体居中 ✗ 左右【对称】✗ 由算式决定 ✓
-     ★ 两套参数共存 ✗ 各自只在对应场景生效 ✗ 互不干扰 ✓ */
+   [为什么这里不是 leftGap / rightGap?]
+     非居中:AI 左对齐 · 用户右对齐 两边是[两种语义]
+     居中  :列整体居中 左右[对称]由算式决定
+     两套参数共存 各自只在对应场景生效 互不干扰 */
 :root.centered #messages {
   padding-left: calc((100% - var(--pi-bubble-width, 88%)) / 2);
   padding-right: calc((100% - var(--pi-bubble-width, 88%)) / 2);
@@ -378,21 +378,21 @@ body.vscode-light {
 }
 :root.centered .bubble-wrap {
     width: 100%;
-    /* ★★ 居中模式：两条边距【归零】（B32 ✓）
-       因为位置由 (100% − 列宽)/2 自动算 ✗ 再叠一个 margin 就偏了 ✓ */
+    /* 居中模式:两条边距[归零](B32 )
+       因为位置由 (100% − 列宽)/2 自动算 再叠一个 margin 就偏了 */
     margin-left: 0;
 }
-:root.centered .bubble { width: 100%; }       /* 内层跟 wrapper ✓ */
+:root.centered .bubble { width: 100%; }       /* 内层跟 wrapper */
 :root.centered .bubble-wrap.user {
     width: auto;
     margin-right: 0;
-    /* ★ 用配置（以前写死 100% → 把用户的 userMaxWidth 覆盖了 ✗ 实测踩到 ✓）*/
+    /* 用配置(以前写死 100% → 把用户的 userMaxWidth 覆盖了 实测踩到 )*/
     max-width: var(--pi-user-max-width, 88%);
     align-self: flex-end;
 }
-:root.centered #input-box { width: 100%; margin: 0; }   /* 输入框与气泡同宽 ✓ */
-/* ★★ B32：居中时输入区也不再用 leftGap / rightGap 当 padding ✗
-   这里直接用列宽算式 ✓ */
+:root.centered #input-box { width: 100%; margin: 0; }   /* 输入框与气泡同宽 */
+/* B32:居中时输入区也不再用 leftGap / rightGap 当 padding
+   这里直接用列宽算式 */
 :root.centered #input-area {
-  /* 已在上面统一处理 ✓ 这里仅作位置声明 */
+  /* 已在上面统一处理 这里仅作位置声明 */
 }

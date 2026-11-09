@@ -1,6 +1,6 @@
 /* =====================================================================
-   history.css —— ★★ B47：完整历史面板的入口
-   ★ 只引必要的源 ✗（不要 input.css / topbar.css / cmdrail.css ✓）
+   history.css - B47:完整历史面板的入口
+   只引必要的源 (不要 input.css / topbar.css / cmdrail.css )
    ===================================================================== */
 @import url("./css/base.css");
 @import url("./css/markdown.css");

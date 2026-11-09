@@ -1,11 +1,11 @@
-/* ===== 顶栏（topbar）：按钮容器 + 统计栏 + 电池 =====
-   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
-   ★ 改这一块只需动本文件 ✓ */
+/* ===== 顶栏(topbar):按钮容器 + 统计栏 + 电池 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出(一次性重构)
+   改这一块只需动本文件 */
 
-/* ===== 顶部区域（手机式三层：容器 / 统计栏 / 通知列表）=====
-   ★ 收起时只有 #status-bar 露在外面（= 原来的样子 ✓ 没有按钮 ✓）
-   ★ 展开时容器从上方撑开、列表从下方滑出 → 统计栏自然落到第 2 行 ✓
-   ★ 它是 absolute + 不透明底色 → 【盖住】对话区（不推挤 ✗ 不会跳动 ✓）*/
+/* ===== 顶部区域(手机式三层:容器 / 统计栏 / 通知列表)=====
+   收起时只有 #status-bar 露在外面(= 原来的样子 没有按钮 )
+   展开时容器从上方撑开,列表从下方滑出 → 统计栏自然落到第 2 行
+   它是 absolute + 不透明底色 → [盖住]对话区(不推挤 不会跳动 )*/
 #top-area {
   position: absolute;
   top: 0;
@@ -15,7 +15,7 @@
   display: flex;
   flex-direction: column;
   background: var(--vscode-sideBar-background);
-  /* 收起 → 展开时，圆角与阴影跟着淡入 ✓ */
+  /* 收起 → 展开时,圆角与阴影跟着淡入 */
   transition: border-radius .22s ease, box-shadow .22s ease;
 }
 #top-area.expanded {
@@ -23,7 +23,7 @@
   box-shadow: 0 8px 22px rgba(0, 0, 0, .32);
 }
 
-/* 第 1 行：按钮容器（★ 只在展开时存在 → ⚙ 日常碰不到 ✓）*/
+/* 第 1 行:按钮容器(只在展开时存在 → ⚙ 日常碰不到 )*/
 #notice-toolbar {
   height: var(--pi-topbar-height);
   display: flex;
@@ -59,13 +59,13 @@
 }
 #notice-settings { font-size: 13px; }
 
-/* ===== 按钮行（顶栏下方常驻一行）=====
-   ★ 左端留间距（不贴左边界 ✓）· 两端分布（会话在左、新建在右 ✓）*/
-/* ★ 弹性留白：把压缩顶到最右 ✓ */
+/* ===== 按钮行(顶栏下方常驻一行)=====
+   左端留间距(不贴左边界 )· 两端分布(会话在左,新建在右 )*/
+/* 弹性留白:把压缩顶到最右 */
 #app-toolbar .tb-spacer { flex: 1 1 auto; }
 
-/* ★ 左组两个按钮【紧贴】（用户：“它俩紧贴着”✓）——
-   覆盖 toolbar 的 gap:8px ✓ 只让 #btn-new-session 往左靠 ✓ */
+/* 左组两个按钮[紧贴](用户:“它俩紧贴着”)-
+   覆盖 toolbar 的 gap:8px 只让 #btn-new-session 往左靠 */
 #app-toolbar #btn-sessions + #btn-new-session { margin-left: -5px; }
 
 #app-toolbar {
@@ -73,14 +73,14 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  /* ★ 改 flex-start + 弹性留白（B22）——
-     原来用 space-between 三个元素时会“三边撑开”✗ 现在右侧有两个按钮要【挨着】✓ */
+  /* 改 flex-start + 弹性留白(B22)-
+     原来用 space-between 三个元素时会“三边撑开”现在右侧有两个按钮要[挨着]*/
   justify-content: flex-start;
   gap: 8px;
-  padding: 0 12px;              /* ★ 左端不贴边 ✓ */
-  /* ★ 常驻行：“跟随主题”（不是面板色 ✗）
-     用户的要求：横栏和面板要【能分开调】 ——
-     否则面板弹下来时颜色一样，看不出弹了东西 ✗ */
+  padding: 0 12px;              /* 左端不贴边 */
+  /* 常驻行:“跟随主题”(不是面板色 )
+     用户的要求:横栏和面板要[能分开调] -
+     否则面板弹下来时颜色一样,看不出弹了东西 */
   background: var(--vscode-sideBar-background);
   border-top: 1px solid var(--vscode-panel-border, transparent);
   font-size: 13px;
@@ -89,13 +89,13 @@
   user-select: none;
 }
 
-/* ★ 方块按钮：宽 = 高（aspect-ratio: 1）
-   → 调 --pi-app-toolbar-height 时按钮【等比放大】✓
-   内容只放图标（去掉文字，否则正方形里塞不下 ✓）*/
+/* 方块按钮:宽 = 高(aspect-ratio: 1)
+   → 调 --pi-app-toolbar-height 时按钮[等比放大]
+   内容只放图标(去掉文字,否则正方形里塞不下 )*/
 .tb-btn {
   flex-shrink: 0;
   aspect-ratio: 1;
-  height: calc(var(--pi-app-toolbar-height, 36px) - 12px); /* 上下各留 6px ✓ */
+  height: calc(var(--pi-app-toolbar-height, 36px) - 12px); /* 上下各留 6px */
   max-height: 34px;
   display: grid;
   place-items: center;
@@ -108,8 +108,8 @@
   cursor: pointer;
   transition: background .14s ease, color .14s ease;
 }
-/* ★ 按钮里的 SVG 图标（B22 压缩按钮用 ✓）——
-   不加宽度它会撑满整个方框 ✗ */
+/* 按钮里的 SVG 图标(B22 压缩按钮用 )-
+   不加宽度它会撑满整个方框 */
 .tb-btn svg { width: 16px; height: 16px; }
 
 .tb-btn:hover {
@@ -117,12 +117,12 @@
   color: var(--vscode-foreground);
 }
 
-/* ★ 当前会话名（按钮行中间）—— 既是展示也是按钮（点击改名 ✓）
-   ★ 固定宽度（可配）：不撑满中间 ✗ —— 否则看着像一条滑轨 ✓
-     width 用 max-width + flex:1 实现：
-       · flex:1 让它在两侧按钮之间【居中】✓
-       · max-width 把它【封顶】成固定宽度 ✓
-       · 两个合起来 = 一块居中、宽度固定的区域 ✓ */
+/* 当前会话名(按钮行中间)- 既是展示也是按钮(点击改名 )
+   固定宽度(可配):不撑满中间 - 否则看着像一条滑轨
+     width 用 max-width + flex:1 实现:
+       · flex:1 让它在两侧按钮之间[居中]
+       · max-width 把它[封顶]成固定宽度
+       · 两个合起来 = 一块居中,宽度固定的区域 */
 #session-title {
   flex: 1;
   min-width: 0;
@@ -149,34 +149,34 @@
   font-style: italic;
 }
 
-/* ===== 顶部常驻状态栏（手机式）=====
-   数据源：message_end.message.usage / model（每轮对话结束更新一次 ✓）*/
+/* ===== 顶部常驻状态栏(手机式)=====
+   数据源:message_end.message.usage / model(每轮对话结束更新一次 )*/
 #status-bar {
-  position: relative;          /* ★ 改为 relative：外层 #top-area 已是 absolute ✓ */
+  position: relative;          /* 改为 relative:外层 #top-area 已是 absolute */
   height: var(--pi-topbar-height);
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;   /* 右对齐：电池在最右端 ✓ */
+  justify-content: flex-end;   /* 右对齐:电池在最右端 */
   gap: 9px;
   padding: 0 10px;
-  /* ★ 上边框：把本栅与 VS Code 自己的顶部栅分开（否则看着像一体的 ✗）*/
+  /* 上边框:把本栅与 VS Code 自己的顶部栅分开(否则看着像一体的 )*/
   border-top: 1px solid var(--vscode-panel-border, transparent);
-  /* ★ 下边框【去掉】：硬线生硬 ✗ → 改用 #messages 的顶部 mask 做朦胧过渡 ✓ */
+  /* 下边框[去掉]:硬线生硬 → 改用 #messages 的顶部 mask 做朦胧过渡 */
   font-size: 12px;
   line-height: 1;
   color: var(--vscode-descriptionForeground);
   user-select: none;
   white-space: nowrap;
   overflow: hidden;
-  /* ★ 整个栏就是展开/收起的点击热区 ✓ */
+  /* 整个栏就是展开/收起的点击热区 */
   cursor: pointer;
 }
 #status-bar:hover { color: var(--vscode-foreground); }
 
-/* ★ 🔔 徽标：放顶栏最左端（其余统计项靠右 ✓）*/
+/* 🔔 徽标:放顶栏最左端(其余统计项靠右 )*/
 #notice-badge {
-  margin-right: auto;        /* ← 把它自己推到最左，其余内容自然靠右 ✓ */
+  margin-right: auto;        /* ← 把它自己推到最左,其余内容自然靠右 */
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -192,7 +192,7 @@
   opacity: 0.6;
 }
 
-/* 电池：一个外形 + 内部填充 + 内部数字（显示【剩余】占比 ✓）*/
+/* 电池:一个外形 + 内部填充 + 内部数字(显示[剩余]占比 )*/
 .battery {
   position: relative;
   display: inline-flex;
@@ -220,30 +220,30 @@
   bottom: 1px;
   width: 0%;
   background: currentColor;
-  opacity: 0.42;             /* ★ 半透明：内部的数字才看得清 ✓ */
+  opacity: 0.42;             /* 半透明:内部的数字才看得清 */
   border-radius: 2px;
   transition: width 0.3s ease;
 }
 .battery-pct {
-  position: relative;        /* 在填充之上 ✓ */
+  position: relative;        /* 在填充之上 */
   font-size: 11px;
   line-height: 1;
-  font-variant-numeric: tabular-nums;   /* 等宽数字：跳动时不抽 ✗ */
+  font-variant-numeric: tabular-nums;   /* 等宽数字:跳动时不抽 */
 }
-/* 剩余不多 → 变色提醒（阈值是【剩余】语义 ✓）*/
+/* 剩余不多 → 变色提醒(阈值是[剩余]语义 )*/
 .battery.low { color: var(--vscode-editorWarning-foreground, #cca700); }
 .battery.empty { color: var(--vscode-errorForeground, #f48771); }
-/* 拿不到上下文窗口大小 → 整个电池区变成一个问号 ✓ */
+/* 拿不到上下文窗口大小 → 整个电池区变成一个问号 */
 #status-bar.no-limit .battery { display: none; }
 #status-bar.no-limit #sb-battery-pct { font-size: 12px; }
 
-/* ===== ★ B25：搬上来的状态类按钮 =====
-   [模型] [思考] 放到会话名旁边 ✓ · [⟳ 重载] 放到压缩旁边 ✓
-   ★ 为什么搬？→ 它们本质是“当前状态/控制”，不是“输入辅助”✓
-     留在输入区会【挤位置】✗ 而且和“发送”不同类 ✓ */
+/* ===== B25:搬上来的状态类按钮 =====
+   [模型] [思考] 放到会话名旁边 · [⟳ 重载] 放到压缩旁边
+   为什么搬?→ 它们本质是“当前状态/控制”,不是“输入辅助”
+     留在输入区会[挤位置]而且和“发送”不同类 */
 
-/* ★ 文字型按钮（模型 / 思考深度）——
-   它们是文字而不是图标 ✗ 所以不能套 .tb-btn 的方框（aspect-ratio:1 ✓） */
+/* 文字型按钮(模型 / 思考深度)-
+   它们是文字而不是图标 所以不能套 .tb-btn 的方框(aspect-ratio:1 ) */
 #app-toolbar .tb-text {
   flex: 0 1 auto;
   min-width: 0;
@@ -265,8 +265,8 @@
   background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .24));
   color: var(--vscode-foreground);
 }
-/* ★ 空值时不占位（没模型/没思考等级时隐藏 ✓）*/
+/* 空值时不占位(没模型/没思考等级时隐藏 )*/
 #app-toolbar .tb-text[data-empty="true"] { display: none; }
 
-/* ★ 重载按钮（搬上来后仍保持圆形图标 ✓）*/
+/* 重载按钮(搬上来后仍保持圆形图标 )*/
 #app-toolbar #btn-reload:active svg { animation: spin .6s linear; }

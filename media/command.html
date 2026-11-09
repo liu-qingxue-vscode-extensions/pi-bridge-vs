@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <!--
-  CSP：跟其他页面一致
+  CSP:跟其他页面一致
     {{nonce}} {{cspSource}} {{css}} {{js}} {{styleVars}} 由 html-loader.ts 注入
 -->
 <meta http-equiv="Content-Security-Policy"
@@ -12,10 +12,10 @@
 <style>{{styleVars}}</style>
 </head>
 <body>
-  <!-- ★ 整页由 src/command/index.ts 渲染 ✗
-       为什么不用静态 HTML？
-         选「按钮」还是「收纳器」会让表单【变形状】✗
-         静态写死就得两套来回藏 ✓ 还是程序化生成清楚 ✓ -->
+  <!-- 整页由 src/command/index.ts 渲染
+       为什么不用静态 HTML?
+         选「按钮」还是「收纳器」会让表单[变形状]
+         静态写死就得两套来回藏 还是程序化生成清楚 -->
   <div id="host">
     <div id="form"></div>
     <div id="foot">

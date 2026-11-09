@@ -1,6 +1,6 @@
 /* ===== 提案调控面板 =====
-   它是聊天流里的一个气泡，只放状态、按钮、批量操作。
-   diff 和讨论在编辑器里的 Comment 中看，这里不重复渲染。 */
+   它是聊天流里的一个气泡,只放状态,按钮,批量操作.
+   diff 和讨论在编辑器里的 Comment 中看,这里不重复渲染. */
 
 .bubble.proposal {
     border: 1px solid var(--vscode-focusBorder, #7b68c9);

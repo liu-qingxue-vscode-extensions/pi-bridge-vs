@@ -1,15 +1,15 @@
-/* ===== 通知面板（手机式下拉） =====
-   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
-   ★ 改这一块只需动本文件 ✓ */
+/* ===== 通知面板(手机式下拉) =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出(一次性重构)
+   改这一块只需动本文件 */
 
-/* ===== 第 3 行起：通知列表（展开时滑出；高度可配 ✓）=====
-   ★ 【固定】高度，不是 max-height：
-     用 max-height 时，内容不够就够不到设定值 ✗（看起来像“设置没生效”）
-     固定高度后：拉下来就那么高，内容多了出滚动条 ✓ */
+/* ===== 第 3 行起:通知列表(展开时滑出;高度可配 )=====
+   [固定]高度,不是 max-height:
+     用 max-height 时,内容不够就够不到设定值 (看起来像“设置没生效”)
+     固定高度后:拉下来就那么高,内容多了出滚动条 */
 #notice-panel {
   flex-shrink: 0;
   height: var(--pi-notice-panel-height, 40vh);
-  /* ★ 内部用纵向 flex：列表滚动、底部收起热区钉住不动 ✓ */
+  /* 内部用纵向 flex:列表滚动,底部收起热区钉住不动 */
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -23,7 +23,7 @@
 #notice-list {
   display: flex;
   flex-direction: column;
-  /* ★ 只有列表区滚（热区留在底部 ✓）*/
+  /* 只有列表区滚(热区留在底部 )*/
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -39,15 +39,15 @@
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  /* ★ 可配（设置：pi-bridge.style.noticeItemPadding）*/
+  /* 可配(设置:pi-bridge.style.noticeItemPadding)*/
   padding: var(--pi-notice-item-padding, 6px 8px 6px 10px);
   border-top: 1px solid var(--vscode-panel-border, transparent);
-  /* ★ 可配（设置：pi-bridge.style.noticeFontSize）*/
+  /* 可配(设置:pi-bridge.style.noticeFontSize)*/
   font-size: var(--pi-notice-font-size, 12px);
   line-height: 1.45;
 }
 .notice-item .ni-icon { flex-shrink: 0; }
-/* ★ 时间戳（HH:MM:SS）—— 等宽数字让多行的时间列对齐 ✓ */
+/* 时间戳(HH:MM:SS)- 等宽数字让多行的时间列对齐 */
 .notice-item .ni-time {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
@@ -59,13 +59,13 @@
   flex: 1;
   min-width: 0;
   word-break: break-word;
-  /* ★ 点击本体 → 留接口（暂不绑行为 ✓）；给个可点手感 */
+  /* 点击本体 → 留接口(暂不绑行为 );给个可点手感 */
   cursor: pointer;
 }
 .notice-item .ni-text:hover { text-decoration: underline; }
 .notice-item .ni-btn {
   flex-shrink: 0;
-  opacity: 0;                  /* 平时隐藏 → hover 才显出 ✓ */
+  opacity: 0;                  /* 平时隐藏 → hover 才显出 */
   border: none;
   background: transparent;
   color: var(--vscode-descriptionForeground);
@@ -76,20 +76,20 @@
   transition: opacity .12s ease;
 }
 .notice-item:hover .ni-btn { opacity: .7; }
-/* ★ 实心背景 + 高不透明度：让两个按钮【一眼可见】（之前太淡看着像没实装 ✗）*/
+/* 实心背景 + 高不透明度:让两个按钮[一眼可见](之前太淡看着像没实装 )*/
 .notice-item .ni-btn:hover {
   opacity: 1;
   color: var(--vscode-foreground);
   background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .28));
 }
 
-/* 级别颜色（图标）*/
+/* 级别颜色(图标)*/
 .notice-item[data-level="error"] .ni-icon { color: var(--vscode-errorForeground); }
 .notice-item[data-level="warn"] .ni-icon { color: var(--vscode-editorWarning-foreground, #cca700); }
 .notice-item[data-level="success"] .ni-icon { color: var(--vscode-testing-iconPassed, #73c991); }
 .notice-item[data-level="info"] .ni-icon { color: var(--vscode-descriptionForeground); }
 
-/* 底部：点击收起热区 */
+/* 底部:点击收起热区 */
 #notice-collapse {
   text-align: center;
   padding: 4px 0 6px;
@@ -100,9 +100,9 @@
 }
 #notice-collapse:hover { color: var(--vscode-foreground); }
 
-/* ===== ★ 压缩气泡（B22）=====
-   和重连提示同构（.bubble-wrap.notice + .bubble.notice ✓）
-   三种结局用颜色区分：完成 ok / 失败 failed / 其他中性 ✓ */
+/* ===== 压缩气泡(B22)=====
+   和重连提示同构(.bubble-wrap.notice + .bubble.notice )
+   三种结局用颜色区分:完成 ok / 失败 failed / 其他中性 */
 .bubble.compact {
   font-size: 12px;
   opacity: .9;
@@ -110,7 +110,7 @@
 .bubble.compact.ok { color: var(--vscode-charts-green, #4caf50); }
 .bubble.compact.failed { color: var(--vscode-charts-red, #e05252); }
 
-/* ★ 压缩按钮转圈（压缩要跑十几秒 ✗ 不反馈像没反应 ✓）*/
+/* 压缩按钮转圈(压缩要跑十几秒 不反馈像没反应 )*/
 @keyframes pi-tb-spin { to { transform: rotate(360deg); } }
 #btn-compact.spinning svg { animation: pi-tb-spin 1.1s linear infinite; }
 #btn-compact.spinning { color: var(--vscode-charts-yellow, #d7a12c); }

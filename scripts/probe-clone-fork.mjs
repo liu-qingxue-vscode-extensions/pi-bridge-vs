@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * ★ 实测 clone / fork 行为（用真的 pi ✓）
+ * 实测 clone / fork 行为(用真的 pi )
  *
- * 用户点名的会话：~/.pi/agent/sessions/--home-liuqingxue--/…（名字 = test，两轮 ✓）
+ * 用户点名的会话:~/.pi/agent/sessions/--home-liuqingxue--/...(名字 = test,两轮 )
  *
- * 要回答的问题：
- *   1. clone 和 fork 的参数分别是什么？
- *   2. 它们的返回值里有什么？（cancelled / text / sessionFile ✗）
- *   3. 它们会不会【自动切换】会话？（B17 源码里看到 result.cancelled || await rebindSession() ✓）
- *   4. get_fork_messages 返回什么？（entryId + text ✓）
- *   5. ★ 关键：clone/fork 之后【新会话的文件】在哪？（fork 出来的会话是独立文件吗？）
+ * 要回答的问题:
+ *   1. clone 和 fork 的参数分别是什么?
+ *   2. 它们的返回值里有什么?(cancelled / text / sessionFile )
+ *   3. 它们会不会[自动切换]会话?(B17 源码里看到 result.cancelled || await rebindSession() )
+ *   4. get_fork_messages 返回什么?(entryId + text )
+ *   5. 关键:clone/fork 之后[新会话的文件]在哪?(fork 出来的会话是独立文件吗?)
  */
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -64,7 +64,7 @@ function send(command) {
     });
 }
 
-const ok = (r) => (r.success ? "✓" : `✗ ${r.error}`);
+const ok = (r) => (r.success ? "" : `${r.error}`);
 
 async function state() {
     const r = await send({ type: "get_state" });
@@ -94,23 +94,23 @@ async function main() {
     const fms = r.data?.messages ?? [];
     log("可 fork 的消息", `${fms.length} 条`);
     for (const m of fms.slice(0, 6)) {
-        log("  ·", `entryId=${m.entryId?.slice(0, 12)}… text=${JSON.stringify((m.text ?? "").slice(0, 40))}`);
+        log("  ·", `entryId=${m.entryId?.slice(0, 12)}... text=${JSON.stringify((m.text ?? "").slice(0, 40))}`);
     }
 
-    // ── 3. fork 最后一条（= 最新用户消息 ✓）──
+    // ── 3. fork 最后一条(= 最新用户消息 )──
     if (fms.length) {
         const last = fms[fms.length - 1];
-        log("", `──── fork(最后一条 entryId=${last.entryId?.slice(0, 12)}…) ────`);
+        log("", `──── fork(最后一条 entryId=${last.entryId?.slice(0, 12)}...) ────`);
         r = await send({ type: "fork", entryId: last.entryId });
         log("fork 返回", `${ok(r)}  ${JSON.stringify(r.data ?? {})}`.slice(0, 200));
         s = await state();
         log("fork 后状态", `file=${path.basename(s.sessionFile ?? "")} msgs=${s.messageCount}`);
     }
 
-    // ── 4. fork 第一条（看是不是能回到早期 ✓）──
+    // ── 4. fork 第一条(看是不是能回到早期 )──
     if (fms.length > 1) {
         const first = fms[0];
-        log("", `──── fork(第一条 entryId=${first.entryId?.slice(0, 12)}…) ────`);
+        log("", `──── fork(第一条 entryId=${first.entryId?.slice(0, 12)}...) ────`);
         r = await send({ type: "fork", entryId: first.entryId });
         log("fork 返回", `${ok(r)}  ${JSON.stringify(r.data ?? {})}`.slice(0, 200));
         s = await state();

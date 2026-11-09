@@ -1,5 +1,5 @@
 /**
- * settings-utils.ts —— 设置面板的小工具（B30 ✗ 从 main.ts 搬出）
+ * settings-utils.ts - 设置面板的小工具(B30 从 main.ts 搬出)
  */
 import { SETTINGS_GROUPS } from "../pi/settings-schema.js";
 

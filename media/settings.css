@@ -1,14 +1,14 @@
 /* =====================================================================
-   settings.css —— 设置面板（独立编辑器页面，B35 ✓）
+   settings.css - 设置面板(独立编辑器页面,B35 )
 
-   ★ 来源：从 media/css/settings.css 整体复制 ✓
-   ★ 改了什么：
-      ① 删掉 #settings-panel 的【弹层】样式
-         （滑出 / collapsed / max-height / z-index ✗ 独立面板是一整页 ✓）
-      ② 加 body 的整页布局 ✓
-      ③ #settings-body 加 min-height: 0（否则 flex 子项不滚 ✓ FACTS 坑 8）
-      ④ 加 .spacer / #toast ✓
-   ★ 内部的行样式（.s-item / .sg-title / .s-ctl / .sp-note …）【原样保留】✓
+   来源:从 media/css/settings.css 整体复制
+   改了什么:
+      ① 删掉 #settings-panel 的[弹层]样式
+         (滑出 / collapsed / max-height / z-index 独立面板是一整页 )
+      ② 加 body 的整页布局
+      ③ #settings-body 加 min-height: 0(否则 flex 子项不滚 FACTS 坑 8)
+      ④ 加 .spacer / #toast
+   内部的行样式(.s-item / .sg-title / .s-ctl / .sp-note ...)[原样保留]
    ===================================================================== */
 
 * { box-sizing: border-box; }
@@ -35,7 +35,7 @@ body {
 }
 #settings-title { font-weight: 600; }
 #settings-head .spacer { flex: 1 1 auto; }
-/* ★ 文件路径（让用户知道在改哪个文件 ✓ 这是"透明"的关键 ✓）*/
+/* 文件路径(让用户知道在改哪个文件 这是"透明"的关键 )*/
 #settings-path {
   flex: 1 1 auto;
   min-width: 0;
@@ -57,7 +57,7 @@ body {
   cursor: pointer;
 }
 #settings-head button:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,.24)); }
-/* ★ 保存按钮：有未保存修改时高亮 ✓ 没改就禁用 ✓ */
+/* 保存按钮:有未保存修改时高亮 没改就禁用 */
 #settings-save:not([disabled]) {
   background: var(--vscode-button-background, #0e639c);
   color: var(--vscode-button-foreground, #fff);
@@ -66,7 +66,7 @@ body {
 
 #settings-body {
   flex: 1 1 auto;
-  /* ★ 必须加 min-height: 0 ✗ 否则 flex 子项不滚（FACTS 坑 8 ✓）*/
+  /* 必须加 min-height: 0 否则 flex 子项不滚(FACTS 坑 8 )*/
   min-height: 0;
   overflow-y: auto;
   padding: 4px var(--pi-settings-pad-x, 10px) 10px;
@@ -81,20 +81,20 @@ body {
   opacity: .68;
   text-transform: uppercase;
   letter-spacing: .04em;
-  /* ★ 可点击收缩 ✗（B24 用户要求 ✓）*/
+  /* 可点击收缩 (B24 用户要求 )*/
   cursor: pointer;
   user-select: none;
 }
 .sg-title:hover { opacity: 1; }
-/* 指示器（▾ 展开 / ▸ 收起 ✓）*/
+/* 指示器(▾ 展开 / ▸ 收起 )*/
 .sg-title::before { content: "▾"; flex: 0 0 auto; font-size: 9px; }
 .sg-title[data-collapsed="true"]::before { content: "▸"; }
 .sg-body.collapsed { display: none; }
-/* 一行设置：★ 纵向布局 ✗（B24 用户要求 ✓）
- *   第一行：标签 + 描述
- *   第二行：控件
- *   理由（用户原话）：“把描述放到上一行，把具体的配置按钮放到它的下一行”✓
- *   好处：描述可以写长 ✗ 控件也不会被挤窄 ✓ 风格统一 ✓ */
+/* 一行设置:纵向布局 (B24 用户要求 )
+ *   第一行:标签 + 描述
+ *   第二行:控件
+ *   理由(用户原话):“把描述放到上一行,把具体的配置按钮放到它的下一行”
+ *   好处:描述可以写长 控件也不会被挤窄 风格统一 */
 .s-item {
   display: flex;
   flex-direction: column;
@@ -114,12 +114,12 @@ body {
   opacity: .55;
   margin-top: 1px;
 }
-/* ★ 控件靠左 ✗ 不拉满（拉满会像输入大片 ✗ 而且看着丑 ✓）*/
+/* 控件靠左 不拉满(拉满会像输入大片 而且看着丑 )*/
 .s-ctl { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
-/* ★ 控件宽度【自适应】✗（B24 调整 ✓）
- *   历程：横向布局时固定 220px 是合理的 ✓
- *         改成纵向后（描述在上、控件在下）→ 220px 就显得【太短、全挤在左边】✗
- *   → 现在【拉满】✓ 反正这一行只有它 ✓ */
+/* 控件宽度[自适应](B24 调整 )
+ *   历程:横向布局时固定 220px 是合理的
+ *         改成纵向后(描述在上,控件在下)→ 220px 就显得[太短,全挤在左边]
+ *   → 现在[拉满]反正这一行只有它 */
 .s-ctl input[type="text"], .s-ctl input[type="number"], .s-ctl select {
   width: 100%;
   min-width: 0;
@@ -127,23 +127,23 @@ body {
   padding: 2px 6px;
   border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
   border-radius: 3px;
-  /* ★★ 下拉千万别用 --vscode-dropdown-background ✗（B24 实测：
-   *   某些主题（包括用户正在用的）里它就是【白色】✓ 和输入框不统一 ✗）
-   *   → 和 input / textarea 用【同一个】变量 ✓ 视觉才一致 ✓ */
+  /* 下拉千万别用 --vscode-dropdown-background (B24 实测:
+   *   某些主题(包括用户正在用的)里它就是[白色]和输入框不统一 )
+   *   → 和 input / textarea 用[同一个]变量 视觉才一致 */
   background: var(--vscode-input-background, transparent);
   color: var(--vscode-input-foreground, var(--vscode-foreground));
   font-size: 11px;
   font-family: inherit;
 }
-/* ★ 标签在左、控件在右 —— 已改纵向 ✗（见上面的 .s-item ✓）
- *   保留一条：未保存的项 → 左边黄色竖条 ✓ */
+/* 标签在左,控件在右 - 已改纵向 (见上面的 .s-item )
+ *   保留一条:未保存的项 → 左边黄色竖条 */
 .s-ctl input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; }
-/* 未保存标记（改过的项 → 左边一条黄线 ✓）*/
+/* 未保存标记(改过的项 → 左边一条黄线 )*/
 .s-item[data-dirty="true"] { box-shadow: inset 3px 0 0 var(--vscode-charts-yellow, #d7a12c); }
 .s-loading { padding: 20px 12px; font-size: 12px; opacity: .6; }
 
-/* ★ 列表控件（enabledModels 这类 ✓）
-   每项一行（值 + ✕）+ 底部一个"添加"输入框 ✓ 模仿 VS Code 的数组控件 ✓ */
+/* 列表控件(enabledModels 这类 )
+   每项一行(值 + ✕)+ 底部一个"添加"输入框 模仿 VS Code 的数组控件 */
 .s-list {
   display: flex;
   flex-direction: column;
@@ -171,18 +171,18 @@ body {
 }
 .s-list-item button:hover { color: var(--vscode-charts-red, #e05252); }
 
-/* ★ 列表里的“从候选选一个添加”下拉（B24 ✓）
-   没有候选时前端会退回手输框 ✓ 两者视觉保持一致 ✓ */
+/* 列表里的“从候选选一个添加”下拉(B24 )
+   没有候选时前端会退回手输框 两者视觉保持一致 */
 .s-list select {
   margin-top: 2px;
   padding: 1px 5px;
   border: 1px dashed var(--vscode-input-border, var(--vscode-panel-border));
   border-radius: 3px;
-  /* ★★ 千万别用 transparent ✗（B24 实测踩到 ✓）
-   *   原生 select 的默认底色是【白】✗
-   *   transparent 会让它【透出那层白】✓ → 看着和其他控件不一致 ✓
-   *   （用户：“别的下拉框都没问题，怎么就它有问题”✓）
-   *   → 和输入框用【同一个变量】✓ */
+  /* 千万别用 transparent (B24 实测踩到 )
+   *   原生 select 的默认底色是[白]
+   *   transparent 会让它[透出那层白]→ 看着和其他控件不一致
+   *   (用户:“别的下拉框都没问题,怎么就它有问题”)
+   *   → 和输入框用[同一个变量]*/
   background: var(--vscode-input-background, transparent);
   color: var(--vscode-input-foreground, var(--vscode-foreground));
   font-size: 11px;
@@ -191,13 +191,13 @@ body {
 }
 .s-list select:hover { color: var(--vscode-foreground); border-style: solid; }
 
-/* ★ 已装扩展的启用/停用（B24 ✓）
-   每个包一行复选框 ✗ 名字可能很长 → 允许省略 + hover 看全 ✓ */
+/* 已装扩展的启用/停用(B24 )
+   每个包一行复选框 名字可能很长 → 允许省略 + hover 看全 */
 .s-extlist {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  max-height: 34vh;      /* ★ 装了很多扩展时【能滚】✗ 不撑爆面板 ✓ */
+  max-height: 34vh;      /* 装了很多扩展时[能滚]不撑爆面板 */
   overflow-y: auto;
   padding: 2px 4px;
   border-radius: 3px;
@@ -220,18 +220,18 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* ★ 停用的包看着淡一点 ✓ 一眼能区分启用/停用 ✓ */
+/* 停用的包看着淡一点 一眼能区分启用/停用 */
 .s-ext-item:has(input:not(:checked)) { opacity: .55; }
 
-/* ★ 拓展列表（extlist）占满宽度 ✗
-   （现在所有项都是纵向了 ✗ 所以不用再改方向 ✓
-    只有它需要【宽度拉满】而已 ✓）*/
+/* 拓展列表(extlist)占满宽度
+   (现在所有项都是纵向了 所以不用再改方向
+    只有它需要[宽度拉满]而已 )*/
 .s-item .s-ctl:has(.s-extlist) { flex: 1 1 auto; width: 100%; }
 .s-item .s-extlist { width: 100%; }
 
-/* ★ 数字输入框去掉【上下箭头】（B24 用户要求 ✓）
-   原话：“数字输入框旁边有个上下标，好丑啊，给它删了”✓
-   （那东西在 webview 里本来就没用 ✗ 而且占位 ✓）*/
+/* 数字输入框去掉[上下箭头](B24 用户要求 )
+   原话:“数字输入框旁边有个上下标,好丑啊,给它删了”
+   (那东西在 webview 里本来就没用 而且占位 )*/
 .s-ctl input[type="number"],
 .s-list input[type="number"] {
   -moz-appearance: textfield;
@@ -245,9 +245,9 @@ body {
   margin: 0;
 }
 
-/* ===== ★ 供应商凭据（B24）=====
-   目标：能【看】清楚有哪些凭据 ✗ 能【增/删】api_key ✓
-     oauth 完全只读（用户：“做成灰色的不可改项目”✓）*/
+/* ===== 供应商凭据(B24)=====
+   目标:能[看]清楚有哪些凭据 能[增/删]api_key
+     oauth 完全只读(用户:“做成灰色的不可改项目”)*/
 .s-providers {
   display: flex;
   flex-direction: column;
@@ -263,7 +263,7 @@ body {
   background: var(--vscode-input-background, rgba(128, 128, 128, .08));
   font-size: 11px;
 }
-/* ★ 只读项（oauth）：灰、降透明度、cursor 不变 ✓ */
+/* 只读项(oauth):灰,降透明度,cursor 不变 */
 .sp-item.readonly {
   opacity: .5;
   font-style: italic;
@@ -310,7 +310,7 @@ body {
   border-color: var(--vscode-charts-red, #e05252);
   color: var(--vscode-charts-red, #e05252);
 }
-/* ★ 添加行：供应商名 + key + 按钮 ✓ */
+/* 添加行:供应商名 + key + 按钮 */
 .sp-add {
   display: flex;
   gap: 4px;

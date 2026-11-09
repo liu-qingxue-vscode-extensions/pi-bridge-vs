@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * smoke-in-pi.mjs —— 验证我们自己的 pi 扩展（src/in-pi）能不能真的跑起来
+ * smoke-in-pi.mjs - 验证我们自己的 pi 扩展(src/in-pi)能不能真的跑起来
  *
- * 【为什么需要它】
- *   in-pi 扩展的核心行为（工具注册 / appendEntry / turn_end 里 abort）
- *   只有"真跑一次模型"才能验证 ✗ 用 tsc 检查不出来。
+ * [为什么需要它]
+ *   in-pi 扩展的核心行为(工具注册 / appendEntry / turn_end 里 abort)
+ *   只有"真跑一次模型"才能验证 用 tsc 检查不出来.
  *
- * 【它做什么】
- *   起一个 RPC 模式的 pi，带着我们的扩展，发一句让它调 vs_write 的话，
- *   然后把关键事件按顺序打出来：tool_execution_* / entry_appended / abort 迹象。
+ * [它做什么]
+ *   起一个 RPC 模式的 pi,带着我们的扩展,发一句让它调 vs_write 的话,
+ *   然后把关键事件按顺序打出来:tool_execution_* / entry_appended / abort 迹象.
  *
- * 跑法：node scripts/smoke-in-pi.mjs
+ * 跑法:node scripts/smoke-in-pi.mjs
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -34,7 +34,7 @@ const CANDIDATES = [
 
 const piBin = CANDIDATES.find((p) => existsSync(p));
 if (!piBin) {
-    console.error("找不到 pi 可执行文件（设 PI_BIN 指定）");
+    console.error("找不到 pi 可执行文件(设 PI_BIN 指定)");
     process.exit(1);
 }
 
@@ -51,14 +51,14 @@ let sawTool = false;
 let sawAppend = false;
 
 const timer = setTimeout(() => {
-    console.log("\n★ 超时（120s）——强制结束");
+    console.log("\n超时(120s)-强制结束");
     child.kill("SIGKILL");
     process.exit(2);
 }, 120_000);
 
 child.stderr.on("data", (b) => {
     const t = b.toString();
-    // 只显示跟我们扩展有关的部分（其他扩展的警告是噪音）
+    // 只显示跟我们扩展有关的部分(其他扩展的警告是噪音)
     for (const line of t.split("\n")) {
         if (/in-pi|vs-proposal|vs_write|error|Error/.test(line) && line.trim()) {
             console.log(`[stderr] ${line.trim()}`);
@@ -125,9 +125,9 @@ function finish() {
     const ok1 = sawTool;
     const ok2 = sawAppend;
     const ok3 = settled;
-    console.log(`${ok1 ? "✓" : "✗"} 模型真的调用了工具`);
-    console.log(`${ok2 ? "✓" : "✗"} vs-proposal 条目真的写进了会话`);
-    console.log(`${ok3 ? "✓" : "✗"} 跑完之后 agent 停下来了（settled）`);
+    console.log(`${ok1 ? "" : ""} 模型真的调用了工具`);
+    console.log(`${ok2 ? "" : ""} vs-proposal 条目真的写进了会话`);
+    console.log(`${ok3 ? "" : ""} 跑完之后 agent 停下来了(settled)`);
     process.exit(ok1 && ok2 && ok3 ? 0 : 1);
 }
 
@@ -136,7 +136,7 @@ child.stdin.write(
         type: "prompt",
         id: "p1",
         message:
-            "调用 vs_write 工具提交一个提案，参数：file=a.txt, startLine=1, endLine=1, " +
-            "newText=hello, explanation=这是冒烟测试。直接调用，不要解释。",
+            "调用 vs_write 工具提交一个提案,参数:file=a.txt, startLine=1, endLine=1, " +
+            "newText=hello, explanation=这是冒烟测试.直接调用,不要解释.",
     }) + "\n",
 );

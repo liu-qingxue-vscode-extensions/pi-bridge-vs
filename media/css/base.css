@@ -1,15 +1,15 @@
-/* ===== 基础：可调变量 + 对话区 + 滚动条 =====
-   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
-   ★ 改这一块只需动本文件 ✓ */
+/* ===== 基础:可调变量 + 对话区 + 滚动条 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出(一次性重构)
+   改这一块只需动本文件 */
 
-/* ===== 可调参数（CSS 变量）=====
-   这些是默认值；扩展会从 VS Code 设置生成覆盖（留空 = 用这里/主题变量）*/
+/* ===== 可调参数(CSS 变量)=====
+   这些是默认值;扩展会从 VS Code 设置生成覆盖(留空 = 用这里/主题变量)*/
 :root {
   --pi-bubble-width: 88%;
   --pi-bubble-radius: 6px;
   --pi-bubble-padding: 8px 12px;
 
-  /* 气泡之间的竖直间距（挂 margin-top，不叠加）*/
+  /* 气泡之间的竖直间距(挂 margin-top,不叠加)*/
   --pi-gap-turn: 10px;
   --pi-gap-user-first: 12px;
   --pi-gap-thinking-text: 4px;
@@ -22,27 +22,27 @@
   --pi-rail-width: 2px;
   --pi-border-w: 1px;
 
-  /* ★★ B46：压缩气泡的默认值（想在 VS Code 设置里改的话
-     用 workbench.colorCustomizations 覆盖同名变量即可 ✓）*/
+  /* B46:压缩气泡的默认值(想在 VS Code 设置里改的话
+     用 workbench.colorCustomizations 覆盖同名变量即可 )*/
   --pi-bg-compaction: transparent;
   --pi-rail-color-compaction: var(--vscode-panel-border);
   --pi-compaction-max-height: 420px;
 
-  /* ★ B47：完整历史面板的横幅高度（#messages 要让出这块 ✗ 否则被盖住 ✓）
-     实测约 28px（12px 字号 + 6px*2 padding + 1px 边框 ✓）*/
+  /* B47:完整历史面板的横幅高度(#messages 要让出这块 否则被盖住 )
+     实测约 28px(12px 字号 + 6px*2 padding + 1px 边框 )*/
   --pi-history-banner-h: 29px;
 
-  /* ★★ B45：完整历史面板里"已被压缩"那段
-     ★ 用【实色】而不是主题变量叠色 —— 上一版用 editorWidgetBackground（半透明）
-       ⇒ 叠在气泡底色上等于没变 ✗ 用户实测："完全看不出来"✓
-     ★ 也不用 opacity：那会把【文字】一起弄淡 ✗ 要的是"背景突出、文字照常"✓
-     深浅主题各一套（body 上有 vscode-dark / vscode-light 类 ✓）*/
-  /* ★ 上一版 #2d2a3e 与 VS Code 深色底 #1e1e1e 几乎同色 ⇒ 用户："完全看不出来"✓
-     ⇒ 提亮 + 提饱和，明显是"一块紫色区域"✓ */
-  --pi-compacted-bg: #3b3054;        /* 紫（深色主题）*/
+  /* B45:完整历史面板里"已被压缩"那段
+     用[实色]而不是主题变量叠色 - 上一版用 editorWidgetBackground(半透明)
+       ⇒ 叠在气泡底色上等于没变 用户实测:"完全看不出来"
+     也不用 opacity:那会把[文字]一起弄淡 要的是"背景突出,文字照常"
+     深浅主题各一套(body 上有 vscode-dark / vscode-light 类 )*/
+  /* 上一版 #2d2a3e 与 VS Code 深色底 #1e1e1e 几乎同色 ⇒ 用户:"完全看不出来"
+     ⇒ 提亮 + 提饱和,明显是"一块紫色区域"*/
+  --pi-compacted-bg: #3b3054;        /* 紫(深色主题)*/
   --pi-compacted-split-bg: #7b68c9;  /* 分界色条 */
   --pi-compacted-fg: #d8d0f0;
-  --pi-compacted-pad: 10px;          /* 整块区域的内边距（让它看起来是"一片"✓）*/
+  --pi-compacted-pad: 10px;          /* 整块区域的内边距(让它看起来是"一片")*/
 
   /* 输入框 */
   --pi-input-radius: 14px;
@@ -51,20 +51,20 @@
   --pi-input-max-rows: 8;
   --pi-input-bottom-gap: 22px;
 
-  /* 顶部常驻状态栏（手机式）*/
+  /* 顶部常驻状态栏(手机式)*/
   --pi-topbar-height: 26px;
-  --pi-app-toolbar-height: 28px;   /* ★ 按钮行高度（顶栏下方那一行 ✓）*/
+  --pi-app-toolbar-height: 28px;   /* 按钮行高度(顶栏下方那一行 )*/
 
-  /* ★★ 输入区【实际占用的高度】（B32 ✗ 由 JS 实测后写入 ✓）
-     单一数据源 → 两个消费方：
-       ① #messages 的 padding-bottom（内容能滚到输入区后面 ✓）
-       ② #cmd-rail 的 bottom（命令条到输入区上方就截断 ✓）
-     ★ 为什么用变量而不是直接写 style？
-       因为有两个元素要用同一个值 ✗ 写两次容易忘掉一处 ✓ */
+  /* 输入区[实际占用的高度](B32 由 JS 实测后写入 )
+     单一数据源 → 两个消费方:
+       ① #messages 的 padding-bottom(内容能滚到输入区后面 )
+       ② #cmd-rail 的 bottom(命令条到输入区上方就截断 )
+     为什么用变量而不是直接写 style?
+       因为有两个元素要用同一个值 写两次容易忘掉一处 */
   --pi-input-reserve: 120px;
 }
 /* 设置覆盖注入点已移到 chat.html 的 <style>{{styleVars}}</style>
-   （CSS 文件不经过 loader 替换，不能在这里放占位符 ✗）*/
+   (CSS 文件不经过 loader 替换,不能在这里放占位符 )*/
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -77,43 +77,43 @@ body {
 }
 #messages {
   position: absolute;
-  /* ★ 顶部让出状态栏的高度（inset 展开写，方便单独改 top）*/
-  /* ★ 顶部让出：【顶栏 + 按钮行】两条的高度（inset 展开写，方便单独改 top）*/
+  /* 顶部让出状态栏的高度(inset 展开写,方便单独改 top)*/
+  /* 顶部让出:[顶栏 + 按钮行]两条的高度(inset 展开写,方便单独改 top)*/
   top: calc(var(--pi-topbar-height) + var(--pi-app-toolbar-height, 28px));
   left: 0;
   right: 0;
   bottom: 0;
   overflow-y: auto;
-  /* 底部留白由 JS 动态同步（= 输入区实际高度）*/
-  /* 左右用 sideGap：控制气泡与视图左右边界的间距 */
-  /* ★★★ B32 重构（用户实测报“全部耦合”✓）：
-     左右内边距【不再用气泡的 leftGap / rightGap】✗ 一律为 0 ✓
+  /* 底部留白由 JS 动态同步(= 输入区实际高度)*/
+  /* 左右用 sideGap:控制气泡与视图左右边界的间距 */
+  /* B32 重构(用户实测报“全部耦合”):
+     左右内边距[不再用气泡的 leftGap / rightGap]一律为 0
 
-     【为什么？】
-       padding 会改变【内容区宽度】✗
+     [为什么?]
+       padding 会改变[内容区宽度]
        而所有气泡的 width:90% 都是相对内容区的
-       ⇒ 改任何一个 gap ✗ AI 气泡 / 用户气泡 / 输入框【全跟着变】
-       ⇒ 症状：改右边距 → AI 气泡也被挤 ✗ 改左边距 → 输入框也动 ✓
+       ⇒ 改任何一个 gap AI 气泡 / 用户气泡 / 输入框[全跟着变]
+       ⇒ 症状:改右边距 → AI 气泡也被挤 改左边距 → 输入框也动
 
-     ★ 正确做法：边距【下沉到气泡自己身上】（margin ✓）
+     正确做法:边距[下沉到气泡自己身上](margin )
        AI 气泡   → margin-left: leftGap
        用户气泡  → margin-right: rightGap
        输入框    → 自己 width% + margin:auto 居中
-      ⇒ 三者互不影响 ✓ */
+      ⇒ 三者互不影响 */
   padding: 12px 0 var(--pi-input-reserve, 120px) 0;
-  /* 用 flex 纵向布局：靠左/靠右用 align-self —— 比 margin:auto 可靠得多 */
+  /* 用 flex 纵向布局:靠左/靠右用 align-self - 比 margin:auto 可靠得多 */
   display: flex;
   flex-direction: column;
   align-items: flex-start;   /* 默认靠左 */
-  /* ★ 顶部渐隐：与底部（输入区遮罩）对称 ✓
-     把状态栏的【硬下边框】换成这个 → 内容滚到顶时自然朦胧淡出 ✓ */
+  /* 顶部渐隐:与底部(输入区遮罩)对称
+     把状态栏的[硬下边框]换成这个 → 内容滚到顶时自然朦胧淡出 */
   mask-image: linear-gradient(to bottom, transparent 0, #000 18px);
 }
 
-/* ===== 滚动条美化（对话区 + 输入框 统一）=====
-   ★ 默认【完全透明】（系统默认滚动条很突兀 ✗）
-   ★ 只在鼠标悬停该区域时才显出（朦胧 ✓）
-   ★ 用 border + background-clip 做内缩 → 视觉更细 ✓ */
+/* ===== 滚动条美化(对话区 + 输入框 统一)=====
+   默认[完全透明](系统默认滚动条很突兀 )
+   只在鼠标悬停该区域时才显出(朦胧 )
+   用 border + background-clip 做内缩 → 视觉更细 */
 #messages,
 #input {
   scrollbar-width: thin;                                   /* Firefox */
@@ -134,9 +134,9 @@ body {
 }
 #messages::-webkit-scrollbar-thumb,
 #input::-webkit-scrollbar-thumb {
-  background: transparent;                                 /* 默认隐形 ✓ */
-  background-clip: content-box;                            /* ★ 只填 content 区 → 内缩 ✓ */
-  border: 4px solid transparent;                           /* ★ 4px 内缩 → 滑块更细 ✓ */
+  background: transparent;                                 /* 默认隐形 */
+  background-clip: content-box;                            /* 只填 content 区 → 内缩 */
+  border: 4px solid transparent;                           /* 4px 内缩 → 滑块更细 */
   border-radius: 999px;
 }
 #messages:hover::-webkit-scrollbar-thumb,

@@ -1,12 +1,12 @@
 /*
- * skills.css —— 技能面板（B31 ✗ 从侧栏搬到编辑器区）
+ * skills.css - 技能面板(B31 从侧栏搬到编辑器区)
  *
- * 【★ 和侧栏版的差别】
- *   侧栏版要省空间 ✗ 字号小 / 内边距小 ✓
- *   独立页面宽得多 ✗ 可以放大 ✓ 也可以让 SKILL.md 正文舒服地读 ✓
+ * [和侧栏版的差别]
+ *   侧栏版要省空间 字号小 / 内边距小
+ *   独立页面宽得多 可以放大 也可以让 SKILL.md 正文舒服地读
  *
- * 【来源分色】★ 用户技能（可改可删）vs 扩展包提供（只读 ✓）
- *   用左侧色条区分 ✗ 一眼看出"这条能不能动" ✓
+ * [来源分色]用户技能(可改可删)vs 扩展包提供(只读 )
+ *   用左侧色条区分 一眼看出"这条能不能动"
  */
 
 * { box-sizing: border-box; }
@@ -50,7 +50,7 @@ body {
   background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .2));
 }
 
-/* ── 列表（可滚 ✗ 用户要求的 ✓）── */
+/* ── 列表(可滚 用户要求的 )── */
 #list {
   flex: 1 1 auto;
   min-height: 0;
@@ -76,7 +76,7 @@ body {
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, .25));
-  /* ★ 左侧色条：默认灰 ✗ 用户技能绿 ✓ 扩展只读黄 ✓ */
+  /* 左侧色条:默认灰 用户技能绿 扩展只读黄 */
   border-left: 3px solid var(--vscode-panel-border);
   border-radius: 6px;
   cursor: pointer;
@@ -91,7 +91,7 @@ body {
 .sk-desc { font-size: 12px; opacity: .78; line-height: 1.5; word-break: break-word; }
 .sk-src { font-size: 11px; opacity: .5; }
 
-/* ★ 每项右侧的【反向按钮】（B31 ✗ 语义随配置翻转 ✓）*/
+/* 每项右侧的[反向按钮](B31 语义随配置翻转 )*/
 .sk-btn {
   flex: 0 0 auto;
   padding: 4px 10px;
@@ -109,7 +109,7 @@ body {
   opacity: 1;
   background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, .2));
 }
-/* ★ 删除按钮（只对自定义技能显示 ✓）*/
+/* 删除按钮(只对自定义技能显示 )*/
 .sk-btn.danger { opacity: .65; }
 .sk-btn.danger:hover {
   opacity: 1;
@@ -117,7 +117,7 @@ body {
   color: var(--vscode-charts-red, #e05252);
 }
 
-/* ── 展开的详情（原地插在下面 ✓）── */
+/* ── 展开的详情(原地插在下面 )── */
 .sk-detail {
   margin: -4px 0 4px 0;
   padding: 10px 12px;
@@ -146,7 +146,7 @@ body {
 }
 .sk-actions button.primary:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
 
-/* SKILL.md 正文 ✗ 等宽 + 可滚 + 限高（很长 ✓）*/
+/* SKILL.md 正文 等宽 + 可滚 + 限高(很长 )*/
 .sk-content {
   margin: 0;
   max-height: 46vh;
@@ -169,9 +169,9 @@ body {
 }
 .sk-loading { padding: 20px 4px; opacity: .6; font-size: 13px; }
 
-/* ══════════ ★ B31：点击反馈 toast ══════════
-   ★ 为什么需要？→ 单击的效果发生在【侧栏聊天区】✗
-     用户在编辑器区看不见 ✓ 不给反馈会以为"点了没反应" ✓ */
+/* ══════════ B31:点击反馈 toast ══════════
+   为什么需要?→ 单击的效果发生在[侧栏聊天区]
+     用户在编辑器区看不见 不给反馈会以为"点了没反应" */
 #toast {
   position: fixed;
   left: 50%;
@@ -193,8 +193,8 @@ body {
 #toast[data-show="1"] { opacity: 1; transform: translateX(-50%) translateY(0); }
 #toast[data-kind="err"] { border-color: var(--vscode-charts-red, #e05252); }
 
-/* ══════════ ★ 通用右键菜单（从 media/css/context-menu.css 搬来 ✓
-   为什么复制而不共享？→ 这是独立页面 ✗ 引不到侧栏那份 CSS ✓）══════════ */
+/* ══════════ 通用右键菜单(从 media/css/context-menu.css 搬来
+   为什么复制而不共享?→ 这是独立页面 引不到侧栏那份 CSS )══════════ */
 .ctx-menu {
   position: fixed;
   z-index: 100;
@@ -222,13 +222,13 @@ body {
 .ctx-item:hover { background: var(--vscode-list-hoverBackground, rgba(128, 128, 128, .2)); }
 .ctx-item.danger { color: var(--vscode-charts-red, #e05252); }
 
-/* ══════════ ★ B31：列表最后一项「＋」（新建技能）══════════
-   ★ 为什么不做底部独立按钮？→ 它本来就是列表的一部分 ✓
-     列表 = “一堆技能 + 一个新建入口”✗ 这样最自然 ✓ */
+/* ══════════ B31:列表最后一项「＋」(新建技能)══════════
+   为什么不做底部独立按钮?→ 它本来就是列表的一部分
+     列表 = “一堆技能 + 一个新建入口”这样最自然 */
 .sk-item.add {
   justify-content: center;
   border-style: dashed;
-  border-left-width: 1px;   /* ★ 取消那个左侧色条 ✗ 它没有来源 ✓ */
+  border-left-width: 1px;   /* 取消那个左侧色条 它没有来源 */
   opacity: .72;
   padding: 14px 12px;
 }

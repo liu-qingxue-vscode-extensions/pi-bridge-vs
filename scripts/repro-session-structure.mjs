@@ -1,10 +1,10 @@
 /**
- * 复现测试：纯官方 RpcClient（不经过我们的扩展）连续启动两次，
- * 检查它写出的会话文件结构是否符合 session-format.md 的约定。
+ * 复现测试:纯官方 RpcClient(不经过我们的扩展)连续启动两次,
+ * 检查它写出的会话文件结构是否符合 session-format.md 的约定.
  *
- * 会话写到 /tmp 下的独立目录，不污染 ~/.pi/agent/sessions/
+ * 会话写到 /tmp 下的独立目录,不污染 ~/.pi/agent/sessions/
  *
- * 跑法：node scripts/repro-session-structure.mjs
+ * 跑法:node scripts/repro-session-structure.mjs
  */
 import { RpcClient } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
@@ -29,7 +29,7 @@ async function runOnce(tag) {
     });
     await client.start();
     await client.getState();
-    await client.prompt(`回复一个字：${tag}`);
+    await client.prompt(`回复一个字:${tag}`);
     await new Promise((r) => setTimeout(r, 15000)); // 等模型回应
     await client.stop();
     console.log(`--- 第 ${tag} 次结束 ---`);
@@ -54,6 +54,6 @@ for (const rel of files) {
         if (e.type !== "session" && !e.id) missingId++;
         console.log(`  ${String(i + 1).padStart(2)} ${String(e.type).padEnd(22)} id=${String(e.id ?? "NONE").slice(0, 8).padEnd(9)} parent=${String(pid ?? "NONE").slice(0, 8)}`);
     }
-    console.log(`  >>> parentId=null 的非 session 条目: ${roots} 个（约定应只有第 1 个条目）`);
+    console.log(`  >>> parentId=null 的非 session 条目: ${roots} 个(约定应只有第 1 个条目)`);
     console.log(`  >>> 缺 id 的条目: ${missingId} 个`);
 }

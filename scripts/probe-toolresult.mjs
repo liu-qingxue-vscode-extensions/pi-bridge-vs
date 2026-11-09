@@ -1,10 +1,10 @@
 /**
- * 探测：工具结果消息（role=toolResult）的完整结构
+ * 探测:工具结果消息(role=toolResult)的完整结构
  *
- * 目的：确认能否用它里面的字段，把「工具调用」和「工具结果」关联起来
- *       （视觉上要拼成一个"工具气泡"）
+ * 目的:确认能否用它里面的字段,把「工具调用」和「工具结果」关联起来
+ *       (视觉上要拼成一个"工具气泡")
  *
- * 跑法：node scripts/probe-toolresult.mjs
+ * 跑法:node scripts/probe-toolresult.mjs
  */
 import { RpcClient } from "@earendil-works/pi-coding-agent";
 import { startMockLlmServer } from "@truly-private/omdsh-llm-mock-server";
@@ -23,7 +23,7 @@ const mock = await startMockLlmServer({
     apiKey: "mock-key",
     sequence: ["tool_call_success", "success"],
     repeatLast: true,
-    successText: "工具跑完了。",
+    successText: "工具跑完了.",
     toolName: "read",
     toolArguments: '{"path":"demo.txt"}',
     chunkSize: 4,
@@ -36,13 +36,13 @@ const client = new RpcClient({
 });
 
 client.onEvent((e) => {
-    // 工具调用开始（看有没有 id）
+    // 工具调用开始(看有没有 id)
     const ae = e.assistantMessageEvent;
     if (ae?.type === "toolcall_start") {
         console.log("=== toolcall_start ===");
         console.log(JSON.stringify(ae, null, 2).slice(0, 400));
     }
-    // 工具结果消息（★关键：看结构）
+    // 工具结果消息(关键:看结构)
     if (e.type === "message_start" && e.message?.role === "toolResult") {
         console.log("\n=== message_start (role=toolResult) 完整结构 ===");
         console.log(JSON.stringify(e.message, null, 2).slice(0, 900));
@@ -58,5 +58,5 @@ await client.prompt("读一下 demo.txt");
 await sleep(10000);
 try { await client.stop(); } catch { /* ignore */ }
 await mock.close();
-console.log("\n（完）");
+console.log("\n(完)");
 process.exit(0);

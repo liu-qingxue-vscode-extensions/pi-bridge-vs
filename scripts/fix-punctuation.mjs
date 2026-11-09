@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * fix-punctuation —— 把源码里的中文标点换成对应的英文标点
+ * fix-punctuation - 把源码里的中文标点换成对应的英文标点
  *
- * 遍历项目里的文本文件，逐字符替换。默认直接写盘，
- * 加 --dry 只统计不写，用来看影响范围。
+ * 遍历项目里的文本文件,逐字符替换.默认直接写盘,
+ * 加 --dry 只统计不写,用来看影响范围.
  *
- * 跳过：依赖、构建产物、版本库、本地生成数据。
+ * 跳过:依赖,构建产物,版本库,本地生成数据.
  */
 import { readdirSync, statSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, extname, sep } from "node:path";
@@ -13,7 +13,7 @@ import { join, relative, extname, sep } from "node:path";
 const ROOT = process.cwd();
 const DRY = process.argv.includes("--dry");
 
-/** 这些目录里的东西不是我们写的（或者会被重新生成），别动 */
+/** 这些目录里的东西不是我们写的(或者会被重新生成),别动 */
 const SKIP_DIRS = new Set([
     "node_modules",
     ".git",
@@ -40,38 +40,34 @@ const EXTS = new Set([
     ".yaml",
 ]);
 
-/** 中文标点 → 英文标点。多字符的放前面，避免被单字符规则先吃掉 */
+/**
+ * 中文标点 → 英文标点.
+ *
+ * 引号类一律不换:「」『』“”‘’.它们在 JSON / TS 里有语法意义,
+ * 变成半角引号会让字符串提前结束(package.json 里就踩过).
+ * 其余标点在字符串内部替换是安全的.
+ */
 const MAP = [
-    ["——", "-"],
-    ["……", "..."],
-    ["，", ","],
-    ["。", "."],
-    ["；", ";"],
-    ["：", ":"],
-    ["！", "!"],
-    ["？", "?"],
-    ["（", "("],
-    ["）", ")"],
-    ["【", "["],
-    ["】", "]"],
-    ["《", "<"],
-    ["》", ">"],
-    ["“", '"'],
-    ["”", '"'],
-    ["‘", "'"],
-    ["’", "'"],
-    ["、", ","],
-    ["…", "..."],
-    ["「", '"'],
-    ["」", '"'],
-    ["『", '"'],
-    ["』", '"'],
-    ["～", "~"],
-    ["％", "%"],
-    ["＃", "#"],
-    ["＆", "&"],
-    ["＠", "@"],
-    ["　", " "],
+    ["-", "-"],
+    ["...", "..."],
+    [",", ","],
+    [".", "."],
+    [";", ";"],
+    [":", ":"],
+    ["!", "!"],
+    ["?", "?"],
+    ["(", "("],
+    [")", ")"],
+    ["[", "["],
+    ["]", "]"],
+    [",", ","],
+    ["...", "..."],
+    ["~", "~"],
+    ["%", "%"],
+    ["#", "#"],
+    ["&", "&"],
+    ["@", "@"],
+    [" ", " "],
 ];
 
 function* walk(dir) {
@@ -118,7 +114,7 @@ let totalChars = 0;
 for (const file of walk(ROOT)) {
     totalFiles++;
     const rel = relative(ROOT, file).split(sep).join("/");
-    // media/out 是构建产物，虽然目录名不叫 out，但要单独挡掉
+    // media/out 是构建产物,虽然目录名不叫 out,但要单独挡掉
     if (rel.startsWith("media/out/")) continue;
 
     let text;
@@ -139,8 +135,8 @@ for (const file of walk(ROOT)) {
 
 changed.sort((a, b) => b.sum - a.sum);
 
-console.log(`${DRY ? "（预演，未写盘）" : "（已写盘）"}`);
-console.log(`扫描 ${totalFiles} 个文件，命中 ${changed.length} 个，共替换 ${totalChars} 处\n`);
+console.log(`${DRY ? "(预演,未写盘)" : "(已写盘)"}`);
+console.log(`扫描 ${totalFiles} 个文件,命中 ${changed.length} 个,共替换 ${totalChars} 处\n`);
 for (const c of changed.slice(0, 20)) {
     const detail = [...c.counts.entries()]
         .map(([k, v]) => `${k}×${v}`)

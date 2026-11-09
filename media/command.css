@@ -1,6 +1,6 @@
-/* ===== 自由按钮的配置页面（B32 ②）=====
-   ★ 这里是【编辑器区的一个面板】✗ 空间宽敞 ✓
-     所以表单可以一行 label + 一行控件，不用挤 ✓ */
+/* ===== 自由按钮的配置页面(B32 ②)=====
+   这里是[编辑器区的一个面板]空间宽敞
+     所以表单可以一行 label + 一行控件,不用挤 */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -21,15 +21,15 @@ body {
   min-height: 0;
 }
 
-/* ── 表单区（可滚 ✓）── */
+/* ── 表单区(可滚 )── */
 #form {
   flex: 1 1 auto;
   overflow-y: auto;
   min-height: 0;
   padding-bottom: 18px;
-  /* ★★ 居中 + 适当最大宽度（B32 ③ 用户反馈 ✓）
-     原来写死 680px 靠左 ✗ 右边一大块空白 ✗ 看起来像“只用左三分之二”✓
-     ⇒ 改居中 + 放宽 ✗ 两边留白均等 ✓ */
+  /* 居中 + 适当最大宽度(B32 ③ 用户反馈 )
+     原来写死 680px 靠左 右边一大块空白 看起来像“只用左三分之二”
+     ⇒ 改居中 + 放宽 两边留白均等 */
   width: 100%;
   max-width: 860px;
   margin: 0 auto;
@@ -68,7 +68,7 @@ body {
   border-color: var(--vscode-charts-red, #e05252);
 }
 
-/* ── 类型选择（两个大一点的单选 ✓）── */
+/* ── 类型选择(两个大一点的单选 )── */
 .types {
   display: flex;
   gap: 10px;
@@ -89,13 +89,13 @@ body {
   border-color: var(--vscode-focusBorder, #0078d4);
   background: var(--vscode-list-activeSelectionBackground, rgba(0,120,212,.18));
 }
-/* ★★ B33：锁定的类型卡片
-   （在收纳器里新建 → “收纳器”这一张不能选 ✓ 用户定的：不能再套 ✗）*/
+/* B33:锁定的类型卡片
+   (在收纳器里新建 → “收纳器”这一张不能选 用户定的:不能再套 )*/
 .type-card.locked {
   opacity: .38;
   cursor: not-allowed;
 }
-/* ★ 不给 hover 反馈 ✗ 视觉上就“不是可点的”✓ */
+/* 不给 hover 反馈 视觉上就“不是可点的”*/
 .type-card.locked:hover { background: transparent; }
 .type-card .t {
   font-weight: 600;
@@ -118,7 +118,7 @@ body {
   opacity: .8;
 }
 
-/* ── 复选框（跟 VS Code 一致的样子 ✓）── */
+/* ── 复选框(跟 VS Code 一致的样子 )── */
 .check {
   display: flex;
   align-items: flex-start;
@@ -134,7 +134,7 @@ body {
   align-items: center;
   gap: 8px;
   padding: 12px 0 16px;
-  /* ★ 跟表单同宽同位置（居中 ✓）*/
+  /* 跟表单同宽同位置(居中 )*/
   width: 100%;
   max-width: 860px;
   margin: 0 auto;
@@ -185,7 +185,7 @@ body {
   border-color: var(--vscode-charts-red, #e05252);
 }
 
-/* ══════════ ★ B32 ③：参数一行（紧凑 ✗ 不占地方 ✓）══════════ */
+/* ══════════ B32 ③:参数一行(紧凑 不占地方 )══════════ */
 .fline {
   display: flex;
   align-items: center;
@@ -262,7 +262,7 @@ body {
   padding: 4px 0 12px;
 }
 
-/* ══════════ 参数编辑卡片（就地展开 ✓）══════════ */
+/* ══════════ 参数编辑卡片(就地展开 )══════════ */
 .fcard {
   margin: 10px 0;
   padding: 12px 14px 2px;
@@ -323,14 +323,14 @@ body {
   border-color: var(--vscode-focusBorder, #0078d4);
 }
 
-/* ══════════ ★ B32 ③：一行两个 ══════════ */
+/* ══════════ B32 ③:一行两个 ══════════ */
 .pair {
   display: flex;
   gap: 14px;
 }
 .pair > .row {
   flex: 1 1 0;
-  min-width: 0;      /* ★ 不加这个 flex 子项撑不下会被挤爆 ✓ */
+  min-width: 0;      /* 不加这个 flex 子项撑不下会被挤爆 */
 }
 
 /* 命令前面那个固定的 / */

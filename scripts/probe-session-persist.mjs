@@ -1,14 +1,14 @@
 /**
- * 探测：pi 的会话文件里到底记了什么？
+ * 探测:pi 的会话文件里到底记了什么?
  *
- * 重点回答：
- *   1. 工具调用失败、主动中断、自动重试这些"过程信息"进不进文件？
- *   2. 对话内容（user / assistant / toolResult）进文件吗？
+ * 重点回答:
+ *   1. 工具调用失败,主动中断,自动重试这些"过程信息"进不进文件?
+ *   2. 对话内容(user / assistant / toolResult)进文件吗?
  *
- * 做法：用 mock 的 slow_success 慢速流式 → 中途 abort → 检查会话文件
- * 注意：这里【不传】--no-session，故意让 pi 写会话文件。
+ * 做法:用 mock 的 slow_success 慢速流式 → 中途 abort → 检查会话文件
+ * 注意:这里[不传]--no-session,故意让 pi 写会话文件.
  *
- * 跑法：node scripts/probe-session-persist.mjs
+ * 跑法:node scripts/probe-session-persist.mjs
  */
 import { RpcClient } from "@earendil-works/pi-coding-agent";
 import { startMockLlmServer } from "@truly-private/omdsh-llm-mock-server";
@@ -28,12 +28,12 @@ const mock = await startMockLlmServer({
     apiKey: "mock-key",
     sequence: ["slow_success"],
     repeatLast: true,
-    successText: "一、二、三、四、五、六、七、八、九、十、十一、十二、十三、十四、十五、十六、十七、十八、十九、二十",
+    successText: "一,二,三,四,五,六,七,八,九,十,十一,十二,十三,十四,十五,十六,十七,十八,十九,二十",
     chunkSize: 2,
     chunkDelayMs: 250, // 慢速 → 保证 abort 时还在流式
 });
 
-// ★ 不传 --no-session，让 pi 写会话文件
+// 不传 --no-session,让 pi 写会话文件
 const client = new RpcClient({ cwd, cliPath, provider: "mock", model: "mock" });
 
 const seq = [];
@@ -54,7 +54,7 @@ await sleep(2000);
 try { await client.stop(); } catch { /* ignore */ }
 await mock.close();
 
-console.log("\n事件序列（去重计数）：");
+console.log("\n事件序列(去重计数):");
 const counts = new Map();
 for (const s of seq) counts.set(s, (counts.get(s) ?? 0) + 1);
 for (const [k, v] of counts) console.log(`  ${String(v).padStart(3)} × ${k}`);
@@ -65,7 +65,7 @@ const dir = path.join(os.homedir(), ".pi/agent/sessions", dirName);
 console.log(`\n会话目录: ${dir}`);
 
 if (!fs.existsSync(dir)) {
-    console.log("✗ 目录不存在（pi 可能没写会话文件）");
+    console.log("目录不存在(pi 可能没写会话文件)");
 } else {
     const files = fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl")).sort();
     const latest = files[files.length - 1];
@@ -73,7 +73,7 @@ if (!fs.existsSync(dir)) {
     console.log(`最新文件: ${latest}`);
     const lines = fs.readFileSync(full, "utf8").trim().split("\n");
     console.log(`行数: ${lines.length}\n`);
-    console.log("=== 文件内容（逐行摘要）===");
+    console.log("=== 文件内容(逐行摘要)===");
     for (const [i, line] of lines.entries()) {
         try {
             const d = JSON.parse(line);

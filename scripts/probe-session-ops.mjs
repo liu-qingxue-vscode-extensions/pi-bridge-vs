@@ -1,18 +1,18 @@
 /**
- * probe-session-ops —— 真跑一遍【会话相关命令】，看它们到底通不通
+ * probe-session-ops - 真跑一遍[会话相关命令],看它们到底通不通
  *
- * 【测什么】
- *   ① 删掉 --no-session 后，pi 是否真的会写会话文件（get_state.sessionFile）
+ * [测什么]
+ *   ① 删掉 --no-session 后,pi 是否真的会写会话文件(get_state.sessionFile)
  *   ② switch_session 能不能切过去
- *   ③ get_messages 返回的 messages 结构长什么样（这是历史重放的数据源 ✓）
+ *   ③ get_messages 返回的 messages 结构长什么样(这是历史重放的数据源 )
  *
- * 【为什么用临时 cwd？】
- *   我们会在里面产生新会话文件 ✗ → 不能污染你真实的工作目录 ✓
+ * [为什么用临时 cwd?]
+ *   我们会在里面产生新会话文件 → 不能污染你真实的工作目录
  *
- * 【用法】node scripts/probe-session-ops.mjs [--keep]
- *   --keep  保留临时目录（默认会删 ✓）
+ * [用法]node scripts/probe-session-ops.mjs [--keep]
+ *   --keep  保留临时目录(默认会删 )
  *
- * 【输出】摘要打到终端 + 完整结构导出到 test_date/session-ops.json ✓
+ * [输出]摘要打到终端 + 完整结构导出到 test_date/session-ops.json
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -27,19 +27,19 @@ const CLI = path.join(
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "pi-probe-sess-"));
 const OUT_DIR = path.join(import.meta.dirname, "..", "test_date");
 
-/** 收集所有 response 的摘要（不打印全文 ✓） */
+/** 收集所有 response 的摘要(不打印全文 ) */
 const responses = [];
 
 const client = new OwnRpcClient({ cliPath: CLI, cwd: TMP });
 
-// ★ 现在回执也会广播 → 这里能收到 ✓
+// 现在回执也会广播 → 这里能收到
 client.onEvent((e) => {
     if (e.type === "response") {
         responses.push({
             command: e.command,
             success: e.success,
             error: e.error,
-            // data 只留结构摘要（不然会很大 ✗）
+            // data 只留结构摘要(不然会很大 )
             dataKeys: e.data && typeof e.data === "object" ? Object.keys(e.data) : undefined,
             dataType: Array.isArray(e.data) ? "array" : typeof e.data,
         });
@@ -49,17 +49,17 @@ client.onEvent((e) => {
 console.log("临时 cwd:", TMP);
 
 await client.start();
-console.log("✓ start");
+console.log("start");
 
-// ① 看 sessionFile（★ 删掉 --no-session 后应该【有】✓）
+// ① 看 sessionFile(删掉 --no-session 后应该[有])
 const state = await client.getState();
 const st = state;
 console.log("① get_state:");
-console.log("   sessionFile:", st?.sessionFile ?? "(null ✗)");
+console.log("   sessionFile:", st?.sessionFile ?? "(null )");
 console.log("   sessionId:  ", st?.sessionId ?? "(null)");
 console.log("   messageCount:", st?.messageCount);
 
-// ② 看现在有几个会话文件（应该有 1 个：刚建的这个 ✓）
+// ② 看现在有几个会话文件(应该有 1 个:刚建的这个 )
 const sessionsRoot = path.join(os.homedir(), ".pi/agent/sessions");
 const dirForTmp = fs
     .readdirSync(sessionsRoot)
@@ -73,13 +73,13 @@ if (dirForTmp && fs.existsSync(dirForTmp)) {
 console.log("\n② 临时 cwd 的会话文件:", files.length, "个");
 files.slice(0, 3).forEach((f) => console.log("   ", f));
 
-// ③ get_messages（空会话 —— 先看结构是否可用 ✓）
-console.log("\n③ get_messages（当前空会话）:");
+// ③ get_messages(空会话 - 先看结构是否可用 )
+console.log("\n③ get_messages(当前空会话):");
 const msgs = await client.send({ type: "get_messages" });
 const msgArr = msgs?.data?.messages;
 console.log("   success:", msgs.success, "messages 是数组:", Array.isArray(msgArr), "长度:", msgArr?.length);
 
-// ④ 拿一个【已有会话】试着切过去（用真实的旧会话 ✓）
+// ④ 拿一个[已有会话]试着切过去(用真实的旧会话 )
 let switched = null;
 let oldMsgs = null;
 if (files.length === 0) {
@@ -111,14 +111,14 @@ if (anyOther) {
         }
     } catch (err) {
         switched = { success: false, error: String(err) };
-        console.log("   ✗ 异常:", String(err).slice(0, 200));
+        console.log("   异常:", String(err).slice(0, 200));
     }
 } else {
-    console.log("\n④ 没有找到可切换的旧会话（跳过）");
+    console.log("\n④ 没有找到可切换的旧会话(跳过)");
 }
 
 await client.stop();
-console.log("\n✓ stop");
+console.log("\nstop");
 
 // ── 导出摘要 ──
 fs.mkdirSync(OUT_DIR, { recursive: true });
@@ -135,31 +135,31 @@ const report = {
 };
 fs.writeFileSync(path.join(OUT_DIR, "session-ops.json"), JSON.stringify(report, null, 2));
 
-console.log("\n══ 收到的回执（★ 验证广播是否生效）══");
+console.log("\n══ 收到的回执(验证广播是否生效)══");
 for (const r of responses) console.log(`  ${r.command}: success=${r.success} data=${r.dataType ?? "-"}${r.error ? " err=" + r.error : ""}`);
-console.log("\n✓ 摘要已导出: test_date/session-ops.json");
+console.log("\n摘要已导出: test_date/session-ops.json");
 
 if (!process.argv.includes("--keep")) {
     fs.rmSync(TMP, { recursive: true, force: true });
-    console.log("✓ 已清理临时目录");
+    console.log("已清理临时目录");
 } else {
-    console.log("（保留临时目录）", TMP);
+    console.log("(保留临时目录)", TMP);
 }
 
-/** 找任意一个【有效的】旧会话文件（首行必须是 session 元数据 ✓）
- *  ★ 为什么要校验？实测 pi 会拒绝无效文件：
- *    “Session file is not a valid pi session” ✓
- *    （这正好印证了我们的 broken 检测与 pi 一致 ✓）*/
+/** 找任意一个[有效的]旧会话文件(首行必须是 session 元数据 )
+ *  为什么要校验?实测 pi 会拒绝无效文件:
+ *    “Session file is not a valid pi session”
+ *    (这正好印证了我们的 broken 检测与 pi 一致 )*/
 function findAnyOldSession(root) {
     const out = [];
     for (const dir of fs.readdirSync(root)) {
         const p = path.join(root, dir);
         if (!fs.statSync(p).isDirectory()) continue;
-        if (dir.includes("pi-probe-sess")) continue; // 跳过自己刚建的 ✓
+        if (dir.includes("pi-probe-sess")) continue; // 跳过自己刚建的
         for (const f of fs.readdirSync(p)) {
             if (!f.endsWith(".jsonl")) continue;
             const full = path.join(p, f);
-            // ★ 校验首行（与 pi 同口径 ✓）
+            // 校验首行(与 pi 同口径 )
             try {
                 const fd = fs.openSync(full, "r");
                 const buf = Buffer.alloc(512);
@@ -174,6 +174,6 @@ function findAnyOldSession(root) {
             out.push({ full, size: fs.statSync(full).size });
         }
     }
-    out.sort((a, b) => a.size - b.size); // 小的快 ✓
+    out.sort((a, b) => a.size - b.size); // 小的快
     return out[0]?.full;
 }

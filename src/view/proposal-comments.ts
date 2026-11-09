@@ -1,17 +1,17 @@
 /**
- * proposal-comments —— 提案的生命周期与渲染
+ * proposal-comments - 提案的生命周期与渲染
  *
- * 两条并存的界面：
- *   编辑器里的 Comment thread  —— 看 diff、讨论、单个处理
- *   侧栏面板（webview）        —— 总览所有提案、批量操作、统一发送
+ * 两条并存的界面:
+ *   编辑器里的 Comment thread  - 看 diff,讨论,单个处理
+ *   侧栏面板(webview)        - 总览所有提案,批量操作,统一发送
  *
- * 状态机：
+ * 状态机:
  *   pending  待处理
- *   accepted 已接受（文件已经写入，但还没告诉 AI）
- *   rejected 已拒绝（文件没动，还没告诉 AI）
+ *   accepted 已接受(文件已经写入,但还没告诉 AI)
+ *   rejected 已拒绝(文件没动,还没告诉 AI)
  *
- * 只有调 sendAll() 才把结果发给 AI。单个处理一律不发消息 ——
- * 因为并行提案必须全部处理完再一起回复，否则 AI 会以为剩下的也没了。
+ * 只有调 sendAll() 才把结果发给 AI.单个处理一律不发消息 -
+ * 因为并行提案必须全部处理完再一起回复,否则 AI 会以为剩下的也没了.
  */
 import * as vscode from "vscode";
 import * as path from "node:path";
@@ -74,8 +74,8 @@ export class ProposalComments implements vscode.Disposable {
     ) {
         this.controller = vscode.comments.createCommentController(CONTROLLER_ID, "Pi 代码提案");
         this.controller.options = {
-            prompt: "对这个提案提问，AI 会回答（讨论不影响是否通过）",
-            placeHolder: "提问…",
+            prompt: "对这个提案提问,AI 会回答(讨论不影响是否通过)",
+            placeHolder: "提问...",
         };
         this.controller.commentingRangeProvider = { provideCommentingRanges: () => [] };
         this.highlight = vscode.window.createTextEditorDecorationType({
@@ -120,7 +120,7 @@ export class ProposalComments implements vscode.Disposable {
         return out;
     }
 
-    /** 显示（或刷新）提案 */
+    /** 显示(或刷新)提案 */
     show(p: WriteProposal): void {
         this.data.set(p.proposalId, p);
         this.status.set(p.proposalId, "pending");
@@ -145,8 +145,8 @@ export class ProposalComments implements vscode.Disposable {
 
         logInfo(
             `提案 ${p.proposalId} 挂在 ${p.file}:${anchorLine + 1}` +
-                `（${loc.ok ? `${loc.startLine}-${loc.endLine}` : `定位失败：${loc.error}`}）` +
-                `，活跃 ${this.threads.size} 个`,
+                `(${loc.ok ? `${loc.startLine}-${loc.endLine}` : `定位失败:${loc.error}`})` +
+                `,活跃 ${this.threads.size} 个`,
         );
 
         this.repaintHighlights();
@@ -178,9 +178,9 @@ export class ProposalComments implements vscode.Disposable {
     }
 
     /**
-     * 接受：立即写入文件，但不通知 AI。
+     * 接受:立即写入文件,但不通知 AI.
      *
-     * 用户能马上看到文件变了；什么时候回复 AI 由面板上的"发送"决定。
+     * 用户能马上看到文件变了;什么时候回复 AI 由面板上的"发送"决定.
      */
     async accept(proposalId: string): Promise<ApplyOutcome> {
         const p = this.data.get(proposalId);
@@ -191,7 +191,7 @@ export class ProposalComments implements vscode.Disposable {
             this.status.set(proposalId, "rejected");
             this.dismissThread(proposalId);
             this.onChange();
-            return { ok: false, error: `提案已失效：${bad}` };
+            return { ok: false, error: `提案已失效:${bad}` };
         }
 
         const uri = vscode.Uri.file(path.resolve(this.root, p.file));
@@ -199,7 +199,7 @@ export class ProposalComments implements vscode.Disposable {
         try {
             doc = await vscode.workspace.openTextDocument(uri);
         } catch (err) {
-            return { ok: false, error: `打不开文件：${String(err)}` };
+            return { ok: false, error: `打不开文件:${String(err)}` };
         }
 
         const loc = locateInText(doc.getText(), p);
@@ -224,7 +224,7 @@ export class ProposalComments implements vscode.Disposable {
         try {
             await doc.save();
         } catch (err) {
-            return { ok: false, error: `已修改但保存失败：${String(err)}` };
+            return { ok: false, error: `已修改但保存失败:${String(err)}` };
         }
 
         this.status.set(proposalId, "accepted");
@@ -233,7 +233,7 @@ export class ProposalComments implements vscode.Disposable {
         return { ok: true };
     }
 
-    /** 拒绝：只改状态，不写文件 */
+    /** 拒绝:只改状态,不写文件 */
     reject(proposalId: string): void {
         if (!this.data.has(proposalId)) return;
         this.status.set(proposalId, "rejected");
@@ -241,7 +241,7 @@ export class ProposalComments implements vscode.Disposable {
         this.onChange();
     }
 
-    /** 批量：把所有待处理的按接受/拒绝处理 */
+    /** 批量:把所有待处理的按接受/拒绝处理 */
     async acceptAllPending(): Promise<void> {
         for (const [id, s] of [...this.status]) {
             if (s === "pending") await this.accept(id);
@@ -255,10 +255,10 @@ export class ProposalComments implements vscode.Disposable {
     }
 
     /**
-     * 把所有提案的结果一次性交给调用方（由它发给 AI），然后清空。
+     * 把所有提案的结果一次性交给调用方(由它发给 AI),然后清空.
      *
-     * 还在 pending 的按"未处理，自动拒绝"记 —— 用户点了发送就表示
-     * 这一轮到此为止，不能再让 AI 等着。
+     * 还在 pending 的按"未处理,自动拒绝"记 - 用户点了发送就表示
+     * 这一轮到此为止,不能再让 AI 等着.
      */
     settleAll(): SettleResult[] {
         const out: SettleResult[] = [];
@@ -287,9 +287,9 @@ export class ProposalComments implements vscode.Disposable {
     }
 
     /**
-     * 处理完就把它从编辑器里收掉。
+     * 处理完就把它从编辑器里收掉.
      *
-     * 数据（data / status）保留，因为侧栏面板还要显示"已接受/已拒绝"。
+     * 数据(data / status)保留,因为侧栏面板还要显示"已接受/已拒绝".
      */
     private dismissThread(proposalId: string): void {
         this.threads.get(proposalId)?.dispose();
@@ -323,7 +323,7 @@ export class ProposalComments implements vscode.Disposable {
 
             thread.label = loc.ok
                 ? `${p.file}:${loc.startLine}-${loc.endLine}`
-                : `${p.file}（已失效）`;
+                : `${p.file}(已失效)`;
             thread.comments = this.buildComments(p);
             this.onChange();
         }
@@ -388,10 +388,10 @@ export class ProposalComments implements vscode.Disposable {
         const status = this.status.get(p.proposalId) ?? "pending";
         const bad = this.invalid.get(p.proposalId);
 
-        md.appendMarkdown(`**${p.explanation || "（没有说明）"}**\n\n`);
+        md.appendMarkdown(`**${p.explanation || "(没有说明)"}**\n\n`);
 
         if (bad) {
-            md.appendMarkdown(`$(error) 无法定位：${bad}\n\n`);
+            md.appendMarkdown(`$(error) 无法定位:${bad}\n\n`);
         } else {
             const loc = locateProposal(this.root, p);
             const diff = buildDiff(loc.matchedText ?? "", p.newText ?? "");
@@ -406,9 +406,9 @@ export class ProposalComments implements vscode.Disposable {
 
         const arg = encodeURIComponent(JSON.stringify({ id: p.proposalId }));
         if (status === "accepted") {
-            md.appendMarkdown(`\n\n$(pass-filled) 已接受，已写入文件。在侧栏点"发送"告诉 AI。`);
+            md.appendMarkdown(`\n\n$(pass-filled) 已接受,已写入文件.在侧栏点"发送"告诉 AI.`);
         } else if (status === "rejected") {
-            md.appendMarkdown(`\n\n$(circle-slash) 已拒绝。在侧栏点"发送"告诉 AI。`);
+            md.appendMarkdown(`\n\n$(circle-slash) 已拒绝.在侧栏点"发送"告诉 AI.`);
         } else if (bad) {
             md.appendMarkdown(
                 `\n\n[$(close) 拒绝](command:pi-bridge.proposalReject?${arg})`,

@@ -1,12 +1,12 @@
 /**
- * proposal-panel —— 提案调控面板（聊天流里的一个块）
+ * proposal-panel - 提案调控面板(聊天流里的一个块)
  *
- * 只做三件事：显示每个提案的状态、提供单个/批量按钮、一个"自动继续"开关。
- * diff 和讨论在编辑器里的 Comment 中看，这里不重复渲染。
+ * 只做三件事:显示每个提案的状态,提供单个/批量按钮,一个"自动继续"开关.
+ * diff 和讨论在编辑器里的 Comment 中看,这里不重复渲染.
  *
- * 为什么没有"发送"按钮：
- *   下一条正文必然会把上一轮提案的结果带回去（宿主在发消息前会结算），
- *   所以真正需要的只是"处理完是否自动发一条继续"这个开关。
+ * 为什么没有"发送"按钮:
+ *   下一条正文必然会把上一轮提案的结果带回去(宿主在发消息前会结算),
+ *   所以真正需要的只是"处理完是否自动发一条继续"这个开关.
  */
 import { messagesEl } from "./dom.js";
 import { vscode } from "./vscode-api.js";
@@ -110,7 +110,7 @@ export function renderProposalList(payload: ProposalListPayload): void {
         loc.className = "pp-file";
         const line = it.startLine ? `:${it.startLine}${it.endLine && it.endLine !== it.startLine ? `-${it.endLine}` : ""}` : "";
         loc.textContent = `${it.file}${line}`;
-        if (it.invalid) loc.title = `已失效：${it.invalid}`;
+        if (it.invalid) loc.title = `已失效:${it.invalid}`;
 
         const st = document.createElement("span");
         st.className = `pp-status ${it.status}${it.invalid ? " invalid" : ""}`;
@@ -146,9 +146,9 @@ export function renderProposalList(payload: ProposalListPayload): void {
         listEl.appendChild(row);
     }
 
-    // 没有提案就把整块收起来，不占聊天区
+    // 没有提案就把整块收起来,不占聊天区
     root.hidden = items.length === 0;
 
-    // 每次都挪到消息流末尾：面板要一直跟着最新内容，不能被新气泡甩在后面
+    // 每次都挪到消息流末尾:面板要一直跟着最新内容,不能被新气泡甩在后面
     if (!root.hidden) messagesEl.appendChild(root);
 }

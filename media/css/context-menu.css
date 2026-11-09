@@ -1,9 +1,9 @@
-/* ===== ★ 通用右键菜单（B21）=====
-   自绘而不是用原生 —— webview 的原生菜单是浏览器的（刷新/检查元素 ✗）与业务无关 ✓
-   定位用 position:fixed + clientX/clientY ✓（viewport 坐标 ✓ 不受滚动影响 ✓）*/
+/* ===== 通用右键菜单(B21)=====
+   自绘而不是用原生 - webview 的原生菜单是浏览器的(刷新/检查元素 )与业务无关
+   定位用 position:fixed + clientX/clientY (viewport 坐标 不受滚动影响 )*/
 .ctx-menu {
   position: fixed;
-  z-index: 3000;              /* 盖过面板 / 通知 / 气泡 ✓ */
+  z-index: 3000;              /* 盖过面板 / 通知 / 气泡 */
   min-width: 132px;
   padding: 3px;
   display: flex;
@@ -29,6 +29,6 @@
   white-space: nowrap;
 }
 .ctx-item:hover { background: var(--vscode-menu-selectionBackground, rgba(128,128,128,.22)); }
-/* ★ 危险动作（删除 ✓）→ 红色，hover 变红底白字 ✓ */
+/* 危险动作(删除 )→ 红色,hover 变红底白字 */
 .ctx-item.danger { color: var(--vscode-charts-red, #e05252); }
 .ctx-item.danger:hover { background: var(--vscode-charts-red, #e05252); color: #fff; }

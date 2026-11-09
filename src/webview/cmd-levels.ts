@@ -1,15 +1,15 @@
 /**
- * cmd-levels.ts —— 命令的【危险等级表】（B38）
+ * cmd-levels.ts - 命令的[危险等级表](B38)
  *
- * 【表从哪来】
- *   内置一张常用默认表 ✗ 以后可由 ~/.pi/agent/cmd-levels.json 覆盖
- *   （那个文件交给别的小 AI 维护 ✓ 形状见下）
+ * [表从哪来]
+ *   内置一张常用默认表 以后可由 ~/.pi/agent/cmd-levels.json 覆盖
+ *   (那个文件交给别的小 AI 维护 形状见下)
  *
- * 【形状】
+ * [形状]
  *   { "ls": { "level": "safe", "emoji": "📂" }, "rm": { "level": "danger", "emoji": "☠️" } }
- *   level ∈ safe | warn | danger ✗ 表里没写的 → unknown
+ *   level ∈ safe | warn | danger 表里没写的 → unknown
  *
- * ★ 这只是【提示】✗ 不是安全机制（命令已经执行了）
+ * 这只是[提示]不是安全机制(命令已经执行了)
  */
 export type CmdLevel = "safe" | "warn" | "danger" | "unknown";
 
@@ -54,7 +54,7 @@ const DEFAULTS: Record<string, Entry> = {
 
 let table: Record<string, Entry> = DEFAULTS;
 
-/** 宿主推来新表（外部文件）→ 整个替换；推空 → 退回默认 */
+/** 宿主推来新表(外部文件)→ 整个替换;推空 → 退回默认 */
 export function setCmdLevels(obj: unknown): void {
     if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
         table = DEFAULTS;
@@ -63,7 +63,7 @@ export function setCmdLevels(obj: unknown): void {
     table = { ...DEFAULTS, ...(obj as Record<string, Entry>) };
 }
 
-/** 查一条命令的等级（`rm -rf /` 这种只看主体 rm ✗ 用户定的）*/
+/** 查一条命令的等级(`rm -rf /` 这种只看主体 rm 用户定的)*/
 export function levelOf(cmd: string): { level: CmdLevel; emoji: string } {
     const e = table[cmd];
     const lv = e?.level;

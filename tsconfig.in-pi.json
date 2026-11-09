@@ -1,7 +1,7 @@
 {
-  // ★ in-pi 是【跑在 pi 进程里】的代码 ⇒ 不能进主构建（那是给 VS Code 加载的）
-  //   但需要类型检查，否则 pi 的扩展 API 全靠记忆 ✓
-  //   写法照 tsconfig.webview.json（同样是"另一个运行环境"）
+  // in-pi 是[跑在 pi 进程里]的代码 ⇒ 不能进主构建(那是给 VS Code 加载的)
+  //   但需要类型检查,否则 pi 的扩展 API 全靠记忆
+  //   写法照 tsconfig.webview.json(同样是"另一个运行环境")
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,

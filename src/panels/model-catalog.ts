@@ -1,8 +1,8 @@
 /**
- * model-catalog.ts —— 模型目录 / 启用列表（B30 ✗ 从 main.ts 搬出）
+ * model-catalog.ts - 模型目录 / 启用列表(B30 从 main.ts 搬出)
  *
- * ★ 搬运原则：函数体内【没有引用任何闭包变量】✗ 零风险 ✓
- *   （唯一的例外是 readInstalledExtensions 里的 `pj.pi` ✗ 那是字段名不是闭包 ✓）
+ * 搬运原则:函数体内[没有引用任何闭包变量]零风险
+ *   (唯一的例外是 readInstalledExtensions 里的 `pj.pi` 那是字段名不是闭包 )
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -11,7 +11,7 @@ import { readSettings } from "../pi/settings.js";
 import { logDebug } from "../logger.js";
 import { toErrorMessage } from "../utils.js";
 
-/** 模型目录里的一项 ✓ */
+/** 模型目录里的一项 */
 export interface ModelEntry {
     provider: string;
     id: string;
@@ -46,7 +46,7 @@ export function readModelCatalog(): { provider: string; id: string; name?: strin
         }
     };
 
-    // ① models.json（用户自定义 ✓ 有 providers 包装）
+    // ① models.json(用户自定义 有 providers 包装)
     try {
         const p = path.join(resolveAgentDir(), "models.json");
         const d = JSON.parse(fs.readFileSync(p, "utf8")) as {
@@ -57,7 +57,7 @@ export function readModelCatalog(): { provider: string; id: string; name?: strin
         logDebug(`读 models.json 失败: ${toErrorMessage(err)}`);
     }
 
-    // ② models-store.json（pi 的内置目录 ✓ 没有 providers 包装）
+    // ② models-store.json(pi 的内置目录 没有 providers 包装)
     try {
         const p = path.join(resolveAgentDir(), "models-store.json");
         const d = JSON.parse(fs.readFileSync(p, "utf8")) as Record<
@@ -71,7 +71,7 @@ export function readModelCatalog(): { provider: string; id: string; name?: strin
         logDebug(`读 models-store.json 失败: ${toErrorMessage(err)}`);
     }
 
-    logDebug(`模型目录（合并两个文件）：${out.length} 个 · ${[...new Set(out.map((m) => m.provider))].length} 个供应商`);
+    logDebug(`模型目录(合并两个文件):${out.length} 个 · ${[...new Set(out.map((m) => m.provider))].length} 个供应商`);
     return out;
 }
 

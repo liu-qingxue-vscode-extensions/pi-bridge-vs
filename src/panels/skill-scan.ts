@@ -1,8 +1,8 @@
 /**
- * skill-scan.ts —— 扫描技能目录（B30 ✗ 从 main.ts 搬出）
+ * skill-scan.ts - 扫描技能目录(B30 从 main.ts 搬出)
  *
- * 【数据源】两处 ✗
- *   ① 用户技能：~/.pi/agent/skills/<name>/SKILL.md
+ * [数据源]两处
+ *   ① 用户技能:~/.pi/agent/skills/<name>/SKILL.md
  *   ② 扩展包的 pi.skills 字段 → 同样扫 SKILL.md
  */
 import fs, { existsSync } from "node:fs";
@@ -11,21 +11,21 @@ import { resolveAgentDir } from "../pi/pi-env.js";
 import { logDebug, logInfo } from "../logger.js";
 import { toErrorMessage } from "../utils.js";
 
-/** 技能条目 ✓ */
+/** 技能条目 */
 export interface SkillEntry {
     name: string;
     description?: string;
     source?: string;
     path?: string;
     /**
-     * ★★ 用户自己的（可改可删 ✓）还是扩展包提供的（只读 ✓）
+     * 用户自己的(可改可删 )还是扩展包提供的(只读 )
      *
-     * 【为什么是【必填】而不是可选？】（B31 的教训 ✗）
-     *   一开始写成了 `mine?: boolean` ✗
-     *   结果：构建时漏赋值了 ✓ 而 TypeScript 【不报错】✓
-     *     （可选字段缺失是合法的 ✓）
-     *   → 于是所有技能都变成“只读”✗ 但编译器一声不吮 ✓
-     *   ★ 改成必填后：漏了就是编译错误 ✗✓✓
+     * [为什么是[必填]而不是可选?](B31 的教训 )
+     *   一开始写成了 `mine?: boolean`
+     *   结果:构建时漏赋值了 而 TypeScript [不报错]
+     *     (可选字段缺失是合法的 )
+     *   → 于是所有技能都变成“只读”但编译器一声不吮
+     *   改成必填后:漏了就是编译错误
      */
     mine: boolean;
 }
@@ -33,7 +33,7 @@ export interface SkillEntry {
 export function readSkills(): { dir: string; skills: SkillEntry[] } {
     const out: SkillEntry[] = [];
 
-    /** 从一个 SKILL.md 提取 name/description ✓ */
+    /** 从一个 SKILL.md 提取 name/description */
     const parse = (file: string): { name?: string; description?: string } => {
         try {
             const head = fs.readFileSync(file, "utf8").split("\n").slice(0, 30).join("\n");
@@ -41,7 +41,7 @@ export function readSkills(): { dir: string; skills: SkillEntry[] } {
             if (!m) return {};
             const body = m[1];
             const name = /^name:\s*(.+)$/m.exec(body)?.[1]?.trim();
-            // ★ description 可能很长 / 含中文 ✓ 直接取到行尾 ✓
+            // description 可能很长 / 含中文 直接取到行尾
             const description = /^description:\s*(.+)$/m.exec(body)?.[1]?.trim();
             return { name, description };
         } catch {
@@ -49,7 +49,7 @@ export function readSkills(): { dir: string; skills: SkillEntry[] } {
         }
     };
 
-    /** 扫一个 skills 目录（里面是 <name>/SKILL.md ✓）*/
+    /** 扫一个 skills 目录(里面是 <name>/SKILL.md )*/
     const scanDir = (dir: string, source: string, mine: boolean) => {
         let entries: fs.Dirent[];
         try {
@@ -67,20 +67,20 @@ export function readSkills(): { dir: string; skills: SkillEntry[] } {
                 description: meta.description,
                 source,
                 path: file,
-                // ★★ 这个字段后面漏过一次（B31 ✗）
-                //   症状：所有技能都被当成“扩展包提供” → 全都变成了只读 ✓
-                //   原因：用脚本做批量替换时【静默失败】✗（没匹配上也不报错 ✓）
-                //   ★ 教训：改代码用 edit 工具 ✗（不匹配会当场报错 ✓）
+                // 这个字段后面漏过一次(B31 )
+                //   症状:所有技能都被当成“扩展包提供” → 全都变成了只读
+                //   原因:用脚本做批量替换时[静默失败](没匹配上也不报错 )
+                //   教训:改代码用 edit 工具 (不匹配会当场报错 )
                 mine,
             });
         }
     };
 
-    // ① 用户自己的技能 ✓
+    // ① 用户自己的技能
     const userDir = path.join(resolveAgentDir(), "skills");
-    scanDir(userDir, "用户技能", true);  // ★ 用户自己的 → 可改可删 ✓
+    scanDir(userDir, "用户技能", true);  // 用户自己的 → 可改可删
 
-    // ② 扩展包提供的技能 ✓
+    // ② 扩展包提供的技能
     const nm = path.join(resolveAgentDir(), "npm", "node_modules");
     const scanExt = (dir: string) => {
         try {
@@ -89,7 +89,7 @@ export function readSkills(): { dir: string; skills: SkillEntry[] } {
                 pi?: { skills?: string[] };
             };
             for (const rel of pj.pi?.skills ?? []) {
-                scanDir(path.join(dir, rel), pj.name ?? "扩展", false); // ★ 扩展包提供 → 只读 ✓
+                scanDir(path.join(dir, rel), pj.name ?? "扩展", false); // 扩展包提供 → 只读
             }
         } catch {
             /* ignore */
@@ -112,6 +112,6 @@ export function readSkills(): { dir: string; skills: SkillEntry[] } {
     }
 
     out.sort((a, b) => a.name.localeCompare(b.name));
-    logInfo(`技能：${out.length} 个（` + out.map((s) => s.name).join(", ") + `）`);
+    logInfo(`技能:${out.length} 个(` + out.map((s) => s.name).join(", ") + `)`);
     return { dir: userDir, skills: out };
 }

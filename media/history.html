@@ -9,16 +9,16 @@
 <style>{{styleVars}}</style>
 </head>
 <body class="history-page">
-  <!-- ★★ B47：完整历史面板（只读 ✗ 含已被压缩的部分 ✓）-->
-  <!-- ★ 为什么只有 #messages？因为【复用聊天页的渲染器】✗
-       它依赖的其它元素（输入框 / 顶栏 / 状态栏…）在这里没有意义 ✗
-       但 dom.ts 在【模块加载时】就会去取它们 ⇒ 所以下面放一排隐藏占位 ✓
-       （needEl 本身是安全的 ✗ 但会往输出面板刷"找不到元素"的告警 ✓ 占位更干净 ✓）-->
-  <!-- ★★ 用 hidden 【属性】而不是 CSS 类 —— 用户报的"左上角闪一下方框"就是这个：
-       .hidden-stubs 的 display:none 写在 CSS 里 ✗ CSS 加载前的一瞬间
-       ⇒ 里面那些 position:absolute 的元素（#top-area / #cmd-rail）
-         会全部坍缩到左上角 ⇒ 闪一下 ✓
-       hidden 属性是浏览器【默认样式】✗ 不依赖任何 CSS ⇒ 不会闪 ✓ -->
+  <!-- B47:完整历史面板(只读 含已被压缩的部分 )-->
+  <!-- 为什么只有 #messages?因为[复用聊天页的渲染器]
+       它依赖的其它元素(输入框 / 顶栏 / 状态栏...)在这里没有意义
+       但 dom.ts 在[模块加载时]就会去取它们 ⇒ 所以下面放一排隐藏占位
+       (needEl 本身是安全的 但会往输出面板刷"找不到元素"的告警 占位更干净 )-->
+  <!-- 用 hidden [属性]而不是 CSS 类 - 用户报的"左上角闪一下方框"就是这个:
+       .hidden-stubs 的 display:none 写在 CSS 里 CSS 加载前的一瞬间
+       ⇒ 里面那些 position:absolute 的元素(#top-area / #cmd-rail)
+         会全部坍缩到左上角 ⇒ 闪一下
+       hidden 属性是浏览器[默认样式]不依赖任何 CSS ⇒ 不会闪 -->
   <div class="hidden-stubs" hidden aria-hidden="true">
     <div id="input-area"><textarea id="input"></textarea><button id="send"></button>
       <div id="queue-bar"></div><div id="ui-request"></div>
@@ -39,7 +39,7 @@
     <div id="cmd-rail"><div id="cmd-rail-list"></div></div>
   </div>
 
-  <!-- ★ 只读提示条（一眼看出这不是聊天页 ✓）-->
+  <!-- 只读提示条(一眼看出这不是聊天页 )-->
   <div id="history-banner">
     <span class="hb-title">完整历史</span>
     <span class="hb-sub" id="history-sub"></span>

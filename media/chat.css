@@ -1,7 +1,7 @@
 /* =====================================================================
-   chat.css —— 【入口】（这里不再直接写样式 ✗）
-   各部分按职责拆在 media/css/ 下，用 @import 串起来 ✓
-   （CSP 的 style-src 允许同源加载 ✓ · 本地文件无网络开销 ✓）
+   chat.css - [入口](这里不再直接写样式 )
+   各部分按职责拆在 media/css/ 下,用 @import 串起来
+   (CSP 的 style-src 允许同源加载 · 本地文件无网络开销 )
    ===================================================================== */
 @import url("./css/base.css");
 @import url("./css/markdown.css");
@@ -13,6 +13,6 @@
 @import url("./css/input.css");
 @import url("./css/context-menu.css");
 @import url("./css/proposal.css");
-/* ★★ B35：settings.css 不在这里了 ✗
-   设置面板搬到编辑器区 ✓ 样式跟着去了 media/settings.css
-   （它由 media/settings.html 自己加载 ✗ 侧栏不再需要 ✓）*/
+/* B35:settings.css 不在这里了
+   设置面板搬到编辑器区 样式跟着去了 media/settings.css
+   (它由 media/settings.html 自己加载 侧栏不再需要 )*/

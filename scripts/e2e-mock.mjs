@@ -1,20 +1,20 @@
 /**
- * 端到端测试：pi（RpcClient）↔ mock LLM server
+ * 端到端测试:pi(RpcClient)↔ mock LLM server
  *
- * 自己起 server + 自己关闭，全自动（不需要手动起 mock-server.mjs）。
+ * 自己起 server + 自己关闭,全自动(不需要手动起 mock-server.mjs).
  *
- * 【用法】
+ * [用法]
  *   node scripts/e2e-mock.mjs [behavior] [--port=8123] [--chunk-delay=80] [--chunk-size=3]
  *
- * 【常用】
+ * [常用]
  *   node scripts/e2e-mock.mjs success             正常流式 → 看 message_* 事件
  *   node scripts/e2e-mock.mjs reasoning_success   先思考后正文 → 看 thinking_* 事件
  *   node scripts/e2e-mock.mjs tool_call_success   工具调用 → 看 toolcall_* / tool_execution_*
  *   node scripts/e2e-mock.mjs max_tokens          以 length 结束 → 看 done(reason=length)
  *   node scripts/e2e-mock.mjs partial_disconnect  中途断连 → 看错误路径的收尾
  *
- * 【为什么要它？】
- * 环境依赖：pi 的 models.json 里要有 mock provider（指向 127.0.0.1:8123/v1）。
+ * [为什么要它?]
+ * 环境依赖:pi 的 models.json 里要有 mock provider(指向 127.0.0.1:8123/v1).
  */
 import { RpcClient } from "@earendil-works/pi-coding-agent";
 import { startMockLlmServer } from "@truly-private/omdsh-llm-mock-server";
@@ -44,12 +44,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const mock = await startMockLlmServer({
     port,
     apiKey: "mock-key",
-    // tool_call_success 场景：第一次返回工具调用，第二次给正常回复
-    // （否则 repeatLast 会让每轮 LLM 都返回工具调用 → 无限循环）
+    // tool_call_success 场景:第一次返回工具调用,第二次给正常回复
+    // (否则 repeatLast 会让每轮 LLM 都返回工具调用 → 无限循环)
     sequence: behavior === "tool_call_success" ? [behavior, "success"] : [behavior],
     repeatLast: true,
-    successText: opt("text", "这是 mock 模型的输出。用于端到端测试流式渲染。"),
-    reasoningText: opt("reasoning", "用户想验证端到端链路，我先确认一下指令。"),
+    successText: opt("text", "这是 mock 模型的输出.用于端到端测试流式渲染."),
+    reasoningText: opt("reasoning", "用户想验证端到端链路,我先确认一下指令."),
     toolName: opt("tool-name", "read"),
     toolArguments: opt("tool-args", '{"path":"demo.txt"}'),
     chunkSize,
@@ -77,9 +77,9 @@ client.onEvent((e) => {
     const reason = e.assistantMessageEvent?.reason;
     const label = e.type + (inner ? ` › ${inner}` : "") + (reason ? ` (${reason})` : "");
     seq.push(label);
-    if (label.includes("_delta")) return; // delta 太多，不逐个打印
+    if (label.includes("_delta")) return; // delta 太多,不逐个打印
 
-    // 关键字段摘要（比只打印类型名有信息量）
+    // 关键字段摘要(比只打印类型名有信息量)
     let extra = "";
     if (e.type === "message_end") {
         const m = e.message ?? {};
@@ -113,14 +113,14 @@ await sleep(Number(opt("wait", 3500)));
 // ===== 4. 收尾 + 报告 =====
 console.log("");
 console.log(`事件总数: ${seq.length}`);
-console.log("完整序列（去重后计数）：");
+console.log("完整序列(去重后计数):");
 const counts = new Map();
 for (const s of seq) counts.set(s, (counts.get(s) ?? 0) + 1);
 for (const [k, v] of counts) console.log(`  ${String(v).padStart(3)} × ${k}`);
 
 const captured = mock.requests[0]?.body;
 if (captured) {
-    console.log("\npi 实际发出的请求体（关键字段）：");
+    console.log("\npi 实际发出的请求体(关键字段):");
     const b = captured;
     console.log(`  model=${b.model} stream=${b.stream} messages=${b.messages?.length} 条`);
 }

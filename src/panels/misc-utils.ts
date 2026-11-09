@@ -1,5 +1,5 @@
 /**
- * misc-utils.ts —— 一些零散的工具（B30 ✗ 从 main.ts 搬出）
+ * misc-utils.ts - 一些零散的工具(B30 从 main.ts 搬出)
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -23,7 +23,7 @@ export function readPiDefaults(): {
                 typeof d.defaultThinkingLevel === "string" ? d.defaultThinkingLevel : undefined,
         };
     } catch (err) {
-        logDebug(`读 settings.json 默认值失败（忽略）: ${toErrorMessage(err)}`);
+        logDebug(`读 settings.json 默认值失败(忽略): ${toErrorMessage(err)}`);
         return {};
     }
 }

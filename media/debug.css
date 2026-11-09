@@ -35,12 +35,12 @@
   /* ===== 条目列表 ===== */
   #log { flex: 1; overflow-y: auto; padding: 6px 8px; }
 
-  /* 每条数据 = 一节车厢（时间戳 + 类型 + 内容），车厢之间有线分隔
+  /* 每条数据 = 一节车厢(时间戳 + 类型 + 内容),车厢之间有线分隔
      色条颜色用主题变量 → 自动适配浅色/深色主题 */
   .entry {
     padding: 5px 9px 6px;
     margin-bottom: 2px;
-    border-left: 3px solid var(--vscode-panel-border);   /* 左侧色条（分类）*/
+    border-left: 3px solid var(--vscode-panel-border);   /* 左侧色条(分类)*/
     border-bottom: 1px solid var(--vscode-panel-border); /* 车厢分隔线 */
     border-radius: 2px;
     transition: background-color .08s;
@@ -54,7 +54,7 @@
   .entry[data-cat="tools"]     { border-left-color: var(--vscode-charts-red); }
   .entry[data-cat="error"]     { border-left-color: var(--vscode-charts-red); }
 
-  /* 卡片头部：时间戳 + 类型名 */
+  /* 卡片头部:时间戳 + 类型名 */
   .entry .meta { display: flex; gap: 8px; align-items: baseline; margin-bottom: 3px; }
   .entry .ts { color: var(--vscode-descriptionForeground); font-size: 11px; }
   .entry .kind { font-weight: 600; color: var(--vscode-descriptionForeground); }
@@ -65,21 +65,21 @@
   .entry[data-cat="tools"] .kind     { color: var(--vscode-charts-red); }
   .entry[data-cat="error"] .kind     { color: var(--vscode-charts-red); }
 
-  /* JSON 正文（长内容内部滚动，不撑爆面板） */
+  /* JSON 正文(长内容内部滚动,不撑爆面板) */
   .entry .j {
     white-space: pre-wrap;
     word-break: break-all;
     max-height: 320px;
     overflow-y: auto;
   }
-  /* JSON 语法高亮（借 symbol icon 的主题色，自动适配主题） */
+  /* JSON 语法高亮(借 symbol icon 的主题色,自动适配主题) */
   .j .k { color: var(--vscode-symbolIcon-keyForeground, #9cdcfe); }
   .j .s { color: var(--vscode-symbolIcon-stringForeground, #ce9178); }
   .j .n { color: var(--vscode-symbolIcon-numberForeground, #b5cea8); }
   .j .b { color: var(--vscode-symbolIcon-booleanForeground, #569cd6); }
   .j .x { color: var(--vscode-descriptionForeground); }
 
-  /* ===== 折叠条目（命中忽略列表：只显示 类型 × 条数）===== */
+  /* ===== 折叠条目(命中忽略列表:只显示 类型 × 条数)===== */
   .entry.folded {
     border-left-color: var(--vscode-charts-yellow, #cca700);
     background: color-mix(in srgb, var(--vscode-charts-yellow, #cca700) 12%, transparent);

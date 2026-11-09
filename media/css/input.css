@@ -1,24 +1,24 @@
-/* ===== 输入区：悬浮框 + 下方极简栏 =====
-   由 scripts/split-css.mjs 从旧的 media/chat.css 切出（一次性重构）
-   ★ 改这一块只需动本文件 ✓ */
+/* ===== 输入区:悬浮框 + 下方极简栏 =====
+   由 scripts/split-css.mjs 从旧的 media/chat.css 切出(一次性重构)
+   改这一块只需动本文件 */
 
-/* ===== 输入区：悬浮在底部（圆角 + 悬空 + 与消息流无缝）=====
-   · 渐变遮罩：消息滚到框后面时自然淡出
-   · pointer-events: none 只作用于遮罩层（不挡鼠标），框本身可交互 ✓ */
+/* ===== 输入区:悬浮在底部(圆角 + 悬空 + 与消息流无缝)=====
+   · 渐变遮罩:消息滚到框后面时自然淡出
+   · pointer-events: none 只作用于遮罩层(不挡鼠标),框本身可交互 */
 #input-area {
   position: absolute;
-  /* ★ 左侧给命令条让位（B32）—— 原来这里是 padding 边距 ✗
-     现在改成了 0：输入框自己的 width% + margin:auto 就能居中 ✓
-     而气泡的边距下沉到了 .bubble-wrap 的 margin 上 ✓
-     ⇒ 两边彻底解耦：改气泡边距不会动输入框 ✓ */
+  /* 左侧给命令条让位(B32)- 原来这里是 padding 边距
+     现在改成了 0:输入框自己的 width% + margin:auto 就能居中
+     而气泡的边距下沉到了 .bubble-wrap 的 margin 上
+     ⇒ 两边彻底解耦:改气泡边距不会动输入框 */
   left: var(--pi-cmd-rail-w, 42px);
   right: 0;
   bottom: 0;
-  /* ★★★ B32：左右内边距一律【为 0】
-     为什么？→ 输入框自己的 width% + margin:auto 就能居中 ✗
-       而用 leftGap / rightGap 当 padding 会【和气泡耦合】：
-       改气泡的左边距 → 这里跟着变 → 输入框莫名其妙滑动 ✓
-     ⇒ 输入区的位置只由【自己】决定 ✓ 别人改什么都不影响它 ✓ */
+  /* B32:左右内边距一律[为 0]
+     为什么?→ 输入框自己的 width% + margin:auto 就能居中
+       而用 leftGap / rightGap 当 padding 会[和气泡耦合]:
+       改气泡的左边距 → 这里跟着变 → 输入框莫名其妙滑动
+     ⇒ 输入区的位置只由[自己]决定 别人改什么都不影响它 */
   padding: 10px 0 var(--pi-input-bottom-gap, 22px) 0;
   background: linear-gradient(
     to top,
@@ -43,10 +43,10 @@
 }
 #input-box:focus-within { border-color: var(--vscode-focusBorder); }
 
-/* ===== 输入区下方极简栏（工作目录，居中）=====
-   ★ 定位在 #input-area 的【padding 留白】里（bottom:0 + 高度 = 留白高度）
-     → 不会额外撑高整个输入区 ✓
-   ★ 垂直居中用的是【配置的高度】（改 inputBottomGap 会跟着居中 ✓）*/
+/* ===== 输入区下方极简栏(工作目录,居中)=====
+   定位在 #input-area 的[padding 留白]里(bottom:0 + 高度 = 留白高度)
+     → 不会额外撑高整个输入区
+   垂直居中用的是[配置的高度](改 inputBottomGap 会跟着居中 )*/
 #foot-bar {
   position: absolute;
   left: 0;
@@ -54,13 +54,13 @@
   bottom: 0;
   height: var(--pi-input-bottom-gap, 22px);
   display: flex;
-  align-items: center;          /* ★ 垂直居中 ✓ */
-  justify-content: center;      /* ★ 水平居中 ✓ */
-  pointer-events: auto;         /* #input-area 是 none → 这里恢复 ✓ */
+  align-items: center;          /* 垂直居中 */
+  justify-content: center;      /* 水平居中 */
+  pointer-events: auto;         /* #input-area 是 none → 这里恢复 */
   font-size: 12px;
   line-height: 1.2;
   color: var(--vscode-descriptionForeground);
-  user-select: text;            /* 路径要能选中复制 ✓ */
+  user-select: text;            /* 路径要能选中复制 */
 }
 #foot-cwd {
   max-width: 100%;
@@ -69,7 +69,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* ★ 可点击（点了能改 cwd）→ 给出手感 ✓ */
+  /* 可点击(点了能改 cwd)→ 给出手感 */
   cursor: pointer;
   border-radius: 4px;
   padding: 1px 6px;
@@ -90,11 +90,11 @@
   resize: none;
   outline: none;
   min-height: 20px;
-  max-height: 180px;         /* ★ 最大高度：超过后出现滚动条（JS 控制）*/
+  max-height: 180px;         /* 最大高度:超过后出现滚动条(JS 控制)*/
   overflow-y: hidden;
 }
 
-/* 固定栏：左=模型名（将来是按钮）· 右=操作按钮 */
+/* 固定栏:左=模型名(将来是按钮)· 右=操作按钮 */
 #input-bar {
   display: flex;
   align-items: center;
@@ -102,7 +102,7 @@
   min-height: 26px;
 }
 
-/* ★ 重启 pi 按钮（次级按钮：平时低调，hover 才明显 ✓）*/
+/* 重启 pi 按钮(次级按钮:平时低调,hover 才明显 )*/
 #send {
   flex-shrink: 0;
   width: 28px;
@@ -116,12 +116,12 @@
   color: var(--vscode-button-foreground);
   transition: background 0.15s;
 }
-#send svg { width: 62%; height: 62%; }   /* 箭头占圆的比例（要粗、要大）*/
+#send svg { width: 62%; height: 62%; }   /* 箭头占圆的比例(要粗,要大)*/
 #send:not(.busy):hover { background: var(--vscode-button-hoverBackground); }
-/* 工作中：隐藏箭头，变成一个转圈 */
+/* 工作中:隐藏箭头,变成一个转圈 */
 #send.busy {
   background: transparent;
-  cursor: pointer;              /* ★ 转圈时点击 = 中断 ✓ */
+  cursor: pointer;              /* 转圈时点击 = 中断 */
   position: relative;
 }
 #send.busy:hover { background: var(--vscode-toolbar-hoverBackground); }
@@ -137,16 +137,16 @@
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ===== ★ 「待插话」条（B20）=====
-   挂在【输入框正上方】✗ 不进消息流 ✓（用户实测报的问题 ✓）
-   它只是【临时状态】✗ 不是一条历史消息 ✓
-   被投递后立即删除 → 接着走正常对话流程 ✓ */
+/* ===== 「待插话」条(B20)=====
+   挂在[输入框正上方]不进消息流 (用户实测报的问题 )
+   它只是[临时状态]不是一条历史消息
+   被投递后立即删除 → 接着走正常对话流程 */
 #queue-bar {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    margin-bottom: 6px;   /* 与输入框留一点缝 ✓（padding 由 input-area 统一给 ✓）*/
-    pointer-events: auto; /* ★ 同 #ui-request：必须恢复 ✗（否则它也在 none 里 ✓）*/
+    margin-bottom: 6px;   /* 与输入框留一点缝 (padding 由 input-area 统一给 )*/
+    pointer-events: auto; /* 同 #ui-request:必须恢复 (否则它也在 none 里 )*/
 }
 #queue-bar[data-empty="true"], #queue-bar:empty { display: none; }
 
@@ -176,15 +176,15 @@
     font-size: 10px;
 }
 
-/* ===== ★ 模型 / 思考深度（B23）=====
-   输入区下方那一排的最左端 ✓ 两个都是按钮（左键弹列表 ✓）
-   ★ 列表【向上】弹（因为它们在底部 ✗ 往下会出屏 ✓）*/
-/* ★ 向上弹出的候选列表（复用 .ctx-menu 的风格，但定位在按钮上方 ✓）*/
+/* ===== 模型 / 思考深度(B23)=====
+   输入区下方那一排的最左端 两个都是按钮(左键弹列表 )
+   列表[向上]弹(因为它们在底部 往下会出屏 )*/
+/* 向上弹出的候选列表(复用 .ctx-menu 的风格,但定位在按钮上方 )*/
 .picker {
   position: fixed;
   z-index: 3000;
   min-width: 190px;
-  max-height: 46vh;              /* ★ 超过就滚 ✓（滚轮 ✓）*/
+  max-height: 46vh;              /* 超过就滚 (滚轮 )*/
   overflow-y: auto;
   padding: 3px;
   display: flex;
@@ -216,35 +216,35 @@
 .picker-item .pk-sub { font-size: 10px; opacity: .62; }
 .picker-empty { padding: 6px 9px; font-size: 11px; opacity: .62; }
 
-/* ===== ★ 扩展交互（B25 回复桥）=====
-   位置：输入区【内部】✗（同 #queue-bar —— 放外面会被 input-area 盖住 ✓）
-   ★ 为什么要【醒目的边框】？
-     pi 在【等你回答】时是卡住的 ✗ 不能让它看着像普通提示 ✓ */
+/* ===== 扩展交互(B25 回复桥)=====
+   位置:输入区[内部](同 #queue-bar - 放外面会被 input-area 盖住 )
+   为什么要[醒目的边框]?
+     pi 在[等你回答]时是卡住的 不能让它看着像普通提示 */
 #ui-request {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-bottom: 6px;
-  /* ★★ 必须恢复 pointer-events ✗（B25 踩的“死卡片”✓）
-   *   #input-area 是 pointer-events: none（让渐变背景不挡鼠标 ✓）
-   *   只有 #input-box / #foot-bar 自己恢复了 auto ✓
-   *   → 不写这行就会【继承 none】✓ → 整块交互卡片【点不动】✓
-   *     （用户：“有确认和取消按钮完全点不动”✓）*/
+  /* 必须恢复 pointer-events (B25 踩的“死卡片”)
+   *   #input-area 是 pointer-events: none(让渐变背景不挡鼠标 )
+   *   只有 #input-box / #foot-bar 自己恢复了 auto
+   *   → 不写这行就会[继承 none]→ 整块交互卡片[点不动]
+   *     (用户:“有确认和取消按钮完全点不动”)*/
   pointer-events: auto;
 }
 #ui-request[data-empty="true"], #ui-request:empty { display: none; }
 
 
-/* ★★ B25：按钮搬走后，输入区只剩发送 ✗
-   原来右侧的组（模型/思考/重载）靠 #btn-reload { margin-left: auto } 顶到右边 ✓
-   那条规则随搬迁删掉了 → ★ 发送会贴左 ✓
-   → 给发送自己加弹性 ✓ */
+/* B25:按钮搬走后,输入区只剩发送
+   原来右侧的组(模型/思考/重载)靠 #btn-reload { margin-left: auto } 顶到右边
+   那条规则随搬迁删掉了 → 发送会贴左
+   → 给发送自己加弹性 */
 #input-bar #send { margin-left: auto; }
 
-/* ══════════════ ★★ B26：交互提示条 ══════════════
-   完整问答（选项 / 输入 / 编辑）已【搬到编辑器面板】✗
-   侧栏这里只剩一条提示 + [前往] [取消] ✓
-   设计依据：一行高 ✓ 不抢输入区的视觉重量 ✓ 不占地方 ✓ */
+/* ══════════════ B26:交互提示条 ══════════════
+   完整问答(选项 / 输入 / 编辑)已[搬到编辑器面板]
+   侧栏这里只剩一条提示 + [前往] [取消]
+   设计依据:一行高 不抢输入区的视觉重量 不占地方 */
 .hint-bar {
   display: flex;
   align-items: center;
@@ -265,7 +265,7 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* ★ 一行截断（悬停看全文 ✓ 扩展的 title 可能非常长 ✓）*/
+  /* 一行截断(悬停看全文 扩展的 title 可能非常长 )*/
   white-space: nowrap;
   opacity: .9;
 }
@@ -288,14 +288,14 @@
   color: var(--vscode-charts-red, #e05252);
 }
 
-/* ══════════════ ★★ B27：斜杠命令补全 ══════════════ */
-/* 放在 #input-box 内部 ✗ 靠在 textarea 上方 ✓
-   为什么不用 absolute 浮层？→ #input-box 会自然长高 ✗ 不用算位置 ✓ */
+/* ══════════════ B27:斜杠命令补全 ══════════════ */
+/* 放在 #input-box 内部 靠在 textarea 上方
+   为什么不用 absolute 浮层?→ #input-box 会自然长高 不用算位置 */
 #slash-menu {
   display: flex;
   flex-direction: column;
-  /* ★★ 高度限制 + 滚动条 ✗（用户报：“缺少一个滑块 ✗ 下面明明有东西”✓）
-     列表现在显示【全部】候选 ✗ 靠这里限高 ✓ */
+  /* 高度限制 + 滚动条 (用户报:“缺少一个滑块 下面明明有东西”)
+     列表现在显示[全部]候选 靠这里限高 */
   max-height: 260px;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -346,9 +346,9 @@
   opacity: .72;
 }
 
-/* ★★ B43：pi 不可用时锁住输入区（用户定的："可以看 ✗ 但不能让它动手"）
-   （原来的位置写错了：我建了 media/css/chat.css ✗ 而入口 chat.css 并不 @import 它
-     ⇒ 样式压根不生效 ✓ 应该放在 input.css 这个已挂载的源里 ✓）*/
+/* B43:pi 不可用时锁住输入区(用户定的:"可以看 但不能让它动手")
+   (原来的位置写错了:我建了 media/css/chat.css 而入口 chat.css 并不 @import 它
+     ⇒ 样式压根不生效 应该放在 input.css 这个已挂载的源里 )*/
 #input.prompt-locked {
   opacity: .55;
   cursor: not-allowed;
