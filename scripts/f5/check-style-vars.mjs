@@ -87,11 +87,11 @@ function walk(dir, ext, acc = []) {
 }
 
 // ── ③ CSS:哪些 --pi-* 变量真的被 var() 消费了 ──
-const mediaDir = path.join(root, "media");
+const webviewDir = path.join(root, "webview-src/");
 const consumed = new Map(); // cssVar → 出现的文件集合
 const cssDefined = new Set(); // CSS 自己定义的(有默认值 → 不是孤儿 )
-for (const abs of walk(mediaDir, ".css")) {
-    const f = path.relative(mediaDir, abs); // 报告里显示 media/ 下的相对路径
+for (const abs of walk(webviewDir, ".css")) {
+    const f = path.relative(webviewDir, abs); // 报告里显示 media/ 下的相对路径
     const text = fs.readFileSync(abs, "utf8");
     // 只统计 var(--pi-xxx) 的[消费]不算 `--pi-xxx: value` 的定义行
     for (const m of text.matchAll(/var\(\s*(--pi-[a-z0-9-]+)/gi)) {

@@ -19,10 +19,9 @@ const C_CLOSE = "--" + ">";
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 const root = process.cwd();
-const mediaDir = path.join(root, "media");
+const htmlDir = path.join(root, "dist","webview");
 
 /**
  * B37:打包入口名(用于 ⑥)
@@ -126,8 +125,8 @@ function checkHtml(file) {
     console.log(`${name}:注释 ${opens} 对 · 标签平衡 · id ${ids.length} 个`);
 }
 
-const files = fs.readdirSync(mediaDir).filter((f) => f.endsWith(".html"));
-for (const f of files) checkHtml(path.join(mediaDir, f));
+const files = fs.readdirSync(htmlDir).filter((f) => f.endsWith(".html"));
+for (const f of files) checkHtml(path.join(htmlDir, f));
 
 if (failed) {
     console.error(`\nHTML 检查失败 ${failed} 项`);

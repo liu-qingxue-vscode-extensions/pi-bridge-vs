@@ -24,10 +24,10 @@
  *     队列变成 >= 2 → [不发]转答卷模式 (刚才的答案保留为草稿 )
  *   - 这就是用户说的“判定点是提交那一刻”
  */
-import { splitOptions } from "./controls.js";
-import { advanceToNextUnanswered, applyQueue, state } from "./state.js";
-import type { UiReq, UiRes } from "./types.js";
-import { render, type Handlers } from "./views.js";
+import { splitOptions } from "./TS/interaction/controls.js";
+import { advanceToNextUnanswered, applyQueue, state } from "./TS/interaction/state.js";
+import type { UiReq, UiRes } from "./TS/interaction/types.js";
+import { render, type Handlers } from "./TS/interaction/views.js";
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 const vscode = acquireVsCodeApi();

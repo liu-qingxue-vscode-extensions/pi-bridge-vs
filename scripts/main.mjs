@@ -4,17 +4,25 @@ import { execSync } from "node:child_process";
 
 // 把你那一长串任务拆成数组，加上人话描述
 const tasks = [
-    { cmd: "node scripts/f5/check-html.mjs", desc: "检查 HTML 结构" },
-    { cmd: "node scripts/f5/check-style-vars.mjs", desc: "检查 CSS 变量" },
-    { cmd: "node scripts/f5/bundle-css.mjs", desc: "打包 CSS" },
-    { cmd: "node scripts/f5/sync-katex.mjs", desc: "同步 KaTeX 资源" },
+    // ===== Extension =====
     { cmd: "tsc -p ./ --noEmit", desc: "TS 类型检查 (扩展端)" },
     { cmd: "node scripts/f5/build-extension.mjs", desc: "构建扩展端代码" },
-    { cmd: "node scripts/f5/check-patch-reverse.mjs", desc: "检查补丁反转" },
+    { cmd: "node scripts/f5/check-patch-reverse.mjs", desc: "检查补丁反转(防止代码被改坏)" },
+    // ===== webview =====
+    // HTML
+    { cmd: "node scripts/f5/sync-html.mjs", desc: "同步 HTML" },
+    { cmd: "node scripts/f5/check-html.mjs", desc: "检查 HTML 结构" },
+    // CSS
+    { cmd: "node scripts/f5/check-style-vars.mjs", desc: "检查 CSS 变量" },
+    { cmd: "node scripts/f5/bundle-css.mjs", desc: "打包 CSS" },
+    // webview-JS
+    { cmd: "tsc -p tsconfig.webview.json --noEmit", desc: "TS 类型检查 (Webview端)" },
+    { cmd: "node scripts/f5/build-webview.mjs", desc: "打包 Webview 的JS" },
+    // other
+    { cmd: "node scripts/f5/sync-katex.mjs", desc: "同步 KaTeX 资源" },
+    // ===== Pi =====
     { cmd: "node scripts/f5/check-pi-env.mjs", desc: "检查 Pi 环境" },
     { cmd: "node scripts/f5/check-session-file.mjs", desc: "检查会话文件" },
-    { cmd: "tsc -p tsconfig.webview.json --noEmit", desc: "TS 类型检查 (Webview端)" },
-    { cmd: "node scripts/f5/build-webview.mjs", desc: "打包 Webview" },
     { cmd: "npm run check:in-pi", desc: "in-pi 检查" },
     { cmd: "npm run build:in-pi", desc: "in-pi 构建" },
 ];

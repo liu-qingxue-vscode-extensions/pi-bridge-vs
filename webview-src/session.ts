@@ -16,8 +16,8 @@
  *   这里 → 宿主:refreshSessions / newSession / switchSession /
  *                exportSession / importSession / deleteSession
  */
-import { showContextMenu } from "../webview/context-menu.js";
-import { fmtTime, prettyPath, treeify, type SessionInfo } from "./session-util.js";
+import { showContextMenu } from "./TS/chat/context-menu.js";
+import { fmtTime, prettyPath, treeify, type SessionInfo } from "./TS/sessions/session-util.js";
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 const vscode = acquireVsCodeApi();

@@ -14,7 +14,7 @@
  * [为什么不内嵌展开?]用户:“查看内容是下拉这个东西 下拉这个东西不要啊 ”
  *   → 内容可能很长 内嵌会把列表撑得很乱 直接跳编辑器更舒服
  */
-import { showContextMenu } from "../webview/context-menu.js";
+import { showContextMenu } from "./TS/chat/context-menu.js";
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 const vscode = acquireVsCodeApi();
@@ -169,12 +169,12 @@ function render(): void {
                 // 删除只在[自定义技能]上出现 别人包的删不掉
                 ...(s.mine
                     ? [
-                          {
-                              label: "删除这个技能...",
-                              danger: true,
-                              onClick: () => delSkill(s),
-                          },
-                      ]
+                        {
+                            label: "删除这个技能...",
+                            danger: true,
+                            onClick: () => delSkill(s),
+                        },
+                    ]
                     : []),
             ]);
         });

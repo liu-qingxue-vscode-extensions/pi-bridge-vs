@@ -8,7 +8,7 @@
  *   · 结果可能[晚到](来自另一条消息,用 callId 找回 )
  *   · 执行中还会来流式输出(partialResult.content 是[累积全文]不是增量)
  */
-import type { ToolBlockFields } from "../view/chat-types.js";
+import type { ToolBlockFields } from "../chat-types.js";
 import { messagesEl } from "./dom.js";
 import { ui } from "./state.js";
 import { createHead, makeActions, scrollToBottom } from "./bubbles.js";
@@ -101,7 +101,7 @@ export function createToolBubble(callId: string, toolName?: string): HTMLElement
 
     // 内容体(可折叠):上半调用参数 · 下半结果(结果可能晚到,用 callId 填回)
     const body = document.createElement("div");
-    body.className = "tool-body";    const call = document.createElement("div");
+    body.className = "tool-body"; const call = document.createElement("div");
     call.className = "tool-call";
     const args = document.createElement("div");
     args.className = "tool-args";
@@ -597,7 +597,7 @@ export function renderResultParts(
     const host = ensureResultHost(bubble);
     host.classList.toggle("error", !!isError && !streaming);
     const body = host.querySelector(".result-body") as HTMLElement;
-    body.innerHTML = "";    for (const p of parts || []) {
+    body.innerHTML = ""; for (const p of parts || []) {
         const t = (p as { type?: string } | null)?.type;
         if (t === "text") {
             body.appendChild(buildTextPart((p as { text?: string }).text ?? "", bubble.dataset.tool ?? ""));
@@ -668,8 +668,8 @@ export interface ToolSnapshotData {
  */
 type KeyMismatch<A, B> = [keyof A] extends [keyof B]
     ? [keyof B] extends [keyof A]
-        ? never
-        : keyof B
+    ? never
+    : keyof B
     : keyof A;
 /** 若两者键不一致,这里会变成具体缺的键名(true 赋值失败 ⇒ 编译报错)*/
 const _keysInSync: KeyMismatch<ToolData, ToolSnapshotData> extends never ? true : false = true;

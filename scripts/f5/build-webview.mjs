@@ -26,30 +26,30 @@ const watch = process.argv.includes("--watch");
 
 const options = {
     entryPoints: [
-        { in: "src/webview/index.ts", out: "chat" },
-        { in: "src/interaction/index.ts", out: "interaction" },
+        { in: "webview-src/chat.ts", out: "chat" },
+        { in: "webview-src/interaction.ts", out: "interaction" },
         // mermaid 单独打包变开关:它约 2MB 不能拖累主包
         //   (只有消息里真出现 ```mermaid 时才由主程序动态注入 )
-        { in: "src/webview/mermaid-entry.ts", out: "mermaid" },
+        { in: "webview-src/mermaid-entry.ts", out: "mermaid" },
         // 技能面板(B31 从侧栏搬到编辑器区 )
-        { in: "src/skills/index.ts", out: "skills" },
+        { in: "webview-src/skills.ts", out: "skills" },
         // 自由按钮的配置页面(B32 ②)
-        { in: "src/command/index.ts", out: "command" },
+        { in: "webview-src/command.ts", out: "command" },
         // 会话面板(B35 从侧栏搬到编辑器区 )
-        { in: "src/sessions/index.ts", out: "session" },
+        { in: "webview-src/session.ts", out: "session" },
         // B37:调试板前端
         //   它是被[误删]后恢复的 见 src/debug/index.js 顶部的说明
         //   以前它是手写的 media/debug.js 不经过打包
         //     而 html 里写的是 {{js}}(= out/debug.js )⇒ 一直 404
-        { in: "src/debug/index.js", out: "debug" },
+        { in: "webview-src/debug.js", out: "debug" },
         // 设置面板(B35 从侧栏搬到编辑器区 )
-        { in: "src/settings/index.ts", out: "settings" },
+        { in: "webview-src/settings.ts", out: "settings" },
         // B47:完整历史面板
         //   它[复用聊天页的渲染器](apply.ts 的 replaySnapshot )
         //     ⇒ 入口里只有"握手 + 收快照"没有任何渲染代码
-        { in: "src/webview/history.ts", out: "history" },
+        { in: "webview-src/history.ts", out: "history" },
     ],
-    outdir: "media/out",
+    outdir: "dist/webview",
     bundle: true,          // 把 import 的全部打进一个文件
     format: "iife",        // webview 里就是普通脚本 - 不能是 ESM
     target: "es2022",

@@ -14,22 +14,22 @@
  * [为什么 index.ts 必须存在?]
  *   构建工具(esbuild)需要一个人口文件;而且"启动顺序"本身就是一种信息
  */
-import { post, log } from "./vscode-api.js";
-import { setupInput } from "./input.js";
-import { setupNoticeBoard } from "./noticeboard.js";
-import { setupSessions } from "./sessions.js";
-import { setupCompact } from "./compact.js";
-import { setupModelPicker } from "./model-picker.js";
-import { setupSettingsPanel } from "./settings-panel.js";
-import { btnSkills } from "./dom.js";
-import { setupMarkdown } from "./markdown.js";
-import { setupSlashMenu } from "./slash-menu.js";
-import { setupUiRequest } from "./ui-request.js";
+import { post, log } from "./TS/chat/vscode-api.js";
+import { setupInput } from "./TS/chat/input.js";
+import { setupNoticeBoard } from "./TS/chat/noticeboard.js";
+import { setupSessions } from "./TS/chat/sessions.js";
+import { setupCompact } from "./TS/chat/compact.js";
+import { setupModelPicker } from "./TS/chat/model-picker.js";
+import { setupSettingsPanel } from "./TS/chat/settings-panel.js";
+import { btnSkills } from "./TS/chat/dom.js";
+import { setupMarkdown } from "./TS/chat/markdown.js";
+import { setupSlashMenu } from "./TS/chat/slash-menu.js";
+import { setupUiRequest } from "./TS/chat/ui-request.js";
 // B32:自由按钮容器
-import { setupCmdRail } from "./cmdrail.js";
-import { setupHostBridge } from "./apply.js";
+import { setupCmdRail } from "./TS/chat/cmdrail.js";
+import { setupHostBridge } from "./TS/chat/apply.js";
 // B32:布局自检(只在排查时看 却很有用 )
-import { diagLayoutSoon } from "./diag.js";
+import { diagLayoutSoon } from "./TS/chat/diag.js";
 
 /**
  * 每个 setup 都独立 try/catch - [一处出错不能搞崩整个界面]

@@ -23,7 +23,7 @@ import { appendMarkdown, finishMarkdown, setHighlightTheme } from "./markdown.js
 import { beginCodeFitBatch, endCodeFitBatch } from "./code-fit.js";
 import { createThinkingBubble, markThinkDone } from "./thinking.js";
 // B39:fillToolBubble = 工具气泡的[唯一]填充入口(实时流 / snapshot 都走它)
-import type { CompactionFields, ToolBlockFields } from "../view/chat-types.js";
+import type { CompactionFields, ToolBlockFields } from "../chat-types.js";
 import { createToolBubble, fillToolBubble, fillToolBubbleSnapshot } from "./tool.js";
 import { createCompactionBubbleSnapshot, fillCompactionBubble } from "./compact-bubble.js";
 import type { CompactionData } from "./compact-bubble.js";
@@ -220,8 +220,8 @@ export function replaySnapshot(payload: unknown, opts?: { keepNotices?: boolean 
     // 分段计时(建 DOM / marked 封尾 / 代码块宽度 - 一眼看出真瓶颈 )
     log.info(
         `⏱ replay 分段:建DOM ${(__t1 - __t0).toFixed(0)}ms · ` +
-            `封尾(marked) ${(__t2 - __t1).toFixed(0)}ms · ` +
-            `代码块宽度 ${(performance.now() - __t2).toFixed(0)}ms`,
+        `封尾(marked) ${(__t2 - __t1).toFixed(0)}ms · ` +
+        `代码块宽度 ${(performance.now() - __t2).toFixed(0)}ms`,
     );
 
     // 顶栏也从快照恢复(取最后一条带 usage 的气泡)

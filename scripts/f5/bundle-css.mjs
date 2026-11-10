@@ -23,9 +23,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-const mediaDir = path.join(process.cwd(), "media");
-const outDir = path.join(mediaDir, "out");
-const cssDir = path.join(mediaDir, "css");
+const rootDir = process.cwd();
+const mediaDir = path.join(process.cwd(), "webview-src");
+const outDir = path.join(rootDir, "dist/webview");
 
 if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 

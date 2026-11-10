@@ -51,7 +51,7 @@ export function loadWebviewHtml(
      */
     extraClasses = "",
 ): string {
-    const filePath = path.join(extensionUri.fsPath, "media", fileName);
+    const filePath = path.join(extensionUri.fsPath, "dist", "webview", fileName);
     const raw = fs.readFileSync(filePath, "utf8");
 
     /**
@@ -68,14 +68,15 @@ export function loadWebviewHtml(
      *   开发时改 CSS 不会动 version 而 mtime [每次存盘都变]
      */
     const mediaUri = (rel: string): string => {
-        const uri = webview
-            .asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", rel))
-            .toString();
+        // 1. 产物目录应该是 dist/webview，不是 webview-src
+        const uri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "dist", "webview", rel)).toString();
+
         let stamp = "0";
         try {
-            stamp = String(fs.statSync(path.join(extensionUri.fsPath, "media", rel)).mtimeMs);
+            // 2. 同步修改这里去拿最后修改时间
+            stamp = String(fs.statSync(path.join(extensionUri.fsPath, "dist", "webview", rel)).mtimeMs);
         } catch {
-            // 文件不存在(比如某页没有同名 css )→ 不加时间戳即可
+            // 如果文件不存在，stamp 保持为 "0"
         }
         return `${uri}?v=${stamp}`;
     };
@@ -91,8 +92,8 @@ export function loadWebviewHtml(
         //   原因:@import 的子文件 URL 写死在 CSS 里 带不上 `?v=mtime`
         //    ⇒ 主文件是新的,子文件却是缓存旧版 ⇒ 表现像“只改了一半”
         //   bundle 后只剩一个 URL 版本号一拼 整包同步失效
-        .replace(/\{\{css\}\}/g, mediaUri(`out/${base}.bundle.css`))
-        .replace(/\{\{js\}\}/g, mediaUri(`out/${base}.js`))
+        .replace(/\{\{css\}\}/g, mediaUri(`${base}.bundle.css`))
+        .replace(/\{\{js\}\}/g, mediaUri(`${base}.js`))
         // B29:mermaid 的 URI(它是独立打包的 主程序按需注入 )
-        .replace(/\{\{mermaidJs\}\}/g, mediaUri("out/mermaid.js"));
+        .replace(/\{\{mermaidJs\}\}/g, mediaUri("mermaid.js"));
 }

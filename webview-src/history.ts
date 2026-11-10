@@ -15,11 +15,11 @@
  *   宿主读[raw 模式]的会话文件 ⇒ 包含已被压缩掉的全部历史
  *   ⇒ 这是在"看档案"不是在"看 pi 的上下文"
  */
-import { replaySnapshot } from "./apply.js";
-import { log } from "./vscode-api.js";
-import { applyStyleVars } from "./input.js";
-import { ui } from "./state.js";
-import { vscode } from "./vscode-api.js";
+import { replaySnapshot } from "./TS/chat/apply.js";
+import { log } from "./TS/chat/vscode-api.js";
+import { applyStyleVars } from "./TS/chat/input.js";
+import { ui } from "./TS/chat/state.js";
+import { vscode } from "./TS/chat/vscode-api.js";
 
 // 关键:标记"我是历史面板" ⇒ 默认折叠行为与聊天页不同(见 input.ts )
 //   必须在 applyStyleVars 之前设好(它读这个标志 )
@@ -51,7 +51,7 @@ window.addEventListener("message", (e: MessageEvent) => {
         // 分段计时:卡的时候直接看日志就知道是哪一段(别再猜了 )
         log.info(
             `⏱ 完整历史渲染:总计 ${(t1 - t0).toFixed(0)}ms` +
-                `(节点 ${document.querySelectorAll("#messages *").length} 个)`,
+            `(节点 ${document.querySelectorAll("#messages *").length} 个)`,
         );
         return;
     }

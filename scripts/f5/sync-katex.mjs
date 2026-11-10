@@ -24,8 +24,8 @@ import { fileURLToPath } from "node:url";
 
 const root = process.cwd();
 const srcDir = path.join(root, "node_modules", "katex", "dist");
-const outCss = path.join(root, "media", "out", "katex.css");
-const outFonts = path.join(root, "media", "out", "fonts");
+const outCss = path.join(root, "webview-src", "css", "katex.css");
+const outFonts = path.join(root, "dist", "webview", "fonts");
 
 if (!fs.existsSync(srcDir)) {
     console.error("找不到 node_modules/katex/dist - 先 npm install");
