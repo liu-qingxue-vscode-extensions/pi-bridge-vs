@@ -155,3 +155,38 @@ body {
 #input::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* ===== 回到底部按钮 =====
+   只在"用户往上翻、不再跟随最新"时浮出来。
+   位置锚在输入区上方,所以输入框变高时它跟着上移 —— 用同一个变量。 */
+#jump-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--pi-input-reserve, 120px) + 10px);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  /* 用主按钮色(各主题下都是不透明的高对比色),secondaryBackground 在某些主题是透明的 */
+  border: 1px solid var(--vscode-button-background, #0e639c);
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  z-index: 6;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  transform: translate(-50%, 4px);
+}
+#jump-bottom[data-show="true"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+#jump-bottom:hover {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+  border-color: var(--vscode-button-hoverBackground, #1177bb);
+}

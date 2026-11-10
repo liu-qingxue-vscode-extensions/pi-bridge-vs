@@ -92,9 +92,9 @@ export const noticeBadge = needEl("notice-badge");
 // ── 按钮行(B15)──
 //   B35:会话面板搬到编辑器区了
 //     下面这几个 DOM 已经不存在(原位置:media/chat.html 的 #session-panel )
-//       sessionPanel / sessionList / sessionEmpty /
+//       sessionPanel / sessionList / sessionEmpty /「方案选单」
 //       sessionPanelClose / btnRefreshSessions
-//     留着会启动时报一串“找不到 DOM 元素”
+//     留着会启动时报一串“找不到 DOM 元素”「方案选单」
 export const btnSessions = needEl("btn-sessions");
 export const btnNewSession = needEl("btn-new-session");
 /** 按钮行中间的[当前会话名](点击改名 )*/

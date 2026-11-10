@@ -9,7 +9,7 @@
  * 跑法:npm run compile(会自动带上)或 node scripts/check-patch-reverse.mjs
  */
 
-import { reverseApplyPatch } from "../dist/bridge/patch-reverse.js";
+import { reverseApplyPatch } from "../../dist/bridge/patch-reverse.js";
 
 let failed = 0;
 let passed = 0;

@@ -21,6 +21,19 @@ export function scrollToBottom(): void {
 messagesEl.addEventListener("scroll", () => {
     ui.autoScroll =
         messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40;
+    syncJumpBtn();
+});
+
+/** 回到底部按钮:跟 ui.autoScroll 反过来,不在底部时才浮出来 */
+const jumpBottomBtn = document.getElementById("jump-bottom");
+function syncJumpBtn(): void {
+    if (jumpBottomBtn) jumpBottomBtn.dataset.show = String(!ui.autoScroll);
+}
+
+jumpBottomBtn?.addEventListener("click", () => {
+    ui.autoScroll = true;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    syncJumpBtn();
 });
 
 /**

@@ -18,7 +18,7 @@ import {
     changelogPath,
     ENV_AGENT_DIR,
     ENV_SESSION_DIR,
-} from "../dist/pi/pi-env.js";
+} from "../../dist/pi/pi-env.js";
 import { existsSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";

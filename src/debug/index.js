@@ -1,18 +1,5 @@
 /**
- * debug/index.js - 调试板的前端(B37 恢复 )
- *
- * [它是怎么坏掉又怎么回来的]
- *   它原来是手写的 media/debug.js
- *   在 B32("自由按钮容器 + 交接文档")那次提交里[被删掉了]
- *   而 media/debug.html 里那句 `<script src="{{js}}">` 留着
- *   ⇒ 前端 404 页面一行脚本都没有
- *   ⇒ 症状:调试板[永远空白]+ "清空/导出"两个按钮全死
- *
- *   为什么一直没被发现?
- *     它[不报错]只是安静地什么都收不到
- *     守门员 check-html.mjs 只查标签平衡 不查 {{js}} 指向的文件在不在
- *     ⇒ 本轮顺手把这条检查加进了脚本
- *
+ * debug/index.js - 调试板的前端(B37恢复)
  *   为什么是 .js 不是 .ts?
  *     它是纯 DOM 脚本(没有类型需求 )
  *     而且恢复时要[逐字保真]改成 TS 会引入没必要的改动
@@ -30,11 +17,9 @@
  *                clear(清空你的环形缓冲 )
  *                export(导出成 JSON )
  *
- * [这一层的定位](用户定的 )
- *   "它的出口一定要独立,而且全面,所有数据包都要往它那里发一份.
- *    它是整个项目的主心骨."
- *   ⇒ 所以这里画的是[原始数据包]不做任何翻译
- *     翻译是别的模块的事 调试板是事实来源
+ * [这一层的定位]
+ *   出口一定要独立,而且全面,所有数据包都要往它那里发一份.
+ *   这里画的是[原始数据包]不做任何翻译,调试板是事实来源
  */
 
 const vscode = acquireVsCodeApi();
@@ -42,6 +27,7 @@ const logEl = document.getElementById("log");
 const countEl = document.getElementById("count");
 let count = 0;
 
+/**安全的输入处理,特别是字符串! */
 function escapeHtml(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

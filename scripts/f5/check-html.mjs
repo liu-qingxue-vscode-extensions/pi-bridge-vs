@@ -21,8 +21,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const mediaDir = path.join(here, "..", "media");
+const root = process.cwd();
+const mediaDir = path.join(root, "media");
 
 /**
  * B37:打包入口名(用于 ⑥)
@@ -31,7 +31,7 @@ const mediaDir = path.join(here, "..", "media");
  *   本脚本跑在[构建之前]产物还不存在
  *   而“有没有入口”是[源码事实]什么时候查都准
  */
-const buildSrc = fs.readFileSync(path.join(here, "..", "scripts", "build-webview.mjs"), "utf8");
+const buildSrc = fs.readFileSync(path.join(root, "scripts","f5", "build-webview.mjs"), "utf8");
 const entryNames = new Set([...buildSrc.matchAll(/out:\s*"([^"]+)"/g)].map((m) => m[1]));
 
 /** 允许的模板占位符(loader 会替换 )*/

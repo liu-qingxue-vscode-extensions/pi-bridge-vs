@@ -6,7 +6,7 @@
  *   (转圈本身就表示"正在跑",点击它天然对应"中断" )
  */
 import { setCodeAutoFit } from "./code-fit.js";
-import { vscode } from "./vscode-api.js";
+import { vscode, log } from "./vscode-api.js";
 import { inputEl, sendBtn, messagesEl, inputAreaEl, footCwd, btnReload } from "./dom.js";
 import { ui } from "./state.js";
 import { cssNum, lineHeightOf, shortenPath } from "./format.js";
@@ -19,6 +19,9 @@ function send(): void {
     vscode.postMessage({ kind: "prompt", text });
     inputEl.value = "";
     autoGrow();
+    // 发消息是明确的"我要看最新":不管之前翻到哪,直接拉回底部并恢复跟随
+    ui.autoScroll = true;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 /**
@@ -163,6 +166,79 @@ export function setupInput(): void {
     });
 
     inputEl.addEventListener("input", autoGrow);
+
+    // 在正文区按下鼠标 = 准备选中文字复制,先把输入框的焦点摘掉。
+    // 不摘的话 activeElement 还是 textarea,Ctrl+C 复制的是它里面的内容(空的),
+    // 正文选区被忽略 —— 表现就是"选了半天复制不出来,焦点还弹回输入框"。
+    messagesEl.addEventListener("mousedown", () => {
+        if (document.activeElement === inputEl) inputEl.blur();
+    });
+
+    /**
+     * 正文选区的复制自己接管。
+     *
+     * 时序是关键(日志实测):
+     *   keydown(ctrl+c) → 同一毫秒内 VS Code 的 webview 宿主脚本把焦点还给 textarea
+     *   → 焦点一移,正文选区就没了 → 等 copy 事件跑起来时 getSelection() 已经空了
+     *   (调用栈: vscode-webview://.../index.html:1289 ← HostMessaging.onmessage)
+     *
+     * 所以要在 keydown 那一刻就把选区文本拍下来,到 copy 时用快照。
+     */
+    let pendingCopy = "";
+    document.addEventListener(
+        "keydown",
+        (e) => {
+            if (!((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c")) return;
+            // 焦点本来就在输入框:那是复制输入框自己的内容,交给浏览器
+            if (document.activeElement === inputEl) {
+                pendingCopy = "";
+                return;
+            }
+            pendingCopy = document.getSelection()?.toString() ?? "";
+            log.info(`[copy] keydown 拍快照 长度=${pendingCopy.length}`);
+        },
+        true,
+    );
+
+    document.addEventListener("copy", (e) => {
+        log.info(`[copy] copy 事件 快照=${pendingCopy.length} 当前选区=${document.getSelection()?.toString().length ?? 0}`);
+        if (!pendingCopy) return;
+        e.clipboardData?.setData("text/plain", pendingCopy);
+        e.preventDefault();
+        pendingCopy = "";
+    });
+
+    // ── 临时诊断（查完就删）──
+    const origFocus = HTMLElement.prototype.focus;
+    HTMLElement.prototype.focus = function (this: HTMLElement, ...args: unknown[]) {
+        if (this.id === "input") {
+            log.info(`[diag] focus(#input) 调用栈:\n${new Error().stack ?? "?"}`);
+        }
+        return (origFocus as (...a: unknown[]) => void).apply(this, args);
+    };
+
+    document.addEventListener(
+        "keydown",
+        (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+                const t = e.target as HTMLElement | null;
+                const sel = document.getSelection()?.toString() ?? "";
+                log.info(
+                    `[diag] ctrl+c 到达 target=${t?.tagName ?? "?"}#${t?.id ?? ""} ` +
+                        `defaultPrevented=${e.defaultPrevented} 选区=${sel.length}`,
+                );
+            }
+        },
+        true,
+    );
+    document.addEventListener(
+        "focusin",
+        (e) => {
+            const t = e.target as HTMLElement | null;
+            log.info(`[diag] 焦点 -> ${t?.tagName ?? "?"}#${t?.id ?? ""}`);
+        },
+        true,
+    );
     window.addEventListener("resize", autoGrow);
     autoGrow();
 

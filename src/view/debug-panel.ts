@@ -28,7 +28,7 @@ import { loadWebviewHtml } from "./html-loader.js";
 class RingBuffer<T> {
     private items: T[] = [];
 
-    constructor(private capacity: number) {}
+    constructor(private capacity: number) { }
 
     /** 调整容量(配置实时生效用 缩小时立即裁掉多余的 )*/
     setCapacity(n: number): void {

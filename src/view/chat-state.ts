@@ -115,8 +115,14 @@ export class ChatState {
 
             case "append": {
                 const last = this.bubbles.at(-1);
-                // 防御:没有打开的气泡(或已封口)就忽略 - 数据异常时不崩
-                if (!last || last.done) return;
+                if (!last) return;
+                // 已封口却还有增量 → 重新打开。
+                //
+                // pi 的 message_end 可能早于最后几个 delta 到达(重试/分段时都会),
+                // 而新消息一定会先发 startBubble 建新气泡,所以 append 只可能属于
+                // 当前这条。这里丢弃在界面上看不出来(DOM 走的是另一条路),
+                // 但快照重放时会变成“最后一段内容不见了”。
+                last.done = false;
                 const lastBlock = last.blocks.at(-1);
                 if (lastBlock && lastBlock.type === patch.block) {
                     lastBlock.text += patch.text; // 同一块 → 追加

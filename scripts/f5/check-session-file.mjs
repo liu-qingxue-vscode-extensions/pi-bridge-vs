@@ -10,8 +10,8 @@
  * 跑法:node scripts/check-session-file.mjs [会话文件路径]
  */
 
-import { readSessionFile } from "../dist/bridge/session-file.js";
-import { messagesToPatches } from "../dist/bridge/replay.js";
+import { readSessionFile } from "../../dist/bridge/session-file.js";
+import { messagesToPatches } from "../../dist/bridge/replay.js";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";

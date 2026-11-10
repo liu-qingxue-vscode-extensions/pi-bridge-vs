@@ -30,8 +30,14 @@ import { log } from "./vscode-api.js";
 interface MdState {
     /** 累积的原文 */
     raw: string;
-    /** 已经渲染出去的[闭合块]数量 */
-    done: number;
+    /**
+     * 已渲染的块。
+     *
+     * src 是上次渲染时的原文，用来判断"这块变了没有"。
+     * 不能用"已渲染多少块"这种计数：流式时最后一块可能在闭合之后还在长
+     * （列表尤其明显——项写完了但后面的空行先到），计数一旦推进就再也追不回来。
+     */
+    blocks: { el: HTMLElement; src: string }[];
 }
 
 /** 每个气泡自己一份状态 用 WeakMap 挂在 DOM 上 */
@@ -43,6 +49,10 @@ const FOOTNOTE_DEF_RE = /(^|\n)\s*\[\^[^\]]+\]:/;
 /** 把原文切成[已闭合块]+[尾块]*/
 function splitBlocks(raw: string): { closed: string[]; tail: string } {
     const lines = raw.split("\n");
+    // 末尾的空串只是行尾换行的产物,不是"空行"。
+    // 不摘掉的话,流式里每个以 \n 结尾的 delta 都会把当前这行误判成闭合块
+    // (表格尤其明显:表头单独被渲染一次,之后 done 追不上 closed 就再也不更新了)
+    if (lines.length && lines[lines.length - 1] === "") lines.pop();
     const closed: string[] = [];
     let buf: string[] = [];
     let inFence = false;
@@ -81,7 +91,7 @@ function renderMd(src: string, rich: boolean): string {
 export function appendMarkdown(host: HTMLElement, delta: string): void {
     let st = states.get(host);
     if (!st) {
-        st = { raw: "", done: 0 };
+        st = { raw: "", blocks: [] };
         states.set(host, st);
         host.classList.add("md");
     }
@@ -96,28 +106,49 @@ export function appendMarkdown(host: HTMLElement, delta: string): void {
     }
 
     const { closed, tail } = splitBlocks(st.raw);
+    syncBlocks(host, st, closed, true);
 
-    // ① 新增的闭合块:用 richParser 渲染一次 之后永远不动
-    while (st.done < closed.length) {
-        const el = document.createElement("div");
-        el.className = "md-block";
-        el.innerHTML = renderMd(closed[st.done], true);
-        host.appendChild(el);
-        st.done++;
-    }
-
-    // ② 尾块:每次重渲染它 用 plainParser(不带公式 否则会闪 )
-    let tailEl = host.querySelector<HTMLElement>(".md-tail");
+    // 尾块:每次重渲染它 用 plainParser(不带公式 否则会闪 )
+    let tailEl = host.querySelector<HTMLElement>(":scope > .md-tail");
     if (!tailEl) {
         tailEl = document.createElement("div");
         tailEl.className = "md-block md-tail";
-        host.appendChild(tailEl);
     }
+    // 每次都要重新挂到末尾:上面刚把新的闭合块 append 进来,
+    // 旧的尾块会被顶到它们前面,不挪的话渲染顺序就倒过来了
+    host.appendChild(tailEl);
     tailEl.innerHTML = renderMd(tail, false);
 
     // 尾块里可能有 ```mermaid 交给异步渲染
     scheduleMermaid();
     scheduleHighlight();
+}
+
+/**
+ * 把切分结果同步到 DOM。
+ *
+ * 只做"更新"和"新增",不做删除——块数变少只会发生在切分规则变化时,
+ * 留着旧元素最多是多余的,删错了却是内容消失。
+ */
+function syncBlocks(host: HTMLElement, st: MdState, closed: string[], rich: boolean): void {
+    for (let i = 0; i < closed.length; i++) {
+        const src = closed[i];
+        const rec = st.blocks[i];
+        if (rec) {
+            if (rec.src === src) continue;
+            // 这块在闭合之后又长了 → 重渲染。不做的话,后续内容等于石沉大海
+            log.info(`[md] 块 ${i} 内容变化重渲染 ${rec.src.length}->${src.length}`);
+            rec.el.innerHTML = renderMd(src, rich);
+            rec.src = src;
+        } else {
+            const el = document.createElement("div");
+            el.className = "md-block";
+            el.innerHTML = renderMd(src, rich);
+            host.appendChild(el);
+            st.blocks.push({ el, src });
+            log.info(`[md] 新块 ${i} 长=${src.length} 首=${src.slice(0, 30).replace(/\n/g, "⏎")}`);
+        }
+    }
 }
 
 /**
@@ -130,17 +161,18 @@ export function appendMarkdown(host: HTMLElement, delta: string): void {
  */
 export function finishMarkdown(host: HTMLElement): void {
     const st = states.get(host);
-    const tailEl = host.querySelector<HTMLElement>(".md-tail");
+    const tailEl = host.querySelector<HTMLElement>(":scope > .md-tail");
     if (!tailEl || !st) return;
 
+    const { closed, tail } = splitBlocks(st.raw);
+    syncBlocks(host, st, closed, true);
+
     // 尾部内容已定 → 用 rich 再渲染一次 公式这时才真正排版
-    const { tail } = splitBlocks(st.raw);
     tailEl.innerHTML = renderMd(tail, true);
     tailEl.classList.remove("md-tail");
+    // 把它也记进 blocks:之后如果续写,这块钱的内容会拿来比较
+    st.blocks.push({ el: tailEl, src: tail });
 
-    // 更新状态:尾块也算“已渲染的闭合块”
-    st.done = splitBlocks(st.raw).closed.length + 1;
-    // 段结束 → 这时尾部的 mermaid / 代码块才真的完整 处理它们
     scheduleMermaid();
     scheduleHighlight();
 }
@@ -158,7 +190,7 @@ export function renderMarkdown(host: HTMLElement, raw: string): void {
     el.className = "md-block";
     el.innerHTML = renderMd(raw, true);
     host.appendChild(el);
-    states.set(host, { raw, done: 1 });
+    states.set(host, { raw, blocks: [{ el, src: raw }] });
     scheduleMermaid();
     scheduleHighlight();
 }
