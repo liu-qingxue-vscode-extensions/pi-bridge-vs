@@ -2876,7 +2876,3 @@ export function activate(context: vscode.ExtensionContext): void {
 
     logInfo("pi-bridge-vs 激活完成(pi 将在首条消息时启动)");
 }
-
-export function deactivate(): void {
-    // 清理工作主要由上面的 subscriptions 完成
-}

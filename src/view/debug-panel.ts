@@ -15,56 +15,38 @@ import path from "node:path";
 import os from "node:os";
 import { loadWebviewHtml } from "./html-loader.js";
 
-/**
- * 环形缓冲:容量固定,满了丢最旧的
- *
- * 容量 = 0 时[不接受任何数据](B25 用户要求:
- *   “缓冲为零有点莫名其妙了,收到又扔掉;零的话板子也已经关了,
- *    板子关掉比较干净一点”)
- *   → 0 的语义对外是“关掉调试板”(见 isEnabled )
- *     这里只是[保险]:真的传 0 也别存东西
- * 容量 = Infinity → 无上限(用户配 "max" )
- */
+/** 环形缓冲:容量固定,满了丢最旧的 */
 class RingBuffer<T> {
-    private items: T[] = [];
+    //**缓冲存放处 */
+    private _items: T[] = [];
 
-    constructor(private capacity: number) { }
+    constructor(private bufferCapacity: number) { }
 
     /** 调整容量(配置实时生效用 缩小时立即裁掉多余的 )*/
-    setCapacity(n: number): void {
-        this.capacity = n;
-        if (Number.isFinite(n) && this.items.length > n) {
-            this.items.splice(0, this.items.length - n);
+    set capacity(n: number) {
+        this.bufferCapacity = n;
+        if (Number.isFinite(n) && this._items.length > n) {
+            this._items.splice(0, this._items.length - n);
         }
     }
 
-    /** 清空(切换容量时用 避免留下旧容量的数据 )*/
+    /** 清空缓冲区*/
     clear(): void {
-        this.items = [];
+        this._items = [];
     }
 
-    push(item: T): void {
-        if (this.capacity <= 0) return; // 容量 0 → 直接不收
-        this.items.push(item);
-        if (Number.isFinite(this.capacity) && this.items.length > this.capacity) {
-            this.items.shift(); // 丢掉最旧的
+    /** 添加一个项目到缓冲区*/
+    add(item: T): void {
+        if (this.bufferCapacity <= 0) return; // 容量 0 → 直接不收
+        this._items.push(item);
+        if (Number.isFinite(this.bufferCapacity) && this._items.length > this.bufferCapacity) {
+            this._items.shift(); // 丢掉最旧的
         }
     }
 
     /** 快照(拷贝一份,避免外部修改内部数组) */
-    snapshot(): T[] {
-        return [...this.items];
-    }
-
-    /** 最后一条(
-     *  注:旧版本用它做“折叠累加”(已废弃 )- 现在折叠发生在出口,
-     *  缓冲里永远是完整数据 )*/
-    last(): T | undefined {
-        return this.items[this.items.length - 1];
-    }
-
-    get size(): number {
-        return this.items.length;
+    get items(): T[] {
+        return [...this._items];
     }
 }
 
@@ -77,35 +59,18 @@ function typeOf(payload: unknown): string {
 }
 
 /**
- * 折叠规则 - 把高频事件[按子字段分段计数]
- *
- * [它解决什么?]
- *   一个 type 内部常常还有子类型:
- *     message_update 里带 assistantMessageEvent.type = text_delta / thinking_delta / ...
- *   不折叠:刷得飞快,淹没其它事件
- *   只按 type 折:message_update ×444 - 看不出里面是啥
- *   按子字段分段:
- *     message_update › type=text_delta      ×300
- *     message_update › type=thinking_delta  × 80
- *
- * [数学上看]
- *   限定(type = X)→ 得到一个[子集]
- *   再按 by 字段分段 → 在子集上做[等价类划分](= SQL 的 GROUP BY )
- *
+ * 折叠规则 - 把高频事件[按子字段分段计数并折叠]
+ * [pi-bridge.debug.collapse]
  * [三种写法](字符串形式[能在 VS Code 设置界面直接编辑])
  *   "turn_start"                                   → 整个 type 折一段
  *   "message_update:assistantMessageEvent.type"    → 按该字段的值分段(type : 字段路径)
  *   { type: "...", by: "..." }                         → 对象形式(程序生成时好用 )
  *
- * 为什么推荐字符串?
- *   对象数组在 VS Code 设置界面里[编不了](只能手改 JSON)
- *   字符串数组可以在设置界面里一条一条加
- *
  * [相邻判定]两条数据归为同一段,当且仅当:
  *   ① 它们都被[同一条规则]命中
  *   ② 按 by 取出的[值串]相等(无 by 时恒等 )
  */
-interface CollapseRule {
+interface CollapseRule {  //折叠-Collapse
     /** 锚点1:事件类型(必填) */
     type: string;
     /**
@@ -272,23 +237,20 @@ export class DebugPanel {
     ) {
         // 监听设置变化 → 重新计算折叠并重推
         //   这样改 collapse(或 enabled)立即生效
-        //   (和 styleVars 同一套路;之前就是缺了这一步 )
         this.configSub = vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("pi-bridge.debug")) {
-                // 容量可配(B25):配置一变就同步
-                //   缩小时[立即裁掉]多余的部分 (setCapacity 里做了 )
-                //   0 / 关掉总开关 → 清空缓冲(“空空的”不再占内存 )
-                const cap = this.bufferCapacity();
+                // 更新缓冲区的大小
+                const cap = this.refleshBufferCfg();
                 if (!this.isEnabled()) {
                     this.buffer.clear();
                 } else {
-                    this.buffer.setCapacity(cap);
+                    this.buffer.capacity = cap;
                 }
                 this.replayHistory();
             }
         });
         // 启动时按配置初始化一次(默认 500 可能被配成 max / 其他 )
-        this.buffer.setCapacity(this.bufferCapacity());
+        this.buffer.capacity = this.refleshBufferCfg();
     }
 
     /** 配置监听(需外部 dispose;main.ts 会塞进 subscriptions ) */
@@ -313,7 +275,7 @@ export class DebugPanel {
         if (!this.isEnabled()) return; // 总开关:关掉就不再接收任何数据
 
         const ts = Date.now(); // 宿主侧记录时间(前端渲染时刻不准)
-        this.buffer.push({ ts, payload }); // 完整入库(永远不折叠详情 )
+        this.buffer.add({ ts, payload }); // 完整入库(永远不折叠详情 )
 
         if (!this.panel) return;
 
@@ -356,13 +318,13 @@ export class DebugPanel {
      *   "0"    → 0 (语义 = 关闭调试板 )
      *   非法值 → 回退 500
      */
-    private bufferCapacity(): number {
+    private refleshBufferCfg(): number {
         const v = vscode.workspace
             .getConfiguration("pi-bridge.debug")
             .get<string>("bufferSize", "500");
         const s = String(v ?? "").trim().toLowerCase();
-        if (s === "max" || s === "inf" || s === "infinity") return Number.POSITIVE_INFINITY;
-        if (s === "0" || s === "off") return 0;
+        if (s === "max") return Number.POSITIVE_INFINITY;
+        if (s === "0") return 0;
         const n = Number.parseInt(s, 10);
         return Number.isFinite(n) && n > 0 ? n : 500;
     }
@@ -379,7 +341,7 @@ export class DebugPanel {
             .getConfiguration("pi-bridge.debug")
             .get<boolean>("enabled", true);
         if (!enabled) return false;
-        return this.bufferCapacity() !== 0; // 0 = 关
+        return this.refleshBufferCfg() !== 0; // 0 = 关
     }
 
     /**
@@ -399,7 +361,7 @@ export class DebugPanel {
         const rules = this.readRules();
         this.resetFold(); // 重算折叠段
 
-        for (const entry of this.buffer.snapshot()) {
+        for (const entry of this.buffer.items) {
             const label = this.foldLabelOf(entry.payload, rules);
             if (label !== undefined) {
                 // 折叠:连续同标签合并成一段(与 log() 的实时行为一致 )
@@ -515,7 +477,7 @@ export class DebugPanel {
      */
     private async exportBuffer(): Promise<void> {
         // 解包成裸数据(导出格式保持简单:就是数据数组)
-        const items = this.buffer.snapshot().map((entry) => entry.payload);
+        const items = this.buffer.items.map((entry) => entry.payload);
         if (items.length === 0) {
             void vscode.window.showInformationMessage("调试板缓冲是空的,没有可导出的数据");
             return;
