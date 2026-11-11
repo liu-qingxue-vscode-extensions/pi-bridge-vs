@@ -41,7 +41,7 @@ export interface RpcLogger {
 
 /** 默认日志:控制台(测试环境用 ) */
 const consoleLogger: RpcLogger = {
-    debug: () => {},
+    debug: () => { },
     error: (msg) => console.error(msg),
 };
 

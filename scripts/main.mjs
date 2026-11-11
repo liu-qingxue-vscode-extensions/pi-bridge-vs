@@ -2,7 +2,7 @@
 // f5 编译
 import { execSync } from "node:child_process";
 
-// 把你那一长串任务拆成数组，加上人话描述
+// 注意!!!这里的顺序要讲究
 const tasks = [
     // ===== Extension =====
     { cmd: "tsc -p ./ --noEmit", desc: "TS 类型检查 (扩展端)" },
