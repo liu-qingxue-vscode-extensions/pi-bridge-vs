@@ -1,8 +1,16 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import fs from 'node:fs';
-import path from 'node:path';
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const currentFilePath = fileURLToPath(import.meta.url);
+// 因为 currentFilePath 包含文件名，算第一层，再往外退两层就是连套三次
+const rootDir = path.dirname(path.dirname(path.dirname(currentFilePath)));
+// console.log("退两层后的目录:", rootDir);
+
+const DEFAULT_TS_PATH = path.join(rootDir, "src", "types", "settings-type.ts");
 // ---------- 类型 ----------
 
 type PropertySchema = {
@@ -89,10 +97,14 @@ function parseValue(raw: string): unknown {
 }
 
 // ---------- 代码生成 ----------
-
-function toTsType(t: string | string[] | undefined): string {
+// 修改 toTsType, 让它能接收整个 schema
+function toTsType(schema: PropertySchema): string {
+    const t = schema.type;
     if (!t) return 'unknown';
-    if (Array.isArray(t)) return t.map(toTsType).join(' | ');
+    if (Array.isArray(t)) return t.map(type => {
+        if (type === 'array') return 'unknown[]';
+        return type;
+    }).join(' | ');
 
     const map: Record<string, string> = {
         string: 'string',
@@ -101,18 +113,28 @@ function toTsType(t: string | string[] | undefined): string {
         boolean: 'boolean',
         null: 'null',
         object: 'Record<string, unknown>',
-        array: 'unknown[]',
+        array: 'unknown[]', // 默认值
     };
+
+    // 💡 核心修复：如果是 array, 去查它的 items 是什么类型
+    if (t === 'array' && schema.items) {
+        const itemType = (schema.items as PropertySchema).type;
+        if (itemType) {
+            // 递归解析 items 的类型，比如 string -> string[]
+            return `${toTsType(schema.items as PropertySchema)}[]`;
+        }
+    }
+
     return map[t] ?? 'unknown';
 }
 
+// 修改 toValueType，把整个 schema 传进去
 function toValueType(schema: PropertySchema): string {
     if (schema.enum && Array.isArray(schema.enum) && schema.enum.length > 0) {
         return schema.enum.map((v) => JSON.stringify(v)).join(' | ');
     }
-    return toTsType(schema.type);
+    return toTsType(schema);
 }
-
 function toDefaultType(schema: PropertySchema): string {
     if (schema.default === undefined) return 'undefined';
     return JSON.stringify(schema.default);
@@ -295,7 +317,7 @@ program
 program
     .command('gen')
     .description('生成 TypeScript 类型定义')
-    .option('-o, --out <file>', '输出到文件（默认打印到 stdout）')
+    .option('-o, --out <file>', '输出到文件`DEFAULT_TS_PATH`(打印到 stdout)')
     .action((opts: { out?: string }) => {
         const { pkg } = loadPkg(program.opts().file);
         const code = generateTs(pkg);
@@ -306,7 +328,8 @@ program
             fs.writeFileSync(abs, code, 'utf8');
             console.log(`已写入 ${opts.out}`);
         } else {
-            process.stdout.write(code);
+            fs.writeFileSync(DEFAULT_TS_PATH, code, 'utf8');
+            console.log(`已写入 ${DEFAULT_TS_PATH}`);
         }
     });
 

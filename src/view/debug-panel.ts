@@ -6,14 +6,12 @@
  * 2. 命令/快捷键打开面板:把缓冲里的历史 + 之后的新数据都推给前端
  * 3. 面板关闭后继续收集(数据不丢),下次打开能看到最近的历史
  *
- * [为什么用独立 panel 而不是侧边栏视图?]
- * - 调试板是"按需弹出"的观察窗口,不该常驻占用侧边栏
- * - 关闭后零干扰,但缓冲继续工作(内存里就一个数组)
  */
 import * as vscode from "vscode";
 import path from "node:path";
 import os from "node:os";
 import { loadWebviewHtml } from "./html-loader.js";
+
 
 /** 环形缓冲:容量固定,满了丢最旧的 */
 class RingBuffer<T> {
@@ -59,12 +57,12 @@ function typeOf(payload: unknown): string {
 }
 
 /**
- * 折叠规则 - 把高频事件[按子字段分段计数并折叠]
+ * 折叠规则 - 把连续的高频事件折叠
  * [pi-bridge.debug.collapse]
+ * 路径本身表达嵌套,如{type:"xxx",a:{b:{}}},想要:
  * [三种写法](字符串形式[能在 VS Code 设置界面直接编辑])
- *   "turn_start"                                   → 整个 type 折一段
- *   "message_update:assistantMessageEvent.type"    → 按该字段的值分段(type : 字段路径)
- *   { type: "...", by: "..." }                         → 对象形式(程序生成时好用 )
+ *   turn_start"                                   → 整个 type 折一段
+ *   message_update:assistantMessageEvent.type="propmt"    → 按该字段的值分段(type : 字段路径)
  *
  * [相邻判定]两条数据归为同一段,当且仅当:
  *   ① 它们都被[同一条规则]命中
@@ -73,16 +71,17 @@ function typeOf(payload: unknown): string {
 interface CollapseRule {  //折叠-Collapse
     /** 锚点1:事件类型(必填) */
     type: string;
-    /**
-     * 锚点2-a:字段路径(点号,如 "assistantMessageEvent.type")
-     * 路径本身表达嵌套,不需要“数组套数组”
-     */
-    path?: string;
-    /**
-     * 锚点2-b:要求 path 的值[等于]它
-     * 只写 path 不写 value → 只要取得到值就算命中(范围更宽 )
-     */
-    value?: string;
+    child?:
+    {   /**
+        * 锚点2-a:字段路径(点号,如 "assistantMessageEvent.type")
+        */
+        childField?: string;
+        /**
+         * 锚点2-b:要求 path 的值[等于]它
+         * 只写 path 不写 value → 只要取得到值就算命中(范围更宽 )
+         */
+        value?: string;
+    }
 }
 
 /** 规则在设置里的原始形状(用户可能写错,要宽容处理 ) */
@@ -100,37 +99,26 @@ type RawRule = string | { type?: unknown; path?: unknown; value?: unknown; by?: 
  *
  * 解析不了就返回 undefined(跳过而不是报错 )
  */
-function parseRule(raw: RawRule): CollapseRule | undefined {
-    if (typeof raw === "string") {
-        const s = raw.trim();
-        if (!s) return undefined;
+function parseRule(raw: string): CollapseRule | undefined {
+    const s = raw.trim();
+    if (!s) return undefined;
 
-        // ① 切出 type(冒号前)
-        const colon = s.indexOf(":");
-        if (colon < 0) return { type: s };
-        const type = s.slice(0, colon).trim();
-        if (!type) return undefined;
-
-        // ② 切出 路径[=值](冒号后)
-        const rest = s.slice(colon + 1).trim();
-        if (!rest) return { type };
-        const eq = rest.indexOf("=");
-        if (eq < 0) return { type, path: rest };
-        const path = rest.slice(0, eq).trim();
-        const value = rest.slice(eq + 1).trim();
-        if (!path) return { type };
-        return value ? { type, path, value } : { type, path };
-    }
-
-    if (!raw || typeof raw !== "object") return undefined;
-    const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
-    const type = str(raw.type);
+    // ① 切出 type(冒号前)
+    const colon = s.indexOf(":");
+    if (colon < 0) return { type: s };
+    const type = s.slice(0, colon).trim();
     if (!type) return undefined;
-    // by 是过渡期别名(已改为更准的 path )
-    const path = str(raw.path) || str(raw.by);
+
+    // ② 切出 路径[=值](冒号后)
+    const rest = s.slice(colon + 1).trim();
+    if (!rest) return { type };
+    const eq = rest.indexOf("=");
+    if (eq < 0) return { type, childField: rest };
+    const path = rest.slice(0, eq).trim();
+    const value = rest.slice(eq + 1).trim();
     if (!path) return { type };
-    const value = str(raw.value);
-    return value ? { type, path, value } : { type, path };
+    return value ? { type, childField: path, value } : { type, childField: path };
+
 }
 
 /**
@@ -167,14 +155,14 @@ function labelOf(payload: unknown, rule: CollapseRule): string | undefined {
     if (typeOf(payload) !== rule.type) return undefined;
 
     // 只写了锚点1 → 整个 type 折一段(标签就是 type )
-    if (!rule.path) return rule.type;
+    if (!rule.childField) return rule.type;
 
-    const got = valueAtPath(payload, rule.path);
+    const got = valueAtPath(payload, rule.childField);
     if (got === undefined) return undefined;
     if (rule.value !== undefined && got !== rule.value) return undefined;
 
     // 标签用[字段末段]而不是全路径(短一点好读 )
-    const leaf = rule.path.split(".").pop() ?? rule.path;
+    const leaf = rule.childField.split(".").pop() ?? rule.childField;
     return `${rule.type} › ${leaf}=${got}`;
 }
 
@@ -404,7 +392,7 @@ export class DebugPanel {
             const rule = parseRule(item);
             if (!rule) continue;
             // 去重(完全相同的规则写两次没意义 )
-            const key = rule.type + "|" + (rule.path ?? "") + "=" + (rule.value ?? "");
+            const key = rule.type + "|" + (rule.childField ?? "") + "=" + (rule.value ?? "");
             if (seen.has(key)) continue;
             seen.add(key);
             out.push(rule);

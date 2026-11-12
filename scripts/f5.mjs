@@ -1,6 +1,26 @@
 // scripts/compile.mjs
 // f5 编译
 import { execSync } from "node:child_process";
+import path from "node:path";
+import os from "node:os";
+import { fileURLToPath } from "node:url";
+
+// ==========================================
+// 💡 终极环境变量补丁
+// ==========================================
+// 1. 绝对定位到项目根目录的 node_modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, ".."); // 假设脚本在 scripts/ 下
+const localBinPath = path.resolve(projectRoot, "node_modules", ".bin");
+
+// 2. 把 fnm 的 node 路径也加进来 (防止连 node 都找不到)
+const fnmPath = `${os.homedir()}/.local/share/fnm/node-versions/v24.1.0/installation/bin`;
+
+// 3. 拼接到 PATH 的最前面
+process.env.PATH = `${localBinPath}${path.delimiter}${fnmPath}${path.delimiter}${process.env.PATH}`;
+
+
 
 // 注意!!!这里的顺序要讲究
 const tasks = [

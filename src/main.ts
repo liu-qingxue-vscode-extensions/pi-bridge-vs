@@ -24,48 +24,34 @@
  * 本地日志走 LogOutputChannel(输出面板,VS Code 自动落盘);
  * 调试板只接收 pi 的真数据 - 两者不混,避免污染后端数据的类型空间.
  */
-import { createVirtualDocProvider } from "./view/virtual-docs.js";
+// 第三方
 import * as vscode from "vscode";
 import os from "node:os";
 import path from "node:path";
 import fs, { existsSync } from "node:fs";
-import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
-import { piPackageDir, piVersion } from "./pi/pi-env.js";
-import { PiClient } from "./pi/client.js";
+// view
+import { createVirtualDocProvider } from "./view/virtual-docs.js";
 import { DebugPanel } from "./view/debug-panel.js";
-//  B38:命令主体提取(宿主侧用 bash-parser 出 AST  不占前端包)
-import { extractCommands } from "./panels/cmd-summary.js";
 import { ChatView } from "./view/chat-view.js";
 import { SessionPanel } from "./view/session-panel.js";
 import { HistoryPanel } from "./view/history-panel.js";
 import { SettingsPanel } from "./view/settings-panel.js";
 import { InteractionPanel, type UiReq } from "./view/interaction-panel.js";
 import { SkillsPanel } from "./view/skills-panel.js";
-//  B32:自由按钮的配置页面(编辑器区独立面板 )
-import { CommandPanel } from "./view/command-panel.js";
-import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
-import { readSettings, resolveSessionRoot } from "./pi/settings.js";
-import { describeSelfCheck, runSelfCheck, type SelfCheck } from "./pi/pi-selfcheck.js";
-import type { WriteProposal } from "./bridge/proposal.js";
+import { CommandPanel } from "./view/command-panel.js";//  B32:自由按钮的配置页面(编辑器区独立面板 )
 import { ProposalComments } from "./view/proposal-comments.js";
 import { Walkthrough } from "./view/walkthrough.js";
-import {
-    currentPiPackageDir,
-    currentPiVersion,
-    resolvePiAgentDir,
-    resolvePiCliPath,
-} from "./pi/paths.js";
-import { checkPiVersion } from "./pi/version-check.js";
-import { toChatPatch } from "./bridge/format-backend.js";
-import { messagesToPatches, type ReplayMessage } from "./bridge/replay.js";
-import { readSessionFile } from "./bridge/session-file.js";
-import { SessionStore } from "./pi/session-store.js";
 import { ChatState } from "./view/chat-state.js";
-import { toErrorMessage } from "./utils.js";
-import { compactHome, expandHome } from "./util/paths.js";
+// pi
+import { PiClient } from "./pi/client.js";
+import { readSettings, resolveSessionRoot } from "./pi/settings.js";
+import { describeSelfCheck, runSelfCheck, type SelfCheck } from "./pi/pi-selfcheck.js";
+import { currentPiPackageDir, currentPiVersion, resolvePiAgentDir, resolvePiCliPath, } from "./pi/paths.js";
+import { checkPiVersion } from "./pi/version-check.js";
+import { SessionStore } from "./pi/session-store.js";
+// panel
+import { extractCommands } from "./panels/cmd-summary.js";  //  B38:命令主体提取(宿主侧用 bash-parser 出 AST  不占前端包)
 import { getEnabledModels, readModelCatalog, sortCatalog } from "./panels/model-catalog.js";
-import { readInstalledExtensions } from "./panels/extensions-scan.js";
-//  B32:自由按钮容器的数据层
 import {
     readCommands,
     writeCommands,
@@ -80,9 +66,8 @@ import {
     collectIcons,
     moveCommand,
     type CmdItem,
-} from "./panels/command-store.js";
+} from "./panels/command-store.js";   //  B32:自由按钮容器的数据层
 import { createSettingsPoster } from "./panels/settings-post.js";
-//  B36:面板的消息路由 + 动作(从 main.ts 搬出 )
 import { createCommandHost } from "./panels/command-host.js";
 import { createSessionActions } from "./panels/session-actions.js";
 import { createSessionHost } from "./panels/session-host.js";
@@ -92,6 +77,17 @@ import { createSettingsHost } from "./panels/settings-host.js";
 import { createSkillsActions } from "./panels/skills-actions.js";
 import { createSkillsHost } from "./panels/skills-host.js";
 import { readPiDefaults, shortIdOf } from "./panels/misc-utils.js";
+// bridge
+import { toRpcCommand, type FrontendMessage } from "./bridge/format-frontend.js";
+import type { WriteProposal } from "./bridge/proposal.js";
+import { toChatPatch } from "./bridge/format-backend.js";
+import { messagesToPatches, type ReplayMessage } from "./bridge/replay.js";
+import { readSessionFile } from "./bridge/session-file.js";
+// utile
+import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
+import { toErrorMessage } from "./utils.js";
+import { compactHome, expandHome } from "./util/paths.js";
+
 
 export function activate(context: vscode.ExtensionContext): void {
     // 0. 日志(LogOutputChannel:VS Code 自动落盘 + 分级 + 轮转)

@@ -3,7 +3,7 @@
 export interface SettingTypeMap {
   "pi-bridge.piCliPath": string;
   "pi-bridge.piAgentDir": string;
-  "pi-bridge.launchArgs": unknown[];
+  "pi-bridge.launchArgs": string[];
   "pi-bridge.notice.bufferSize": number;
   "pi-bridge.style.noticePanelHeight": number;
   "pi-bridge.style.noticeFontSize": number;
@@ -25,16 +25,16 @@ export interface SettingTypeMap {
   "pi-bridge.style.settingsFontSize": number;
   "pi-bridge.style.settingsPanelPadX": number;
   "pi-bridge.skills.clickAction": "insert" | "send";
-  "pi-bridge.skills.hidden": unknown[];
+  "pi-bridge.skills.hidden": string[];
   "pi-bridge.skills.closeAfterAction": boolean;
   "pi-bridge.sessions.scope": "all" | "current";
   "pi-bridge.sessions.closeAfterAction": boolean;
-  "pi-bridge.sessions.extraDirs": unknown[];
+  "pi-bridge.sessions.extraDirs": string[];
   "pi-bridge.debug.enabled": boolean;
-  "pi-bridge.debug.collapse": unknown[];
+  "pi-bridge.debug.collapse": string[];
   "pi-bridge.debug.bufferSize": string;
   "pi-bridge.style.bashBg": string;
-  "pi-bridge.style.toolFold": unknown[];
+  "pi-bridge.style.toolFold": string[];
   "pi-bridge.style.codeAutoFit": boolean;
   "pi-bridge.style.gapToolToText": number;
   "pi-bridge.style.gapToolToThinking": number;

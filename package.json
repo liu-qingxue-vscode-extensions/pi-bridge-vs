@@ -728,7 +728,7 @@
   },
   "activationEvents": [],
   "scripts": {
-    "compile": "node scripts/main.mjs",
+    "compile": "node scripts/f5.mjs",
     "watch": "tsc --watch -p ./",
     "vscode:prepublish": "npm run compile",
     "watch:webview": "node scripts/build-webview.mjs --watch",

@@ -16,13 +16,17 @@
       "type": "npm",
       "script": "compile",
       "problemMatcher": "$tsc",
+      "options": {
+        "env": {
+          "PATH": "${env:PATH}:/home/qingyuxue/.local/bin"
+        }
+      },
       "label": "npm: compile"
     },
     {
       "label": "prep-and-compile",
       "dependsOrder": "sequence",
       "dependsOn": [
-        "清理 pi-bridge 日志",
         "npm: compile"
       ],
       "problemMatcher": []
