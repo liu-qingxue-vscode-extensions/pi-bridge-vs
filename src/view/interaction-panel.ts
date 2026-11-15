@@ -23,7 +23,7 @@
  *   → 所以它有队列,有握手,有生命周期
  */
 import * as vscode from "vscode";
-import { loadWebviewHtml } from "./html-loader.js";
+import { loadWebviewHtml } from "../external-data/html-loader.js";
 
 export interface UiReq {
     id: string;
@@ -78,7 +78,7 @@ export class InteractionPanel {
         private readonly closeDelayMs: () => number,
         /** 面板关闭后 → 焦点回聊天输入框 */
         private readonly onClosed: () => void,
-    ) {}
+    ) { }
 
     hasPending(): boolean {
         return this.pending.length > 0;

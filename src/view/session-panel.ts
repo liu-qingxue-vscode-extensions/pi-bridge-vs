@@ -16,7 +16,7 @@
  *                exportSession / importSession / deleteSession
  */
 import * as vscode from "vscode";
-import { loadWebviewHtml } from "./html-loader.js";
+import { loadWebviewHtml } from "../external-data/html-loader.js";
 import { classNamesFromVars, readStyleVars, styleVarsToCss } from "./style-config.js";
 
 export class SessionPanel {
@@ -28,7 +28,7 @@ export class SessionPanel {
         private readonly extensionUri: vscode.Uri,
         /** 面板发来的消息(含 ready 宿主据此推列表 )*/
         private readonly onMessage: (kind: string, payload?: unknown) => void,
-    ) {}
+    ) { }
 
     /** 命令 / 侧栏按钮入口 */
     show(): void {

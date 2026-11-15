@@ -68,6 +68,8 @@ export interface SettingTypeMap {
   "pi-bridge.style.railWidth": number;
   "pi-bridge.interaction.autoClose": boolean;
   "pi-bridge.interaction.closeDelay": number;
+  "pi-bridge.proposal.autoReveal": "first" | "all" | "off";
+  "pi-bridge.proposal.revealNext": boolean;
 }
 
 /** 每个配置项默认值的字面量类型 */
@@ -139,13 +141,15 @@ export interface SettingDefaultMap {
   "pi-bridge.style.railWidth": 2;
   "pi-bridge.interaction.autoClose": true;
   "pi-bridge.interaction.closeDelay": 600;
+  "pi-bridge.proposal.autoReveal": "first";
+  "pi-bridge.proposal.revealNext": true;
 }
 
 export type SettingName = keyof SettingTypeMap;
 export type SettingValue<K extends SettingName> = SettingTypeMap[K];
 
 /** 运行时默认值 */
-export const settingDefaults: SettingDefaultMap = {
+export const settingDefaults: SettingTypeMap = {
   "pi-bridge.piCliPath": "",
   "pi-bridge.piAgentDir": "",
   "pi-bridge.launchArgs": [],
@@ -213,4 +217,6 @@ export const settingDefaults: SettingDefaultMap = {
   "pi-bridge.style.railWidth": 2,
   "pi-bridge.interaction.autoClose": true,
   "pi-bridge.interaction.closeDelay": 600,
+  "pi-bridge.proposal.autoReveal": "first",
+  "pi-bridge.proposal.revealNext": true,
 };

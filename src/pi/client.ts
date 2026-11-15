@@ -18,53 +18,17 @@
  */
 
 import { existsSync } from "node:fs";
-import type {
-    RpcCommand,
-    JsonAgentSessionEvent,
-    RpcExtensionUIResponse,
-    RpcResponse,
-} from "@earendil-works/pi-coding-agent";
 import { logDebug, logInfo, logError, logWarn } from "../logger.js";
-import type { PiLocalEvent } from "./rpc-client.js";
-
-/**
- * 事件订阅回调
- *
- * 与以前的区别:现在[回执也算事件]
- *   pi 的 stdout 里混着两类:
- *     · 事件(message_* / agent_* / ...)- pi 主动推的
- *     · 回执(response)- 我们主动发的命令的结果
- *   两条[都该进调试板](以前只广播事件 → 主动命令“看不到” )
- *   → 所以回调参数放宽为联合类型
- *
- * B37:再加一类 - PiLocalEvent(pi 侧的[非协议]消息 )
- *   ① stdout 里混入的非 JSON 行
- *   ② 进程退出 / 启动失败
- *   ⇒ 它们不是协议包 但“看不见”是不行的(调试板 = 防漏表 )
- */
-export type PiEventHandler = (
-    event: JsonAgentSessionEvent | RpcResponse | PiLocalEvent,
-) => void;
-
-/**
- * 解析 pi CLI(dist/cli.js)的绝对路径
- *
- * [实现已移到 paths.ts]那里同时处理了设置项覆盖(pi-bridge.piCliPath)+ 自动探测.
- * 这里 re-export 保持旧调用点可用.
- */
+import type {
+    PiAllEventHandler,
+    RpcExtensionUIResponse,
+    RpcCommand,
+    RpcResponse,
+} from "../types/pi-type.js";
+import type { PiStartError } from "../types/view-event-type.js";
 import { resolvePiCliPath } from "./paths.js";
 import { OwnRpcClient } from "./rpc-client.js";
 
-/**
- * B42:启动失败的原因(决定前端怎么提示)
- *   not-found     - 路径空 / 文件不存在 ⇒ 该弹"去设置"的通知
- *   startup-failed - 启动过程本身失败(崩溃 / 就绪探针超时...)
- */
-export interface PiStartError {
-    kind: "not-found" | "startup-failed";
-    cliPath: string;
-    message: string;
-}
 
 export class PiClient {
     /**
@@ -83,7 +47,7 @@ export class PiClient {
     private starting: Promise<void> | null = null;
 
     /** 我们自己维护的订阅者集合(官方 onEvent 的回调会转发到这里) */
-    private readonly handlers = new Set<PiEventHandler>();
+    private readonly handlers = new Set<PiAllEventHandler>();
 
     /** stderr 订阅者(记在这里:client 重建后要重挂 ) */
     private readonly stderrHandlers = new Set<(text: string) => void>();
@@ -172,12 +136,6 @@ export class PiClient {
         const client = new OwnRpcClient({
             cwd: this.cwd,
             cliPath: this.readCliPath(), // 现读(用户改设置立刻生效)
-            // 不再强加 --no-session (用户要求:要传就[手动传,有传参的地方 )
-            //
-            // [历史]之前加它是为了:
-            //   · 开发阶段不持久化 不污染 TUI 会话列表
-            //   但现在我们[要做真会话](列表 / 切换 / 改名 )
-            //   → 必须让 pi 正常写会话文件
             args: [...extraArgs],
             // 注入日志:传输层不依赖 vscode,日志由本层提供
             logger: { debug: logDebug, error: logError },
@@ -217,7 +175,7 @@ export class PiClient {
         //     而有守卫的地方全排除了 ⇒ 只能靠栈找到真凶(前端启动时拉斜杠命令 )
         logDebug(
             "[PiClient] 启动被触发,调用栈:" +
-                (new Error().stack?.split("\n").slice(2, 6).map((l) => l.trim()).join(" ← ") ?? "?"),
+            (new Error().stack?.split("\n").slice(2, 6).map((l) => l.trim()).join(" ← ") ?? "?"),
         );
 
         this.starting = this.doStart().finally(() => {
@@ -356,7 +314,7 @@ export class PiClient {
     }
 
     /** 订阅事件流,返回取消订阅函数 */
-    onEvent(handler: PiEventHandler): () => void {
+    onEvent(handler: PiAllEventHandler): () => void {
         this.handlers.add(handler);
         return () => this.handlers.delete(handler);
     }

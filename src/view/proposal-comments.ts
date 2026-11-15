@@ -16,6 +16,7 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
 import { logInfo } from "../logger.js";
+import { vsSettings } from "../external-data/vs-settings.js";
 import {
     buildDiff,
     locateInText,
@@ -48,6 +49,13 @@ export interface SettleResult {
     file: string;
     status: "accepted" | "rejected" | "auto-rejected";
     error?: string;
+    /**
+     * 用户在讨论栏里敲的话。
+     *
+     * 单个处理时不发消息(要等这一批全处理完),所以这些话没有即时出口,
+     * 必须在这里攒着,结算时一起交给 AI——否则"我为什么拒绝"这个信息就没了。
+     */
+    reply?: string;
 }
 
 export interface ApplyOutcome {
@@ -63,6 +71,8 @@ export class ProposalComments implements vscode.Disposable {
     private readonly status = new Map<string, ProposalStatus>();
     private readonly invalid = new Map<string, string>();
     private readonly discussion = new Map<string, Discussion>();
+    /** 用户在各提案讨论区敲的话。thread 一 dispose 就没了,所以先存这儿 */
+    private readonly replies = new Map<string, string>();
     private readonly highlight: vscode.TextEditorDecorationType;
     private readonly watchSub: vscode.Disposable;
     private revalidateTimer: NodeJS.Timeout | undefined;
@@ -145,12 +155,89 @@ export class ProposalComments implements vscode.Disposable {
 
         logInfo(
             `提案 ${p.proposalId} 挂在 ${p.file}:${anchorLine + 1}` +
-                `(${loc.ok ? `${loc.startLine}-${loc.endLine}` : `定位失败:${loc.error}`})` +
-                `,活跃 ${this.threads.size} 个`,
+            `(${loc.ok ? `${loc.startLine}-${loc.endLine}` : `定位失败:${loc.error}`})` +
+            `,活跃 ${this.threads.size} 个`,
         );
 
         this.repaintHighlights();
         this.onChange();
+
+        // 自动跳到提案位置,免得用户自己去翻文件(受 autoReveal 开关控制)
+        this.maybeAutoReveal(p.proposalId, uri, anchorLine);
+    }
+
+    private revealTimer: ReturnType<typeof setTimeout> | undefined;
+    private pendingReveal: { uri: vscode.Uri; line: number } | undefined;
+
+    /**
+     * 新提案到达时要不要自动跳。
+     *
+     * off   - 完全不跳，靠面板上的「定位」按钮手动跳
+     * first - 一批只跳第一个。判断依据是"除它之外还有没有别的待处理"，
+     *         所以第二批提案到达时仍然会跳
+     * all   - 每个都跳，靠 60ms 合并避免连续闪烁
+     */
+    private maybeAutoReveal(proposalId: string, uri: vscode.Uri, line: number): void {
+        const mode = vsSettings.get("pi-bridge.proposal.autoReveal");
+        if (mode === "off") return;
+        if (mode === "first") {
+            const pending = [...this.status.entries()].filter(([, st]) => st === "pending");
+            const isFirstOfBatch = pending.length <= 1 || pending[0][0] === proposalId;
+            if (!isFirstOfBatch) return;
+        }
+        this.scheduleReveal(uri, line);
+    }
+
+    /**
+     * 处理完一个之后跳到下一个待处理的。
+     *
+     * 和 autoReveal 独立：关掉自动跳转仍然可以开着它，
+     * 因为这是"接着看下一个"，不是"新提案打断你"。
+     */
+    private revealNextPending(): void {
+        if (!vsSettings.get("pi-bridge.proposal.revealNext")) return;
+        const next = [...this.status.entries()].find(([, st]) => st === "pending");
+        if (next) void this.reveal(next[0]);
+    }
+
+    /**
+     * 合并跳转。
+     *
+     * 一次提交多个提案时它们会连着到达,每个都跳一次会闪好几下,
+     * 而且最后停在哪个取决于到达顺序。用 60ms 的窗口合并,只跳最后那个。
+     */
+    private scheduleReveal(uri: vscode.Uri, line: number): void {
+        this.pendingReveal = { uri, line };
+        if (this.revealTimer) clearTimeout(this.revealTimer);
+        this.revealTimer = setTimeout(() => {
+            this.revealTimer = undefined;
+            const p = this.pendingReveal;
+            this.pendingReveal = undefined;
+            if (p) void this.revealNow(p.uri, p.line);
+        }, 60);
+    }
+
+    /** 手动跳到某个提案(面板上的"定位"按钮走这里,不受自动跳转开关影响) */
+    async reveal(proposalId: string): Promise<void> {
+        const p = this.data.get(proposalId);
+        if (!p) return;
+        const uri = vscode.Uri.file(path.resolve(this.root, p.file));
+        const loc = locateProposal(this.root, p);
+        const line = loc.ok ? Math.max(0, (loc.endLine ?? 1) - 1) : 0;
+        await this.revealNow(uri, line);
+    }
+
+    private async revealNow(uri: vscode.Uri, line: number): Promise<void> {
+        const target = new vscode.Range(line, 0, line, 0);
+        try {
+            const editor = await vscode.window.showTextDocument(uri, {
+                preview: false,
+                selection: target,
+            });
+            editor.revealRange(target, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+        } catch {
+            // 文件被删/目录被移走之类的,跳不过去不影响提案本身
+        }
     }
 
     /** AI 在讨论里回答了一句 */
@@ -230,6 +317,7 @@ export class ProposalComments implements vscode.Disposable {
         this.status.set(proposalId, "accepted");
         this.dismissThread(proposalId);
         this.onChange();
+        this.revealNextPending();
         return { ok: true };
     }
 
@@ -239,6 +327,7 @@ export class ProposalComments implements vscode.Disposable {
         this.status.set(proposalId, "rejected");
         this.dismissThread(proposalId);
         this.onChange();
+        this.revealNextPending();
     }
 
     /** 批量:把所有待处理的按接受/拒绝处理 */
@@ -269,6 +358,7 @@ export class ProposalComments implements vscode.Disposable {
                 file: p.file,
                 status: s === "accepted" ? "accepted" : s === "rejected" ? "rejected" : "auto-rejected",
                 error: this.invalid.get(id),
+                reply: this.replies.get(id),
             });
             this.close(id);
         }
@@ -282,6 +372,7 @@ export class ProposalComments implements vscode.Disposable {
         this.status.delete(proposalId);
         this.invalid.delete(proposalId);
         this.discussion.delete(proposalId);
+        this.replies.delete(proposalId);
         this.clearHighlight();
         this.repaintHighlights();
     }
@@ -292,11 +383,30 @@ export class ProposalComments implements vscode.Disposable {
      * 数据(data / status)保留,因为侧栏面板还要显示"已接受/已拒绝".
      */
     private dismissThread(proposalId: string): void {
+        this.harvestReply(proposalId);
         this.threads.get(proposalId)?.dispose();
         this.threads.delete(proposalId);
         this.discussion.delete(proposalId);
         this.clearHighlight();
         this.repaintHighlights();
+    }
+
+    /**
+     * 拓取用户在讨论区敲的话。
+     *
+     * thread.comments[0] 是我们画的内容,后面才是用户的回复。
+     * body 有两种形态(string / MarkdownString),两种都要处理。
+     */
+    private harvestReply(proposalId: string): void {
+        const thread = this.threads.get(proposalId);
+        if (!thread) return;
+        const parts: string[] = [];
+        for (const c of thread.comments.slice(1)) {
+            const text = typeof c.body === "string" ? c.body : c.body.value;
+            const trimmed = text.trim();
+            if (trimmed) parts.push(trimmed);
+        }
+        if (parts.length) this.replies.set(proposalId, parts.join("\n"));
     }
 
     private refreshThread(proposalId: string): void {
@@ -416,7 +526,7 @@ export class ProposalComments implements vscode.Disposable {
         } else {
             md.appendMarkdown(
                 `\n\n[$(check) 接受](command:pi-bridge.proposalAccept?${arg})` +
-                    `  ·  [$(close) 拒绝](command:pi-bridge.proposalReject?${arg})`,
+                `  ·  [$(close) 拒绝](command:pi-bridge.proposalReject?${arg})`,
             );
         }
         return md;

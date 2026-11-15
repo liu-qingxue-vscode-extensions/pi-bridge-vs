@@ -1,0 +1,13 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "types": [
+            "node"
+        ] // 💡 只加载 Node 的类型
+    },
+    "include": [
+        "**/*.ts"
+    ]
+}

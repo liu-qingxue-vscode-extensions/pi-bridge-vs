@@ -11,7 +11,7 @@
  *   ⇒ 所以没有输入框 / 没有发送 / 没有工具按钮(HTML 里根本没放 )
  */
 import * as vscode from "vscode";
-import { loadWebviewHtml } from "./html-loader.js";
+import { loadWebviewHtml } from "../external-data/html-loader.js";
 import { classNamesFromVars, readStyleVars, styleVarsToCss } from "./style-config.js";
 
 export class HistoryPanel {
@@ -22,7 +22,7 @@ export class HistoryPanel {
         private readonly extensionUri: vscode.Uri,
         /** 面板要数据时回调(前端发 ready )*/
         private readonly onMessage: (kind: string, payload?: unknown) => void,
-    ) {}
+    ) { }
 
     /**
      * 打开 / 显示某个会话的完整历史

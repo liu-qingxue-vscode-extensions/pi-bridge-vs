@@ -11,7 +11,7 @@
  *    所以两边都统一用 payload 包 跟聊天页那条路不一样 )
  */
 import * as vscode from "vscode";
-import { loadWebviewHtml } from "./html-loader.js";
+import { loadWebviewHtml } from "../external-data/html-loader.js";
 
 /** 面板里编辑的对象(形状跟 command-store 的 CmdItem 一致 )*/
 export type CommandDraft = Record<string, unknown>;
@@ -26,7 +26,7 @@ export class CommandPanel {
         private readonly extensionUri: vscode.Uri,
         /** 面板发回来的消息(commandSave / commandCancel )*/
         private readonly onMessage: (kind: string, payload?: unknown) => void,
-    ) {}
+    ) { }
 
     /**
      * 打开配置页面

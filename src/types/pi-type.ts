@@ -1,105 +1,69 @@
-// ⚠️ 自动生成，请勿手动修改
-// 生成时间: 2026/11/12 10:47:07
+import * as piout from "./pi-type-gen.js"
+import type { piPkgType } from "./pi-type-gen.js"
+export type {
+    RpcCommand,
+    RpcResponse,
+    RpcExtensionUIResponse,
+    JsonAgentSessionEvent,
+} from "@earendil-works/pi-coding-agent";
+import type {
+    RpcCommand,
+    RpcResponse,
+    RpcExtensionUIResponse,
+    JsonAgentSessionEvent,
+} from "@earendil-works/pi-coding-agent";
 
-// =========================================
-// 1. RpcResponse 相关
-// =========================================
+/**
+ * B37:pi 侧[非协议输出](用户定的:调试板“防漏表”需要消费)
+ *   调试板原来只看得到“协议包”而 pi 还会发两种[不发包]的东西:
+ *     ① stdout 里混入的非 JSON 行
+ *     ② 进程退出 / 启动失败
+ *   ⇒ 它们也得往调试板发一份
+ *
+ * 单独用一个类型名(`pi_` 前缀 )在调试板里一眼能区分: pi/这是我们解析出来的协议
+ * 它们[不是协议包]所以 toChatPatch 会返回 undefined 不会污染渲染
+ */
 
-/** RpcResponse 的 type 字段字面量 (通常只有 "response") */
-export const RPC_RESPONSE_TYPES = [
-  "response",
-] as const;
-export type RpcResponseType = typeof RPC_RESPONSE_TYPES[number];
+/**
+ * 来自 pi 进程 stderr 的一行(诊断信息 / 错误)
+ *
+ * 它不是 pi 的 RPC 协议消息,而是我们从进程的第三通道(stderr)捕获的.
+ * 纳入类型空间的原因:它是 pi 对我们的输出,必须能被前端展示(不得被"捂着").
+ */
+export type PiStderrLine = { type: "stderr"; text: string };
 
-/** RpcResponse 的 command 字段字面量 (具体业务分发) */
-export const RPC_COMMANDS = [
-  "abort",
-  "abort_bash",
-  "abort_retry",
-  "bash",
-  "clear_queue",
-  "clone",
-  "compact",
-  "cycle_model",
-  "cycle_thinking_level",
-  "export_html",
-  "follow_up",
-  "fork",
-  "get_available_models",
-  "get_available_thinking_levels",
-  "get_commands",
-  "get_entries",
-  "get_fork_messages",
-  "get_last_assistant_text",
-  "get_messages",
-  "get_session_stats",
-  "get_state",
-  "get_tree",
-  "new_session",
-  "prompt",
-  "set_auto_compaction",
-  "set_auto_retry",
-  "set_follow_up_mode",
-  "set_model",
-  "set_session_name",
-  "set_steering_mode",
-  "set_thinking_level",
-  "steer",
-  "switch_session",
-] as const;
-export type RpcCommandType = typeof RPC_COMMANDS[number];
+export type PiLocalEvent = {
+    /** 坏的pi std 输出行*/
+    type: "pi_stdout_raw";
+    text: string;
+} | {
+    /** Pi退出了 */
+    type: "pi_exit";
+    code: number | null;
+    signal: string | null
+} | {
+    type: "pi_spawn_error";
+    text: string
+} | PiStderrLine;
+const otherType = ["pi_stdout_raw", "pi_exit", "pi_spawn_error", "stderr"] as const;
 
-// =========================================
-// 2. JsonAgentSessionEvent 相关
-// =========================================
 
-/** JsonAgentSessionEvent 的 type 字段字面量数组 */
-export const JSON_AGENT_SESSION_EVENT_TYPES = [
-  "agent_end",
-  "agent_settled",
-  "agent_start",
-  "auto_retry_end",
-  "auto_retry_start",
-  "bash_execution_update",
-  "compaction_end",
-  "compaction_start",
-  "entry_appended",
-  "message_end",
-  "message_start",
-  "message_update",
-  "queue_update",
-  "session_info_changed",
-  "summarization_retry_attempt_start",
-  "summarization_retry_finished",
-  "summarization_retry_scheduled",
-  "thinking_level_changed",
-  "tool_execution_end",
-  "tool_execution_start",
-  "tool_execution_update",
-  "turn_end",
-  "turn_start",
-] as const;
-export type JsonAgentSessionEventType = typeof JSON_AGENT_SESSION_EVENT_TYPES[number];
+/**pi的事件类型 */
+export type PiAllEvent = RpcResponse | JsonAgentSessionEvent | PiLocalEvent;
+export type PiAllEventHandler = (event: PiAllEvent,) => void;
+export type stdOutEvent = RpcResponse | JsonAgentSessionEvent;
 
-// =========================================
-// 3. 联合与校验
-// =========================================
+/** pi的事件的type的联合类型 */
+type OtherType = "pi_stdout_raw" | "pi_exit" | "pi_spawn_error" | "stderr";
+export type PiAllType = OtherType | piPkgType;
 
-/** 两者联合的 Type */
-export type piPkgType = RpcResponseType | JsonAgentSessionEventType;
 
-/** 两者联合的字符串数组 (用于运行时判断) */
-export const PI_RESPONSE_TYPES = [
-  ...RPC_RESPONSE_TYPES,
-  ...JSON_AGENT_SESSION_EVENT_TYPES,
-] as const;
-
-/** 运行时校验：判断任意字符串是否属于 piResponseType */
-export function isPiResponseType(s: string): s is piPkgType {
-  return (PI_RESPONSE_TYPES as readonly string[]).includes(s);
-}
-
-/** 运行时校验：判断是否为合法的 RpcCommand */
-export function isRpcCommand(s: string): s is RpcCommandType {
-  return (RPC_COMMANDS as readonly string[]).includes(s);
+/** pi的事件的type的数组值 */
+export const PI_ALL_TYPES = [
+    ...piout.PI_RESPONSE_TYPES,
+    ...otherType
+] as const
+/** 运行时校验:判断type字符是否合法 */
+export function isPiType(s: string): s is PiAllType {
+    return (PI_ALL_TYPES as readonly string[]).includes(s);
 }

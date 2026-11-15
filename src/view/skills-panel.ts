@@ -11,7 +11,7 @@
  *        - 它就是个"看得久一点的窗口"打开了就一直开着
  */
 import * as vscode from "vscode";
-import { loadWebviewHtml } from "./html-loader.js";
+import { loadWebviewHtml } from "../external-data/html-loader.js";
 
 export class SkillsPanel {
     private panel: vscode.WebviewPanel | undefined;
@@ -22,7 +22,7 @@ export class SkillsPanel {
         private readonly extensionUri: vscode.Uri,
         /** 面板需要数据时问宿主 (skills / skillDetail )*/
         private readonly onMessage: (kind: string, payload?: unknown) => void,
-    ) {}
+    ) { }
 
     /** 命令 / 侧栏按钮入口 */
     show(): void {

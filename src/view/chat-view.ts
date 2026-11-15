@@ -11,7 +11,7 @@
 import { logInfo } from "../logger.js";
 import { openToolInEditor } from "../panels/editor-open.js";
 import * as vscode from "vscode";
-import { loadWebviewHtml } from "./html-loader.js";
+import { loadWebviewHtml } from "../external-data/html-loader.js";
 import { readStyleVars, styleVarsToCss, classNamesFromVars, onStyleChange } from "./style-config.js";
 import { getModelContextWindowsObject } from "../pi/model-limits.js";
 import { getCurrentTheme } from "../pi/theme-loader.js";
@@ -96,7 +96,7 @@ export class ChatView implements vscode.WebviewViewProvider {
             const roots = webviewView.webview.options.localResourceRoots ?? [];
             logDebug(
                 `webview 白名单(${roots.length} 个):\n` +
-                    roots.map((u) => `  · ${u.fsPath}`).join("\n"),
+                roots.map((u) => `  · ${u.fsPath}`).join("\n"),
             );
             logDebug(`globalStorage 应该是:${this.globalStorageUri.fsPath}`);
             logDebug(`webview.cspSource = ${webviewView.webview.cspSource}`);

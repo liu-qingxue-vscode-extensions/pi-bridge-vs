@@ -23,22 +23,19 @@ import type {
     RpcCommand,
     RpcResponse,
     RpcExtensionUIResponse,
-    JsonAgentSessionEvent,
-} from "@earendil-works/pi-coding-agent";
+    PiLocalEvent,
+    stdOutEvent
+} from "../types/pi-type.js";
+export type { PiLocalEvent } from "../types/pi-type.js";
 
 /**
- * 日志回调(不直接依赖 logger.ts - 那个依赖 vscode )
- *
- * [为什么?]
- *   本文件是[纯传输层]:只用 node 的内建模块
- *   → 可以不启动 VS Code 就单独跑(scripts/smoke-own-rpc.mjs )
  *   日志由上层注入(PiClient 传 logger 的方法 )
+ *   → 可以不启动 VS Code 就单独跑(scripts/smoke-own-rpc.mjs )
  */
 export interface RpcLogger {
     debug(msg: string): void;
     error(msg: string): void;
 }
-
 /** 默认日志:控制台(测试环境用 ) */
 const consoleLogger: RpcLogger = {
     debug: () => { },
@@ -47,36 +44,8 @@ const consoleLogger: RpcLogger = {
 
 /** 等待回执的超时(与官方一致:30s ) */
 const REQUEST_TIMEOUT_MS = 30_000;
-
 /** 停止时的宽限:先 SIGTERM,这么久还没退再 SIGKILL */
 const KILL_GRACE_MS = 1_000;
-
-/** pi 从 stdout 发给我们的东西:回执 或 事件 */
-type Incoming = RpcResponse | JsonAgentSessionEvent;
-
-/**
- * B37:pi 侧[非协议输出](用户定的:调试板是“防漏表”)
- *
- * [为什么需要它?]
- *   调试板原来只看得到“协议包”而 pi 还会发两种[不发包]的东西:
- *     ① stdout 里混入的非 JSON 行
- *        (原来 catch 一句 `log.debug("忽略非 JSON 行")` 调试板看不见 )
- *     ② 进程退出 / 启动失败
- *        (原来只变成 exitError 同样看不见 )
- *   ⇒ 用户:“它就是进度表和防漏表 有字段没消费 我随时都能看”
- *   ⇒ 所以“看不见”是不行的 它们也得往调试板发一份
- *
- * 单独用一个类型名(`pi_` 前缀 )在调试板里一眼能区分:
- *   “这是 pi 说的话”还是“这是我们解析出来的协议包”
- * 它们[不是协议包]所以 toChatPatch 会返回 undefined 不会污染渲染
- */
-export interface PiLocalEvent {
-    type: "pi_stdout_raw" | "pi_exit" | "pi_spawn_error";
-    /** 原文(raw / spawn_error 用 )*/
-    text?: string;
-    code?: number | null;
-    signal?: string | null;
-}
 
 interface PendingRequest {
     resolve: (response: RpcResponse) => void;
@@ -97,10 +66,6 @@ export interface OwnRpcClientOptions {
 }
 
 export class OwnRpcClient {
-    /**
-     * 子进程 - private 但[本文件内自己用]
-     *   (对外不暴露;外部需要的能力都通过下面三个出口给 )
-     */
     private proc: ChildProcess | null = null;
 
     /** 等待回执的请求表:id → { resolve, reject } */
@@ -125,7 +90,7 @@ export class OwnRpcClient {
      *     为什么?调试板需要看到它
      *     (之前只给 pending → 主动命令在调试板上“消失”了 )
      */
-    private readonly eventHandlers = new Set<(e: Incoming) => void>();
+    private readonly eventHandlers = new Set<(e: stdOutEvent) => void>();
 
     /** stderr 订阅者 */
     private readonly stderrHandlers = new Set<(text: string) => void>();
@@ -289,7 +254,7 @@ export class OwnRpcClient {
     }
 
     /** 订阅事件 / 回执流(含主动命令的回执 ) */
-    onEvent(handler: (event: Incoming) => void): () => void {
+    onEvent(handler: (event: stdOutEvent) => void): () => void {
         this.eventHandlers.add(handler);
         return () => {
             this.eventHandlers.delete(handler);
@@ -331,9 +296,9 @@ export class OwnRpcClient {
 
     /** 处理一行:回执 → 匹配 pending;其余 → 当事件分发 */
     private handleLine(line: string): void {
-        let data: Incoming;
+        let data: stdOutEvent;
         try {
-            data = JSON.parse(line) as Incoming;
+            data = JSON.parse(line) as stdOutEvent;
         } catch {
             // 不是 JSON 的行(pi 偶尔会混入非协议输出)→ 不当错误
             // B37:但[不能静默丢掉]它也是 pi 发的东西

@@ -14,7 +14,7 @@
  *   差别:它要注入 styleVars 而且字号等样式靠 CSS 变量
  */
 import * as vscode from "vscode";
-import { loadWebviewHtml } from "./html-loader.js";
+import { loadWebviewHtml } from "../external-data/html-loader.js";
 import { classNamesFromVars, readStyleVars, styleVarsToCss } from "./style-config.js";
 
 export class SettingsPanel {
@@ -26,7 +26,7 @@ export class SettingsPanel {
         private readonly extensionUri: vscode.Uri,
         /** 面板发来的消息(含 ready 宿主据此推数据 )*/
         private readonly onMessage: (kind: string, payload?: unknown) => void,
-    ) {}
+    ) { }
 
     /** ⚙ 按钮 / 命令入口 */
     show(): void {

@@ -31,7 +31,7 @@ import path from "node:path";
 import fs, { existsSync } from "node:fs";
 // view
 import { createVirtualDocProvider } from "./view/virtual-docs.js";
-import { DebugPanel } from "./view/debug-panel.js";
+import { DebugPanel } from "./view/debug/index.js";
 import { ChatView } from "./view/chat-view.js";
 import { SessionPanel } from "./view/session-panel.js";
 import { HistoryPanel } from "./view/history-panel.js";
@@ -1161,7 +1161,8 @@ export function activate(context: vscode.ExtensionContext): void {
                     : r.status === "rejected"
                         ? "已拒绝,未写入"
                         : "未处理,已自动拒绝";
-            return `- ${r.proposalId}(${r.file}):${why}`;
+            const note = r.reply ? `\n  用户补充:${r.reply}` : "";
+            return `- ${r.proposalId}(${r.file}):${why}${note}`;
         });
         logInfo(`结算 ${left.length} 个提案`);
         return `\n\n[本轮提案结算]\n${lines.join("\n")}`;
@@ -1215,6 +1216,9 @@ export function activate(context: vscode.ExtensionContext): void {
                 break;
             case "rejectAll":
                 proposalComments.rejectAllPending();
+                break;
+            case "reveal":
+                if (msg.proposalId) void proposalComments.reveal(msg.proposalId);
                 break;
             case "setAutoContinue":
                 autoContinue = msg.value === true;

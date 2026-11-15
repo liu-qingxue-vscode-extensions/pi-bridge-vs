@@ -8,7 +8,7 @@ import ts from 'typescript';
 const currentFilePath = fileURLToPath(import.meta.url);
 const rootDir = path.dirname(path.dirname(path.dirname(currentFilePath)));
 
-const DEFAULT_TS_PATH = path.join(rootDir, "src", "types", "pi-type.ts");
+const DEFAULT_TS_PATH = path.join(rootDir, "src", "types", "pi-type-gen.ts");
 
 const pitypesrc = [
     "node_modules/@earendil-works/pi-coding-agent/dist/modes/rpc/rpc-types.d.ts",

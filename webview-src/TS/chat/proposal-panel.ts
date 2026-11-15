@@ -118,6 +118,20 @@ export function renderProposalList(payload: ProposalListPayload): void {
 
         row.append(loc, st);
 
+        // 定位:不管什么状态都能点。自动跳转关掉之后,这就是唯一的路
+        const go = document.createElement("button");
+        go.textContent = "定位";
+        go.className = "pp-mini";
+        go.title = "在编辑器里打开这个提案的位置";
+        go.addEventListener("click", () =>
+            vscode.postMessage({
+                kind: "proposalAction",
+                action: "reveal",
+                proposalId: it.proposalId,
+            }),
+        );
+        row.append(go);
+
         if (it.status === "pending") {
             const ok = document.createElement("button");
             ok.textContent = "接受";

@@ -173,7 +173,7 @@ export type SettingName = keyof SettingTypeMap;
 export type SettingValue<K extends SettingName> = SettingTypeMap[K];
 
 /** 运行时默认值 */
-export const settingDefaults: SettingDefaultMap = {
+export const settingDefaults: SettingTypeMap = {
 ${defaultValueEntries}
 };
 `;
