@@ -13,6 +13,10 @@ export class RingBuffer<T> {
         }
     }
 
+    get capacity(): number {
+        return this.bufferCapacity;
+    }
+
     /** 清空缓冲区*/
     clear(): void {
         this._items = [];

@@ -21,7 +21,7 @@
 import * as vscode from "vscode";
 import { settingDefaults } from "../types/settings-type.js";
 import type { SettingName, SettingTypeMap, SettingValue } from "../types/settings-type.js";
-import { logWarn } from "../logger.js";
+import { logWarn, logInfo } from "../logger.js";
 import { schema } from "../util/simple-schema.js";
 
 const SECTION = "pi-bridge";
@@ -38,29 +38,29 @@ class VSSettingsManager {
     private rawConfig = vscode.workspace.getConfiguration(SECTION);
 
     /** 一对一 */
-    private watchs = new Map<SettingName, (sv: unknown) => void>()
+    private watchs = new Map<SettingName, () => void>()
     /** 多个键 对 一个函数 */
-    private watchsBatch = new Map<SettingName[], (sv: unknown[]) => void>()
-    private watchsBatchL: Set<SettingName> = new Set<SettingName>()
+    private watchsSome = new Map<SettingName[], () => void>()
+    private watchsSomeL: Set<SettingName> = new Set<SettingName>()
 
     constructor() {
         this.refresh()
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (!e.affectsConfiguration(SECTION)) return;
+            logInfo("[vs-setting]Pi的设置变化")
+            logInfo(`[vs-setting]当前为${JSON.stringify([...this.watchs.keys()])}和${JSON.stringify([...this.watchsSome.keys()])}`)
             this.refresh()
             for (const [sn, h] of this.watchs) {
                 if (!e.affectsConfiguration(sn)) continue;
-                const sv = this.snapshot.get(sn)
-                h(sv)
+                logInfo(`[vs-setting]回调发生在${sn}`)
+                h()
             }
-            for (const [sns, h] of this.watchsBatch) {
-                let values = []
+            for (const [sns, h] of this.watchsSome) {
                 let changeOne = false
                 for (const sn of sns) {
                     if (e.affectsConfiguration(sn) && changeOne === false) changeOne = true;
-                    values.push(this.snapshot.get(sn))
                 }
-                if (changeOne) h(values)
+                if (changeOne) h(); logInfo(`[vs-setting]回调发生在${sns}`)
             }
         })
     }
@@ -95,14 +95,15 @@ class VSSettingsManager {
         const v = this.snapshot.get(key);
         return (v) as SettingTypeMap[K];
     }
-    /** 为一个单独的设置项部单独，注册一个监听函数。*/
-    onOneSettingChange(sn: SettingName, handler: (sv: unknown) => void): () => void {
-        if (this.watchsBatchL.has(sn)) {
+    /** 为一个单独的设置变化单独，注册一个监听函数。*/
+    onSC(sn: SettingName, handler: () => void): () => void {
+        if (this.watchsSomeL.has(sn)) {
             throw new Error("在注册 VS Code 设置改变的监听里面，传入的监听对象重复");
         }
         if (this.watchs.has(sn)) {
             throw new Error(".在注册 VS Code 设置改变的监听里面,一对一重复监听!");
         }
+        logInfo(`[vs-setting]回调注册了${sn}`)
         this.watchs.set(sn, handler);
         return () => {
             const set = this.watchs.get(sn);
@@ -114,14 +115,14 @@ class VSSettingsManager {
     /** 为每一个设置项部单独，注册一个监听函数。
      *  输入的sns的顺序和handler的传参顺序一致
     */
-    onSettingChange(sns: SettingName[], handler: ((sv: unknown) => void)[]): [(() => void)[], () => void] {
+    onSCBatch(sns: SettingName[], handler: (() => void)[]): [(() => void)[], () => void] {
         if (sns.length !== handler.length) {
             throw new Error("在批量注册 VS Code 设置改变的监听里面，传入的监听对象数和函数数目不匹配");
         }
 
         let r = []
         for (let i = 0; i < sns.length; i++) {
-            r.push(this.onOneSettingChange(sns[i], handler[i]))
+            r.push(this.onSC(sns[i], handler[i]))
         }
         return [r, () => {
             for (const lr of r) {
@@ -131,22 +132,24 @@ class VSSettingsManager {
     }
 
     /** 为多个设置项目，只注册一个回调函数 */
-    onSettingChangeBatch(sns: SettingName[], handler: (sv: unknown[]) => void): () => void {
+    onSomeSC(sns: SettingName[], handler: () => void): () => void {
         for (const sn of sns) {
-            if (this.watchs.get(sn) || this.watchsBatchL.has(sn)) {
+            if (this.watchs.get(sn) || this.watchsSomeL.has(sn)) {
                 throw new Error("在注册 VS Code 设置改变的监听里面，传入的监听对象重复");
             }
         }
         for (const sn of sns) {
-            this.watchsBatchL.add(sn)
+            this.watchsSomeL.add(sn)
         }
-        this.watchsBatch.set(sns, handler)
+        logInfo(`[vs-setting]回调注册了${sns}`)
+        this.watchsSome.set(sns, handler)
+        logInfo(`[vs-setting]当前为${JSON.stringify([...this.watchs.keys()])}和${JSON.stringify([...this.watchsSome.keys()])}`)
         return () => {
-            if (!this.watchsBatch.delete(sns)) {
+            if (!this.watchsSome.delete(sns)) {
                 throw new Error("在注册 VS Code 设置改变的监听里面，还未监听就尝试释放对应句柄");
             };
             for (const s of sns) {
-                this.watchsBatchL.delete(s)
+                this.watchsSomeL.delete(s)
             }
         }
     }

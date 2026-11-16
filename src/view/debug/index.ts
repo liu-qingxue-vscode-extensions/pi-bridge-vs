@@ -15,9 +15,9 @@ import { RingBuffer } from "../../util/ring-buffer.js";
 import { vsSettings } from "../../external-data/vs-settings.js";
 import { loadWebviewHtml } from "../../external-data/html-loader.js";
 import { formatStamp } from "../../util/format-stamp.js";
-import { CollapseRuleType, rule } from "./rule.js";
-import { PiAllEvent, PiAllEventHandler } from "../../types/pi-type.js";
-import { SettingName } from "../../types/settings-type.js";
+import { CollapseRule } from "./rule.js";
+import { PiAllEvent } from "../../types/pi-type.js";
+// import { logInfo } from "../../logger.js";
 
 /**
  * 缓冲条目 = 数据 + [宿主记录的]时间戳
@@ -25,18 +25,15 @@ import { SettingName } from "../../types/settings-type.js";
  * 时间戳必须在宿主侧记录:前端渲染时刻 ≠ 事件发生时刻
  * (尤其是打开面板刷历史时,所有旧数据都会被打上“现在”的时间)
  */
-interface debugItem {
+interface DebugItem {
     ts: number;
     payload: PiAllEvent;
 }
+let rule: CollapseRule;
 
 export class DebugPanel {
-    /** 面板实例(undefined = 当前没打开) */
-    private panel: vscode.WebviewPanel | undefined;
-
-    /** 配置监听 */
+    // ========== 监听句柄 ==========
     private configSub: () => void | undefined;
-
     dispose(): void {
         this.configSub();
     }
@@ -49,151 +46,111 @@ export class DebugPanel {
         private readonly extensionUri: vscode.Uri,
         private readonly context: vscode.ExtensionContext,
     ) {
-        const myConfig: SettingName[] = ["pi-bridge.debug.enabled", "pi-bridge.debug.bufferSize"]
-        this.configSub = vsSettings.onSettingChangeBatch(
-            myConfig,
-            () => {
-                // 更新缓冲区的大小
-                const cap = this.refleshBufferCfg();
-                if (!this.isEnabled()) {
-                    this.buffer.clear();
-                } else {
-                    this.buffer.capacity = cap;
-                }
-                this.replayHistory();
-            },
+        rule = new CollapseRule()
+        // 更新缓存区大小
+        this.refreshBufferSize();
+        // logInfo(`[debug]正在注册回调函数`)
+        this.configSub = vsSettings.onSomeSC(
+            ["pi-bridge.debug.bufferSize", "pi-bridge.debug.enabled"], () => { this.refreshBufferSize() }
         );
-        // 启动时按配置初始化一次(默认 500 可能被配成 max / 其他 )
-        this.buffer.capacity = this.refleshBufferCfg();
     }
-
-    /** 后台缓冲:真实数据仓库 */
-    private readonly buffer = new RingBuffer<debugItem>(500);
-
+    // ========== 配置更新 ==========
     /**
-     * 记录一条数据(由 main.ts 的数据流调用)
-     * 
-     * 数据入缓存;忽略列表只影响前端显示
-     * 改忽略单[立即生效](重放时重新计算折叠)
-     *
-     * [总开关 pi-bridge.debug.enabled]
-     * 关掉后[直接不接数据](缓冲不涨,不推前端)→ 开发结束省内存
+     *   正整数 → 那个值
+     *   "max"  → Infinity (不限制)
+     *   缓冲区长度设定为零的时候，则判定为开关。无论是数值为零，还是开关打开，都通过这开关就由这个零来实现。
      */
-    log(payload: PiAllEvent): void {
-        if (!vsSettings.get("pi-bridge.debug.enabled")) return; // 总开关:关掉就不再接收任何数据
+    private refreshBufferSize(): void {
+        // logInfo(`[debug]回调成功!!原本${this.buffer.capacity}`)
+        // 开关
+        if (!vsSettings.get("pi-bridge.debug.enabled")) {
+            this.buffer.capacity = 0
+            // logInfo(`[debug]BUG板子已关闭${this.buffer.capacity}`)
+        } else {
+            const raw = vsSettings.get("pi-bridge.debug.bufferSize");
+            let s = 0
+            if (raw === "max") {
+                s = Number.POSITIVE_INFINITY;
+            } else {
+                s = Number.parseInt(raw, 10);
+            };
+            // logInfo(`[debug]pi-bridge.debug.bufferSize 的值拿到为${s},类型为${typeof s}`)
+            this.buffer.capacity = s
+            // logInfo(`[debug]当前 Debug 运行缓冲长度${this.buffer.capacity}`)}
+        }
+        // logInfo(`[debug]回调成功!!现在${this.buffer.capacity}`)
+        this.replayHistory()
+    }
+    /** 后台缓冲:真实数据仓库 */
+    private readonly buffer = new RingBuffer<DebugItem>(500);
 
+    /** 记录一条数据(由 main.ts 的数据流调用) */
+    log(payload: PiAllEvent): void {
         const time = Date.now(); // 宿主侧记录时间(前端渲染时刻不准)
         this.buffer.add({ ts: time, payload }); // 完整入库(无关折叠 )
 
-        if (!this.panel) return;
+        // logInfo(`[debug]log收到${JSON.stringify(payload)}`)
+        // logInfo(`[debug]buf最后一个是${JSON.stringify(this.buffer.items.at(-1))}`)
+        // logInfo(`[debug]buf第一个是${JSON.stringify(this.buffer.items[0])}`)
+        // logInfo(`[debug]log,当前buffer有${this.buffer.items.length}个数据`)
 
-        // 出口折叠:命中规则 → 只发“标签 × 条数”(同一个折叠段原地累加 )
-        const label = rule.check(payload);
-        if (label !== undefined) {
-            if (this.foldType === label) {
-                this.foldCount++;
-                this.panel.webview.postMessage({
-                    kind: "debug-fold", label, count: this.foldCount, ts: this.foldTs,
-                });
-            } else {
-                this.resetFold(label, time);
-                this.panel.webview.postMessage({ kind: "debug-fold", label, count: 1, ts: time });
-            }
-        }
-
-        this.resetFold(); // 普通数据到达 → 折叠段结束
-        this.panel.webview.postMessage({ kind: "debug", payload, ts: time });
+        if (!this.panel) {
+            // logInfo(`[debug]未打开${payload}`)
+            return
+        };
+        const m = this.buffer.items.at(-1)
+        if (!m) return
+        this.rulePost(m)
     }
 
-    /** 当前折叠段(出口折叠用;与缓冲无关 ) */
+    // ==========  折叠工具函数  =========
     private foldType = "";
     private foldTs = 0;
     private foldCount = 0;
 
-    /** 重置折叠段(label 为空 = 关闭当前段) */
+    /** 连续折叠检验标准状态 */
     private resetFold(label = "", ts = 0): void {
         this.foldType = label;
         this.foldCount = label ? 1 : 0;
         this.foldTs = ts;
     }
 
-    /**
-     * 读取缓冲容量配置(B25)
-     *   正整数 → 那个值
-     *   "max"  → Infinity (不限制)
-     *   "0"    → 0 (语义 = 关闭调试板 )
-     *   非法值 → 回退 500
-     */
-    private refleshBufferCfg(): number {
-        const raw = vsSettings.get("pi-bridge.debug.bufferSize");
-        if (raw === "max") return Number.POSITIVE_INFINITY;
-        if (raw === "0") return 0;
-        const n = Number.parseInt(raw, 10);
-        return Number.isFinite(n) && n > 0 ? n : 500;
-    }
-
-    /**
-     * 调试板总开关(默认开)- 关掉 = 不接收任何数据
-     *
-     * B25:缓冲配成 "0" 也是关 (用户:“零的话板子也已经关了,
-     *   板子关掉比较干净一点”)
-     *   → 这样只有一个“关闭”语义 不会出现“收到又扔掉”的怪状态
-     */
-    private isEnabled(): boolean {
-        if (!vsSettings.get("pi-bridge.debug.enabled")) return false;
-        return this.refleshBufferCfg() !== 0; // 0 = 关
-    }
-
-    /**
-     * 重新推一遍历史(配置变化 / 前端刚打开时调用)
-     *
-     * 要[重新计算折叠]:因为缓冲里存的是完整数据,
-     *   忽略列表可能刚被改过 → 哪些该折叠要重算 (这就是“实时生效”的关键 )
-     *
-     * 为什么不增量补?过滤/折叠是有状态的(隐藏项变了可能要撤回已推的)
-     * 全量重推最简单也最不会错 (调试板数据量小,成本可忽略)
-     */
-    private replayHistory(): void {
-        if (!this.panel) return;
-        const webview = this.panel.webview;
-        webview.postMessage({ kind: "debug-clear" });
-
-        rule.refresh(); // 重放前重新解析规则(配置可能刚被改过)
-        this.resetFold(); // 重算折叠段
-
-        for (const item of this.buffer.items) {
-            const label = rule.check(item.payload);
-            if (label !== undefined) {
-                // 折叠:连续同标签合并成一段(与 log() 的实时行为一致 )
-                if (this.foldType === label) {
-                    this.foldCount++;
-                } else {
-                    this.foldType = label;
-                    this.foldCount = 1;
-                    this.foldTs = item.ts;
-                    webview.postMessage({
-                        kind: "debug-fold", label, count: 1, ts: item.ts,
-                    });
-                    continue;
-                }
+    /** 路由事件的折叠与否，并发给前端 */
+    private rulePost(debugItem: DebugItem) {
+        if (!this.panel) {
+            return
+        };
+        // logInfo(`[debug][tryFold]收到了${debugItem}`)
+        const label = rule.check(debugItem.payload);
+        if (label !== undefined) {
+            // 命中规则!
+            if (this.foldType === label) {
+                // 连续了!
                 // 累加同段 → 只更新计数(时间戳保持段开始时刻 )
-                webview.postMessage({
+                this.foldCount++;
+                this.panel.webview.postMessage({
                     kind: "debug-fold", label, count: this.foldCount, ts: this.foldTs,
                 });
             } else {
-                this.resetFold();
-                webview.postMessage({ kind: "debug", payload: item.payload, ts: item.ts });
+                // 未连续-->开启新的折叠尝试
+                this.resetFold(label, debugItem.ts)
+                this.panel.webview.postMessage({
+                    kind: "debug-fold", label, count: 1, ts: debugItem.ts,
+                });
             }
+        } else {
+            this.resetFold();
+            this.panel.webview.postMessage({ kind: "debug", payload: debugItem.payload, ts: debugItem.ts });
         }
     }
-
+    // ==========  打开面板  =========
+    private panel: vscode.WebviewPanel | undefined;
     /**
      *   固定用 ViewColumn.Beside 会在[每次关掉再开]时又新开一个组
      *   1. 记住列之后:用户拖到哪,下次就去哪
-     *   2. 改成默认用 ViewColumn.One(第一个组 )
+     *   2. 默认用 ViewColumn.One(第一个组 )
      */
     private lastColumn: vscode.ViewColumn = vscode.ViewColumn.One;
-
     /** 命令入口:打开(或聚焦)调试板 */
     show(): void {
         // 已打开 → 只聚焦,不重复创建
@@ -201,22 +158,20 @@ export class DebugPanel {
             this.panel.reveal(this.panel.viewColumn ?? this.lastColumn);
             return;
         }
-
+        // 打开1/2
         this.panel = vscode.window.createWebviewPanel(
             "pi-bridge.debug",      // viewType:同类面板的唯一标识
             "pi-bridge:debug调试板",             // 标题
             this.lastColumn,
             { enableScripts: true }, // 允许 webview 里跑 JS
         );
-
-        // 用户拖动面板换列 → 记住它(下次“就近”去那里 )
+        // 记住用户拖动面板换列
         this.panel.onDidChangeViewState(() => {
             if (this.panel?.viewColumn) this.lastColumn = this.panel.viewColumn;
         });
-
+        //打开 2/2
         this.panel.webview.html = loadWebviewHtml(this.extensionUri, "debug.html", this.panel.webview);
-
-        // 接收前端(调试板 HTML)发来的消息
+        // 接收前端发来的消息
         this.panel.webview.onDidReceiveMessage((msg) => {
             if (msg.kind === "debug-ready") {
                 // 前端刚打开:把缓冲里的历史刷给它(统一走 replayHistory )
@@ -229,11 +184,24 @@ export class DebugPanel {
                 void this.exportBuffer();
             }
         });
-
         // 面板被用户关闭:标记为 undefined(缓冲继续收集)
         this.panel.onDidDispose(() => {
             this.panel = undefined;
         });
+    }
+
+    /** 重新推一遍历史(配置变化 / 前端刚打开时调用)*/
+    private replayHistory(): void {
+        if (!this.panel) return;
+        const webview = this.panel.webview;
+        webview.postMessage({ kind: "debug-clear" });
+
+        rule.refresh(); // 重放前重新解析规则(配置可能刚被改过)
+        this.resetFold(); // 重算折叠段
+
+        for (const item of this.buffer.items) {
+            this.rulePost(item)
+        }
     }
 
     /**

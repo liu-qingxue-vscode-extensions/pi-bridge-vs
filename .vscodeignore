@@ -5,6 +5,7 @@
 src/**
 **/*.ts
 tsconfig*.json
+webview-src/
 
 # ── 开发资料 ──
 docs/**
@@ -13,13 +14,15 @@ scripts/**
 .vscode/**
 .gitignore
 .git/**
-svg/README*           # ★ 但 svg/pi.svg 必须保留（图标要用 ✗ 见 package.json 的 contributes）
-
-# ── 媒体源（已 bundle 进 media/out/）──
-media/css/**
+svg/README*           
+node_modules/
 
 # ── 杂项 ──
 **/*.map
 **/.DS_Store
 **/*.log
 .directory
+my/
+typeDocs/
+typedoc.json
+.pi-tours/ 

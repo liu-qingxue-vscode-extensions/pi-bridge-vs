@@ -1,14 +1,10 @@
 /**
- * debug/index.js - 调试板的前端(B37恢复)
- *   为什么是 .js 不是 .ts?
+ *  为什么是 .js 不是 .ts?
  *     它是纯 DOM 脚本(没有类型需求 )
  *     而且恢复时要[逐字保真]改成 TS 会引入没必要的改动
  *     esbuild 两者都吃 tsconfig.webview.json 只查 .ts 不冲突
  *
- * [它和宿主的分工](宿主 = src/view/debug-panel.ts)
- *   宿主:环形缓冲(500 条可配 )+ 出口折叠(忽略列表命中只发计数 )
- *   前端:只负责画 不维护任何状态(刷新即从缓冲重放 )
- *
+ * 宿主 = src/view/debug
  * [消息协议]
  *   宿主 → 前端:{ kind:"debug", payload, ts }        普通条目(原始数据包 )
  *                { kind:"debug-fold", label, count, ts } 折叠条目(被忽略的,只计数 )
@@ -16,10 +12,6 @@
  *   前端 → 宿主:debug-ready(我刚打开,把缓冲刷给我 )
  *                clear(清空你的环形缓冲 )
  *                export(导出成 JSON )
- *
- * [这一层的定位]
- *   出口一定要独立,而且全面,所有数据包都要往它那里发一份.
- *   这里画的是[原始数据包]不做任何翻译,调试板是事实来源
  */
 
 const vscode = acquireVsCodeApi();
