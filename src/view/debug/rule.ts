@@ -1,7 +1,8 @@
 import { PiAllEvent } from "../../types/pi-type.js";
 import { vsSettings } from "../../external-data/vs-settings.js";
 import { isPiType } from "../../types/pi-type.js";
-import { logInfo } from "../../logger.js";
+import { createVSLogger } from "../../logger.js";
+const log = createVSLogger("debug-collapse-rule")
 
 /**
  * 折叠规则 - 把连续的高频事件连续折叠
@@ -37,7 +38,7 @@ export class CollapseRule {
 
     constructor() {
         this.refresh();
-        logInfo(`[debug-rule]正在注册回调`)
+        log.info(`正在注册回调`)
         vsSettings.onSC("pi-bridge.debug.collapse", () => { this.refresh() })
     }
 
@@ -45,7 +46,7 @@ export class CollapseRule {
      * 这条数据该折叠吗？该则返回折叠段标签
     */
     check(payload: PiAllEvent): string | undefined {
-        logInfo(`[debug-rule]正在检查`)
+        log.info(`正在检查`)
         for (const rule of this.rules) {
             const label = this.checkOne(payload, rule);
             if (label !== undefined) return label; // 先匹配到的先生效

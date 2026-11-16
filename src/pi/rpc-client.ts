@@ -26,7 +26,8 @@ import type {
     PiLocalEvent,
     stdOutEvent
 } from "../types/pi-type.js";
-export type { PiLocalEvent } from "../types/pi-type.js";
+import { createCLogger } from "../logger.js";
+const log = createCLogger("rpc-client")
 
 /**
  *   日志由上层注入(PiClient 传 logger 的方法 )

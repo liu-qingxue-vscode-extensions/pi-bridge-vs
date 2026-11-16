@@ -7,19 +7,47 @@
  */
 import * as vscode from "vscode";
 
-let channel: vscode.LogOutputChannel | undefined;
+export interface Logger {
+    debug(msg: string): void;
+    info(msg: string): void;
+    warn(msg: string): void;
+    error(msg: string): void;
+}
 
+// ========== VSCode ==========
+let channel: vscode.LogOutputChannel | undefined;
 /** 在 activate 里调用一次,初始化输出通道 */
 export function initLogger(): vscode.Disposable {
     channel = vscode.window.createOutputChannel("pi-bridge", { log: true });
     return channel;
 }
-
+export function createVSLogger(context: string): Logger {
+    const prefix = `[${context}] `;
+    return {
+        debug: (msg: string) => channel?.debug(prefix + msg),
+        info: (msg: string) => channel?.info(prefix + msg),
+        warn: (msg: string) => channel?.warn(prefix + msg),
+        error: (msg: string) => channel?.error(prefix + msg),
+    };
+}
+// ========== console ==========
+export function createCLogger(context: string): Logger {
+    const prefix = `[${context}] `;
+    return {
+        debug: (msg: string) => console.debug(prefix + msg),
+        info: (msg: string) => console.info(prefix + msg),
+        warn: (msg: string) => console.warn(prefix + msg),
+        error: (msg: string) => console.error(prefix + msg),
+    };
+}
+// ========== old ==========
+export function logDebug(msg: string): void {
+    channel?.debug(msg);
+}
 export function logInfo(msg: string): void {
     channel?.info(msg);
 }
 
-/** warn:异常但可恢复(比如“拿不到某字段,走回退分支”) */
 export function logWarn(msg: string): void {
     channel?.warn(msg);
 }
@@ -28,7 +56,4 @@ export function logError(msg: string): void {
     channel?.error(msg);
 }
 
-/** debug:高频细节(默认看不到 - 排查时才把级别调下来 ) */
-export function logDebug(msg: string): void {
-    channel?.debug(msg);
-}
+

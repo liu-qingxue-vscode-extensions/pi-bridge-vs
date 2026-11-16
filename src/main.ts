@@ -107,7 +107,6 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     // 2. 创建零件
-    // logInfo("!!!!!!!!!!!!!即将实例化debug")
     const debugPanel = new DebugPanel(context.extensionUri, context);
 
     // pi 的额外启动参数(设置项 pi-bridge.launchArgs)

@@ -17,8 +17,8 @@ import { loadWebviewHtml } from "../../external-data/html-loader.js";
 import { formatStamp } from "../../util/format-stamp.js";
 import { CollapseRule } from "./rule.js";
 import { PiAllEvent } from "../../types/pi-type.js";
-// import { logInfo } from "../../logger.js";
-
+import { createVSLogger } from "../../logger.js";
+const log = createVSLogger("debug")
 /**
  * 缓冲条目 = 数据 + [宿主记录的]时间戳
  *
@@ -49,7 +49,6 @@ export class DebugPanel {
         rule = new CollapseRule()
         // 更新缓存区大小
         this.refreshBufferSize();
-        // logInfo(`[debug]正在注册回调函数`)
         this.configSub = vsSettings.onSomeSC(
             ["pi-bridge.debug.bufferSize", "pi-bridge.debug.enabled"], () => { this.refreshBufferSize() }
         );
@@ -61,11 +60,9 @@ export class DebugPanel {
      *   缓冲区长度设定为零的时候，则判定为开关。无论是数值为零，还是开关打开，都通过这开关就由这个零来实现。
      */
     private refreshBufferSize(): void {
-        // logInfo(`[debug]回调成功!!原本${this.buffer.capacity}`)
         // 开关
         if (!vsSettings.get("pi-bridge.debug.enabled")) {
             this.buffer.capacity = 0
-            // logInfo(`[debug]BUG板子已关闭${this.buffer.capacity}`)
         } else {
             const raw = vsSettings.get("pi-bridge.debug.bufferSize");
             let s = 0
@@ -74,11 +71,8 @@ export class DebugPanel {
             } else {
                 s = Number.parseInt(raw, 10);
             };
-            // logInfo(`[debug]pi-bridge.debug.bufferSize 的值拿到为${s},类型为${typeof s}`)
             this.buffer.capacity = s
-            // logInfo(`[debug]当前 Debug 运行缓冲长度${this.buffer.capacity}`)}
         }
-        // logInfo(`[debug]回调成功!!现在${this.buffer.capacity}`)
         this.replayHistory()
     }
     /** 后台缓冲:真实数据仓库 */
@@ -89,13 +83,7 @@ export class DebugPanel {
         const time = Date.now(); // 宿主侧记录时间(前端渲染时刻不准)
         this.buffer.add({ ts: time, payload }); // 完整入库(无关折叠 )
 
-        // logInfo(`[debug]log收到${JSON.stringify(payload)}`)
-        // logInfo(`[debug]buf最后一个是${JSON.stringify(this.buffer.items.at(-1))}`)
-        // logInfo(`[debug]buf第一个是${JSON.stringify(this.buffer.items[0])}`)
-        // logInfo(`[debug]log,当前buffer有${this.buffer.items.length}个数据`)
-
         if (!this.panel) {
-            // logInfo(`[debug]未打开${payload}`)
             return
         };
         const m = this.buffer.items.at(-1)
@@ -120,7 +108,6 @@ export class DebugPanel {
         if (!this.panel) {
             return
         };
-        // logInfo(`[debug][tryFold]收到了${debugItem}`)
         const label = rule.check(debugItem.payload);
         if (label !== undefined) {
             // 命中规则!
