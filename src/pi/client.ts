@@ -18,7 +18,8 @@
  */
 
 import { existsSync } from "node:fs";
-import { logDebug, logInfo, logError, logWarn } from "../logger.js";
+
+import { createVSLogger } from "../logger.js";
 import type {
     PiAllEventHandler,
     RpcExtensionUIResponse,
@@ -29,6 +30,8 @@ import type { PiStartError } from "../types/view-event-type.js";
 import { resolvePiCliPath } from "./paths.js";
 import { OwnRpcClient } from "./rpc-client.js";
 
+
+const log = createVSLogger("pi-client")
 
 export class PiClient {
     /**
@@ -88,7 +91,7 @@ export class PiClient {
         this.readCliPath =
             options.readCliPath ?? ((): string => options.cliPath ?? resolvePiCliPath());
         this.readArgs = options.readArgs ?? ((): string[] => options.extraArgs ?? []);
-        logDebug(`[PiClient] cliPath(启动时现读)= ${this.readCliPath()}`);
+        log.debug(`cliPath(启动时现读)= ${this.readCliPath()}`);
     }
 
     /** 现读 cli 路径(每次启动都重新解析 ⇒ 用户改设置立刻生效)*/
@@ -114,7 +117,7 @@ export class PiClient {
     }
 
     private emitStartError(err: PiStartError): void {
-        logWarn(
+        log.warn(
             `[PiClient] 启动失败(${err.kind}):${err.message} - 订阅者 ${this.startErrorHandlers.size} 个`,
         );
         for (const h of this.startErrorHandlers) h(err);
@@ -130,7 +133,7 @@ export class PiClient {
         // 现读参数(不是构造时读 )- 这就是“懒读”的关键一步
         const extraArgs = this.readArgs();
         if (extraArgs.length) {
-            logInfo(`[PiClient] 额外启动参数: ${extraArgs.join(" ")}`);
+            log.info(`[PiClient] 额外启动参数: ${extraArgs.join(" ")}`);
         }
 
         const client = new OwnRpcClient({
@@ -138,7 +141,7 @@ export class PiClient {
             cliPath: this.readCliPath(), // 现读(用户改设置立刻生效)
             args: [...extraArgs],
             // 注入日志:传输层不依赖 vscode,日志由本层提供
-            logger: { debug: logDebug, error: logError },
+            logger: log,
         });
 
         // 事件多播:官方 onEvent 的回调会转发给本层所有订阅者
@@ -173,8 +176,8 @@ export class PiClient {
         // B42:留下"谁触发了启动"的调用栈(debug 级 平时安静 )
         //   [为什么值得留]这次就是靠它定位的:打开扩展就 spawn pi
         //     而有守卫的地方全排除了 ⇒ 只能靠栈找到真凶(前端启动时拉斜杠命令 )
-        logDebug(
-            "[PiClient] 启动被触发,调用栈:" +
+        log.debug(
+            " 启动被触发,调用栈:" +
             (new Error().stack?.split("\n").slice(2, 6).map((l) => l.trim()).join(" ← ") ?? "?"),
         );
 
@@ -188,7 +191,7 @@ export class PiClient {
     /** 真正的启动流程(只被 ensureStarted 调用一次) */
     private async doStart(): Promise<void> {
         const cliPath = this.readCliPath(); // 现读(含用户设置覆盖 )
-        logInfo(`[PiClient] 启动 pi --mode rpc ...(cliPath=${cliPath || "(空)"})`);
+        log.info(`[PiClient] 启动 pi --mode rpc ...(cliPath=${cliPath || "(空)"})`);
 
         // B42:两个"启动前就能判定"的失败 ⇒ 立刻通报(覆盖所有启动路径 )
         if (!cliPath) {
@@ -225,7 +228,7 @@ export class PiClient {
             await client.getState();
 
             this.started = true;
-            logInfo("[PiClient] pi 就绪");
+            log.info("[PiClient] pi 就绪");
         } catch (e) {
             // 启动过程本身的失败(崩溃 / 探针超时 / 权限...)也要通报
             const msg = e instanceof Error ? e.message : String(e);
@@ -250,7 +253,7 @@ export class PiClient {
     setCwd(next: string): boolean {
         const trimmed = (next ?? "").trim();
         if (!trimmed || trimmed === this.cwd) return false;
-        logInfo(`[PiClient] 改工作目录: ${this.cwd} → ${trimmed}(需重启生效)`);
+        log.info(`[PiClient] 改工作目录: ${this.cwd} → ${trimmed}(需重启生效)`);
         this.cwd = trimmed;
         return true;
     }
@@ -272,7 +275,7 @@ export class PiClient {
      *   因为它们记在本类上,buildClient 时会重新挂到新 client 上
      */
     async reload(): Promise<void> {
-        logInfo("[PiClient] reload:重启 pi 进程(读取最新启动参数)");
+        log.info("[PiClient] reload:重启 pi 进程(读取最新启动参数)");
         const wasRunning = this.started;
         await this.stop();
         if (wasRunning) {
@@ -308,7 +311,7 @@ export class PiClient {
     async stop(): Promise<void> {
         const client = this.client;
         if (!this.started || !client) return;
-        logInfo("[PiClient] 正在停止 pi ...");
+        log.info("[PiClient] 正在停止 pi ...");
         await client.stop();
         this.started = false;
     }
@@ -326,7 +329,7 @@ export class PiClient {
      *   OwnRpcClient.reply() 直接写 stdin,并且[不等回执](因为 pi 不发 )
      */
     replyExtensionUi(response: RpcExtensionUIResponse): void {
-        logDebug(`[PiClient] 回复扩展请求 id=${response.id}`);
+        log.debug(`回复扩展请求 id=${response.id}`);
         this.client?.reply(response);
     }
 

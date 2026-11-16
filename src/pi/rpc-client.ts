@@ -26,22 +26,15 @@ import type {
     PiLocalEvent,
     stdOutEvent
 } from "../types/pi-type.js";
-import { createCLogger } from "../logger.js";
-const log = createCLogger("rpc-client")
+import { createCLogger, Logger } from "../logger.js";
+
+const conLog = createCLogger("test-pi-client")
 
 /**
  *   日志由上层注入(PiClient 传 logger 的方法 )
  *   → 可以不启动 VS Code 就单独跑(scripts/smoke-own-rpc.mjs )
  */
-export interface RpcLogger {
-    debug(msg: string): void;
-    error(msg: string): void;
-}
-/** 默认日志:控制台(测试环境用 ) */
-const consoleLogger: RpcLogger = {
-    debug: () => { },
-    error: (msg) => console.error(msg),
-};
+
 
 /** 等待回执的超时(与官方一致:30s ) */
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -63,7 +56,7 @@ export interface OwnRpcClientOptions {
     /** 额外环境变量 */
     env?: Record<string, string | undefined>;
     /** 日志回调(不传则只输出 error 到 console ) */
-    logger?: RpcLogger;
+    logger?: Logger;
 }
 
 export class OwnRpcClient {
@@ -75,8 +68,6 @@ export class OwnRpcClient {
     /** 请求序号(拼 id 用) */
     private seq = 0;
 
-    /** stdout 行缓冲(TCP 流会截断,必须自己拼行 ) */
-    private stdoutBuffer = "";
 
     /** stderr 累积(挂监听前产生的也会留在这里,onStderr 时补发 ) */
     private stderrText = "";
@@ -99,12 +90,10 @@ export class OwnRpcClient {
     /** 进程是否已退出(退出后所有请求立即失败,不等超时 ) */
     private exitError: Error | null = null;
 
-    constructor(private readonly options: OwnRpcClientOptions) {
-        this.log = options.logger ?? consoleLogger;
-    }
+    constructor(private readonly options: OwnRpcClientOptions) { this.log = options.logger ?? conLog; }
 
     /** 日志(由上层注入 ) */
-    private readonly log: RpcLogger;
+    private readonly log: Logger;
 
     // ═══════════════════════════════════════════════════════════
     //  生命周期
@@ -283,6 +272,8 @@ export class OwnRpcClient {
     // ═══════════════════════════════════════════════════════════
     //  内部:stdout 解析
     // ═══════════════════════════════════════════════════════════
+    /** stdout 行缓冲(TCP 流会截断,必须自己拼行 ) */
+    private stdoutBuffer = "";
 
     /** stdout 到达:拼进缓冲,按行切 */
     private onStdout(chunk: Buffer): void {

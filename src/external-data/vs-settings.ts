@@ -21,9 +21,10 @@
 import * as vscode from "vscode";
 import { settingDefaults } from "../types/settings-type.js";
 import type { SettingName, SettingTypeMap, SettingValue } from "../types/settings-type.js";
-import { logWarn, logInfo } from "../logger.js";
+import { logWarn, createVSLogger } from "../logger.js";
 import { schema } from "../util/simple-schema.js";
 
+const log = createVSLogger("vs-settings")
 const SECTION = "pi-bridge";
 const PREFIX = `${SECTION}.`;
 
@@ -47,12 +48,12 @@ class VSSettingsManager {
         this.refresh()
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (!e.affectsConfiguration(SECTION)) return;
-            logInfo("[vs-setting]Pi的设置变化")
-            logInfo(`[vs-setting]当前为${JSON.stringify([...this.watchs.keys()])}和${JSON.stringify([...this.watchsSome.keys()])}`)
+            log.info("Pi的设置变化")
+            log.info(`当前为${JSON.stringify([...this.watchs.keys()])}和${JSON.stringify([...this.watchsSome.keys()])}`)
             this.refresh()
             for (const [sn, h] of this.watchs) {
                 if (!e.affectsConfiguration(sn)) continue;
-                logInfo(`[vs-setting]回调发生在${sn}`)
+                log.info(`回调发生在${sn}`)
                 h()
             }
             for (const [sns, h] of this.watchsSome) {
@@ -60,7 +61,7 @@ class VSSettingsManager {
                 for (const sn of sns) {
                     if (e.affectsConfiguration(sn) && changeOne === false) changeOne = true;
                 }
-                if (changeOne) h(); logInfo(`[vs-setting]回调发生在${sns}`)
+                if (changeOne) h(); log.info(`回调发生在${sns}`)
             }
         })
     }
@@ -103,7 +104,7 @@ class VSSettingsManager {
         if (this.watchs.has(sn)) {
             throw new Error(".在注册 VS Code 设置改变的监听里面,一对一重复监听!");
         }
-        logInfo(`[vs-setting]回调注册了${sn}`)
+        log.info(`回调注册了${sn}`)
         this.watchs.set(sn, handler);
         return () => {
             const set = this.watchs.get(sn);
@@ -141,9 +142,9 @@ class VSSettingsManager {
         for (const sn of sns) {
             this.watchsSomeL.add(sn)
         }
-        logInfo(`[vs-setting]回调注册了${sns}`)
+        log.info(`回调注册了${sns}`)
         this.watchsSome.set(sns, handler)
-        logInfo(`[vs-setting]当前为${JSON.stringify([...this.watchs.keys()])}和${JSON.stringify([...this.watchsSome.keys()])}`)
+        log.info(`当前为${JSON.stringify([...this.watchs.keys()])}和${JSON.stringify([...this.watchsSome.keys()])}`)
         return () => {
             if (!this.watchsSome.delete(sns)) {
                 throw new Error("在注册 VS Code 设置改变的监听里面，还未监听就尝试释放对应句柄");
