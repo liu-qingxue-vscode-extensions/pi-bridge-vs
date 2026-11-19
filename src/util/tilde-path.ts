@@ -21,6 +21,7 @@ import path from "node:path";
  *   其他          → 原样返回
  */
 export function expandHome(p: string): string {
+    p = p.trim()
     if (p === "~") return os.homedir();
     if (p.startsWith("~/")) return path.join(os.homedir(), p.slice(2));
     return p;

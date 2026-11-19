@@ -30,7 +30,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import * as vscode from "vscode";
 import { resolveAgentDir } from "./pi-env.js";
-import { compactHome } from "../util/paths.js";
+import { compactHome } from "../util/tilde-path.js";
 import { logDebug, logInfo, logError } from "../logger.js";
 
 /** 一条会话的元信息(界面列表用 ) */
@@ -453,7 +453,7 @@ export class SessionStore {
         out.sort((a, b) => b.createdAt - a.createdAt);
         logInfo(
             `[sessions] 条目 ${out.length} 个(根目录 ${roots.length} 个 / 补 cwd ${cwdAdded} / 清理 ${cleaned})` +
-                `零内容 IO `,
+            `零内容 IO `,
         );
         return out;
     }

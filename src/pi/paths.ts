@@ -13,11 +13,11 @@
 import * as vscode from "vscode";
 import {
     cliPathFromPackageDir,
-    expandTilde,
     piPackageDir,
     resolveAgentDir,
     piVersion as piVersionRaw,
 } from "./pi-env.js";
+import { expandHome } from "../util/tilde-path.js"
 
 /** 读设置(去空白;空串视为"未设置" ) */
 function readOverride(key: string): string | undefined {
@@ -40,7 +40,7 @@ function readOverride(key: string): string | undefined {
  */
 export function resolvePiCliPath(): string {
     const override = readOverride("piCliPath");
-    if (override) return expandTilde(override);
+    if (override) return expandHome(override);
     const pkgDir = piPackageDir();
     return pkgDir ? cliPathFromPackageDir(pkgDir) : "";
 }

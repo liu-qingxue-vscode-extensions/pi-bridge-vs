@@ -24,6 +24,8 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import { expandHome } from "../util/tilde-path.js";
+
 /* ───────────── 环境变量名(来自 pi --help 的原文)───────────── */
 
 export const ENV_AGENT_DIR = "PI_CODING_AGENT_DIR";
@@ -34,43 +36,16 @@ export const ENV_PACKAGE_DIR = "PI_PACKAGE_DIR";
 const PI_PKG_REL = "node_modules/@earendil-works/pi-coding-agent";
 
 /* ───────────── 路径解析 ───────────── */
-
-/** 展开开头的 `~`(pi 自己也这么干 见其 normalizePath)*/
-export function expandTilde(p: string): string {
-    const t = p.trim();
-    if (t === "~") return os.homedir();
-    if (t.startsWith("~/")) return path.join(os.homedir(), t.slice(2));
-    return t;
-}
-
 /**
  * pi 的数据目录(settings.json / models.json / auth.json / sessions 都在这之下)
  * 语义对齐 pi 的 getAgentDir():环境变量优先 否则 ~/.pi/agent
  */
 export function resolveAgentDir(env: NodeJS.ProcessEnv = process.env): string {
-    const fromEnv = env[ENV_AGENT_DIR];
-    if (fromEnv && fromEnv.trim()) return path.resolve(expandTilde(fromEnv));
+    const fromEnv = env[ENV_AGENT_DIR]?.trim();
+    if (fromEnv) return path.resolve(expandHome(fromEnv));
     return path.join(os.homedir(), ".pi", "agent");
 }
 
-/**
- * 会话目录
- * 优先级对齐 pi:--session-dir 参数 > 环境变量 > <agentDir>/sessions
- *   (pi 的 --session-dir 原文:"Directory for session storage and lookup" - 存和找是同一个值)
- */
-export function resolveSessionsDir(
-    agentDir: string,
-    launchArgs: readonly string[] = [],
-    env: NodeJS.ProcessEnv = process.env,
-): string {
-    const i = launchArgs.indexOf("--session-dir");
-    if (i >= 0 && launchArgs[i + 1]) return path.resolve(expandTilde(launchArgs[i + 1]));
-
-    const fromEnv = env[ENV_SESSION_DIR];
-    if (fromEnv && fromEnv.trim()) return path.resolve(expandTilde(fromEnv));
-
-    return path.join(agentDir, "sessions");
-}
 
 /**
  * 从 pi CLI 的可执行文件位置,反推"pi 包根目录"
@@ -84,7 +59,7 @@ export function resolveSessionsDir(
 export function packageDirFromCli(cliPath: string): string | undefined {
     let real: string;
     try {
-        real = realpathSync(cliPath);
+        real = realpathSync(cliPath);   // 递归软链接
     } catch {
         return undefined;
     }
@@ -115,7 +90,7 @@ export function candidateGlobalPaths(env: NodeJS.ProcessEnv = process.env): stri
     ];
     // npm 的全局前缀(若用户配过)
     const prefix = env.npm_config_prefix;
-    if (prefix) out.unshift(path.join(expandTilde(prefix), "lib", PI_PKG_REL));
+    if (prefix) out.unshift(path.join(expandHome(prefix), "lib", PI_PKG_REL));
     return out.map((p) => path.join(p, "dist", "cli.js"));
 }
 
@@ -126,12 +101,12 @@ export function resolvePackageDir(
 ): { dir: string; source: string } | undefined {
     const fromEnv = env[ENV_PACKAGE_DIR];
     if (fromEnv && fromEnv.trim()) {
-        return { dir: path.resolve(expandTilde(fromEnv)), source: "env" };
+        return { dir: path.resolve(expandHome(fromEnv)), source: "env" };
     }
     if (override && override.trim()) {
         // 用户明确指定了路径 ⇒ 找不到就是找不到[不回退探测]
         //   否则"填错了也能跑"会让用户以为设置生效了(而实际用的是别处的 pi 极难排查)
-        const d = packageDirFromCli(expandTilde(override));
+        const d = packageDirFromCli(expandHome(override));
         return d ? { dir: d, source: "setting" } : undefined;
     }
     for (const cli of candidateGlobalPaths(env)) {
@@ -189,15 +164,15 @@ export function resolveSessionRoot(
 ): { dir: string; source: string } {
     const i = launchArgs.indexOf("--session-dir");
     if (i >= 0 && launchArgs[i + 1]) {
-        return { dir: path.resolve(expandTilde(launchArgs[i + 1])), source: "launchArgs" };
+        return { dir: path.resolve(expandHome(launchArgs[i + 1])), source: "launchArgs" };
     }
     const fromEnv = env[ENV_SESSION_DIR];
     if (fromEnv && fromEnv.trim()) {
-        return { dir: path.resolve(expandTilde(fromEnv)), source: "env" };
+        return { dir: path.resolve(expandHome(fromEnv)), source: "env" };
     }
     const s = readPiSettings(agentDir).sessionDir;
     if (typeof s === "string" && s.trim()) {
-        return { dir: path.resolve(agentDir, expandTilde(s.trim())), source: "settings" };
+        return { dir: path.resolve(agentDir, expandHome(s.trim())), source: "settings" };
     }
     return { dir: path.join(agentDir, "sessions"), source: "default" };
 }

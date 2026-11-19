@@ -36,7 +36,7 @@ import {
 import type { ChatState } from "../view/chat-state.js";
 import { logDebug, logError, logInfo, logWarn } from "../logger.js";
 import { toErrorMessage } from "../utils.js";
-import { compactHome } from "../util/paths.js";
+import { compactHome } from "../util/tilde-path.js";
 
 export interface SessionActionsDeps {
     /** pi 子进程客户端(启动 / 切换 / 分叉都靠它 )*/
@@ -129,7 +129,7 @@ export function createSessionActions(deps: SessionActionsDeps): SessionActions {
         const filtered = scope === "current" ? all.filter((s) => s.cwd === cur || !s.cwd) : all;
         logInfo(
             `会话列表:scope=${scope} → ${filtered.length}/${all.length} 条` +
-                (scope === "current" ? `(当前 cwd=${cur})` : ""),
+            (scope === "current" ? `(当前 cwd=${cur})` : ""),
         );
         // B42 诊断:scope=current 却筛空了 ⇒ 十有八九是"当前 cwd 与会话记录的 cwd 对不上"
         //   ⇒ 把两边都打出来(含不可见字符的 JSON 形式)一眼就能看出差在哪
@@ -138,8 +138,8 @@ export function createSessionActions(deps: SessionActionsDeps): SessionActions {
             for (const s of all) dist.set(s.cwd || "(空)", (dist.get(s.cwd || "(空)") ?? 0) + 1);
             logWarn(
                 `当前 cwd 一个会话都匹配不上.\n` +
-                    `   当前 cwd = ${JSON.stringify(cur)}\n` +
-                    `   会话里的 cwd 分布 = ${JSON.stringify([...dist.entries()].slice(0, 12))}`,
+                `   当前 cwd = ${JSON.stringify(cur)}\n` +
+                `   会话里的 cwd 分布 = ${JSON.stringify([...dist.entries()].slice(0, 12))}`,
             );
         }
         // B43:空列表要[说清是哪种空](用户点出的:分不清"没有"和"找不到")
@@ -186,7 +186,7 @@ export function createSessionActions(deps: SessionActionsDeps): SessionActions {
             };
             logInfo(
                 `新建会话:success=${r.success} cancelled=${r.data?.cancelled}` +
-                    (r.error ? ` error=${r.error}` : ""),
+                (r.error ? ` error=${r.error}` : ""),
             );
             if (!r.success || r.data?.cancelled) {
                 void vscode.window.showErrorMessage(`新建会话未成功:${r.error ?? "已取消"}`);

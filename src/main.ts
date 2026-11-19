@@ -86,7 +86,7 @@ import { readSessionFile } from "./bridge/session-file.js";
 // utile
 import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
 import { toErrorMessage } from "./utils.js";
-import { compactHome, expandHome } from "./util/paths.js";
+import { compactHome, expandHome } from "./util/tilde-path.js";
 
 
 export function activate(context: vscode.ExtensionContext): void {
