@@ -45,6 +45,9 @@ const tasks = [
     { cmd: "node scripts/f5/check-session-file.mjs", desc: "检查会话文件" },
     { cmd: "npm run check:in-pi", desc: "in-pi 检查" },
     { cmd: "npm run build:in-pi", desc: "in-pi 构建" },
+    // ===== 收尾 =====
+    // 必须是最后一步:前面所有产物都生成完了才同步
+    { cmd: "node scripts/f5/sync-to-ext.mjs", desc: "同步到已安装目录" },
 ];
 
 console.log("🚀 开始全量编译流程...\n");

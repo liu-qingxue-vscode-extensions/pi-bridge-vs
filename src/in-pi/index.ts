@@ -52,16 +52,32 @@ function checkUnique(
     cwd: string,
     file: string,
     oldText: string,
+    mode: string,
 ): { ok: true } | { ok: false; error: string } {
-    if (!oldText.trim()) return { ok: false, error: "oldText 不能为空" };
-
     const abs = path.resolve(cwd, file);
-    let raw: string;
+    let raw: string | undefined;
     try {
         raw = readFileSync(abs, "utf8");
     } catch {
+        raw = undefined;
+    }
+
+    // 新建文件:文件必须还不存在
+    if (mode === "create") {
+        if (raw !== undefined) {
+            return { ok: false, error: `文件已存在:${file}(mode=create 只能用于新文件)` };
+        }
+        return { ok: true };
+    }
+
+    if (raw === undefined) {
         return { ok: false, error: `读不到文件:${file}(注意路径要相对于工作区根目录)` };
     }
+
+    // 追加到末尾:不需要锚点
+    if (mode === "append") return { ok: true };
+
+    if (!oldText.trim()) return { ok: false, error: "oldText(锚点)不能为空" };
 
     const eol = raw.includes("\r\n") ? "\r\n" : "\n";
     const needle = oldText.replace(/\r\n/g, "\n").replace(/\n/g, eol);
@@ -130,13 +146,17 @@ export default function (pi: ExtensionAPI): void {
             file: Type.String({ description: "相对于工作区根目录的文件路径" }),
             mode: Type.String({
                 description:
-                    '定位方式.目前只支持 "text":按 oldText 精确匹配.' +
-                    "(symbol / range 尚未实现)",
+                    "定位方式:" +
+                    '"text" = 把 oldText 换成 newText;' +
+                    '"insertAfter" = 在 oldText 之后插入(锚点保留);' +
+                    '"insertBefore" = 在 oldText 之前插入;' +
+                    '"append" = 追加到文件末尾(不需要 oldText);' +
+                    '"create" = 新建文件(文件必须不存在,oldText 留空)',
             }),
             oldText: Type.String({
                 description:
-                    "要被替换的原文,必须和文件内容完全一致(包括缩进和空行)," +
-                    "并且在整个文件里唯一.上下文太少会匹配到多处而被拒绝.",
+                    "锚点原文,必须和文件内容完全一致(包括缩进和空行),并在整个文件里唯一." +
+                    "text / insertAfter / insertBefore 必填;append 和 create 留空字符串.",
             }),
             newText: Type.String({ description: "替换成什么" }),
             explanation: Type.String({ description: "为什么这么改,写给用户看" }),
@@ -156,12 +176,13 @@ export default function (pi: ExtensionAPI): void {
             isError?: boolean;
         }> {
             const mode = (params.mode ?? "text").trim();
-            if (mode !== "text") {
+            const MODES = ["text", "insertAfter", "insertBefore", "append", "create"];
+            if (!MODES.includes(mode)) {
                 return {
                     content: [
                         {
                             type: "text",
-                            text: `mode="${mode}" 还没有实现,请改用 mode="text".`,
+                            text: `mode="${mode}" 不支持。可用:${MODES.join(" / ")}`,
                         },
                     ],
                     details: {},
@@ -169,7 +190,7 @@ export default function (pi: ExtensionAPI): void {
                 };
             }
 
-            const checked = checkUnique(process.cwd(), params.file, params.oldText);
+            const checked = checkUnique(process.cwd(), params.file, params.oldText ?? "", mode);
             if (!checked.ok) {
                 // 直接失败:提案不创建,模型收到原因后会自己调整
                 return {

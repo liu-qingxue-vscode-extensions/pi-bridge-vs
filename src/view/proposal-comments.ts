@@ -282,6 +282,22 @@ export class ProposalComments implements vscode.Disposable {
         }
 
         const uri = vscode.Uri.file(path.resolve(this.root, p.file));
+
+        // 新建文件:没有旧文档可打开,也就没有"定位"这回事 —— 整份内容都是新的
+        if (p.mode === "create") {
+            const edit = new vscode.WorkspaceEdit();
+            edit.createFile(uri, { ignoreIfExists: false });
+            edit.insert(uri, new vscode.Position(0, 0), p.newText ?? "");
+            const applied = await vscode.workspace.applyEdit(edit);
+            if (!applied) return { ok: false, error: "VS Code 拒绝创建这个文件(可能已经存在)" };
+
+            this.status.set(proposalId, "accepted");
+            this.dismissThread(proposalId);
+            this.onChange();
+            this.revealNextPending();
+            return { ok: true };
+        }
+
         let doc: vscode.TextDocument;
         try {
             doc = await vscode.workspace.openTextDocument(uri);
@@ -504,7 +520,9 @@ export class ProposalComments implements vscode.Disposable {
             md.appendMarkdown(`$(error) 无法定位:${bad}\n\n`);
         } else {
             const loc = locateProposal(this.root, p);
-            const diff = buildDiff(loc.matchedText ?? "", p.newText ?? "");
+            // 插入类提案没有"删除"这回事:锚点原样保留,只是多了几行
+            const removedPart = p.mode === "text" ? (loc.matchedText ?? "") : "";
+            const diff = buildDiff(removedPart, p.newText ?? "");
             md.appendCodeblock(
                 [
                     ...diff.removed.map((l) => `- ${l}`),

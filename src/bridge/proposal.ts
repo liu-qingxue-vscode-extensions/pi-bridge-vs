@@ -12,11 +12,21 @@ import * as path from "node:path";
 /**
  * 提案的定位方式.
  *
- * 现在只实现 text,另外两个分支先留好位置:
- *   symbol - 按函数/类名定位(需要 VS Code 的符号查询,走 LSP)
- *   range  - 按行号定位(兜底,AI 明确知道行号时用)
+ *   text         - 把 oldText 换成 newText(修改现有代码)
+ *   insertAfter  - 在 oldText 之后插入 newText(锚点保留)
+ *   insertBefore - 在 oldText 之前插入(比如最前面加 import)
+ *   append       - 追加到文件末尾(不需要锚点)
+ *   create       - 新建文件(文件必须不存在)
+ *   symbol/range - 待实现
  */
-export type WriteMode = "text" | "symbol" | "range";
+export type WriteMode =
+    | "text"
+    | "insertAfter"
+    | "insertBefore"
+    | "append"
+    | "create"
+    | "symbol"
+    | "range";
 
 export interface WriteProposal {
     proposalId: string;
@@ -24,7 +34,11 @@ export interface WriteProposal {
     /** 相对于工作区根目录的路径 */
     file: string;
     mode: WriteMode;
-    /** mode=text 时必填:要被替换的原文(含缩进,必须在文件里唯一) */
+    /**
+     * 锚点文本(含缩进,必须在文件里唯一).
+     *   text / insertAfter / insertBefore → 必填
+     *   append / create                   → 不需要
+     */
     oldText?: string;
     /** mode=symbol 时必填:函数或类的名字 */
     symbolName?: string;
@@ -91,8 +105,15 @@ export function locateProposal(root: string, p: WriteProposal): LocateResult {
     let raw: string;
     try {
         raw = readFileSync(abs, "utf8");
-    } catch (err) {
-        return { ok: false, error: `读不到文件 ${p.file}:${String(err)}` };
+    } catch {
+        // 新建文件:读不到才是对的
+        if (p.mode === "create") {
+            return { ok: true, startLine: 1, endLine: 1, offset: 0, length: 0, matchedText: "" };
+        }
+        return { ok: false, error: `读不到文件 ${p.file}` };
+    }
+    if (p.mode === "create") {
+        return { ok: false, error: `文件已存在,mode=create 只能用于新文件` };
     }
     return locateInText(raw, p);
 }
@@ -134,6 +155,39 @@ export function locateInText(raw: string, p: WriteProposal): LocateResult {
             length: needle.length,
             matchedText: needle,
         };
+    }
+
+    if (p.mode === "insertAfter" || p.mode === "insertBefore") {
+        const needle = align(p.oldText ?? "");
+        if (!needle.trim()) {
+            return { ok: false, error: "oldText(锚点)不能为空" };
+        }
+        const hits = countOccurrences(text, needle);
+        if (hits === 0) {
+            return { ok: false, error: "在文件里找不到锚点(内容可能已经变了)" };
+        }
+        if (hits > 1) {
+            return {
+                ok: false,
+                error: `锚点在文件里匹配到 ${hits} 处,无法确定插在哪里.请带上更多上下文使其唯一`,
+            };
+        }
+        const idx = text.indexOf(needle);
+        // length = 0 → 零宽替换,也就是插入
+        const at = p.mode === "insertAfter" ? idx + needle.length : idx;
+        const range = lineRangeOf(text, at, 0);
+        return {
+            ok: true,
+            ...range,
+            offset: at,
+            length: 0,
+            matchedText: needle,
+        };
+    }
+
+    if (p.mode === "append") {
+        const range = lineRangeOf(text, text.length, 0);
+        return { ok: true, ...range, offset: text.length, length: 0, matchedText: "" };
     }
 
     if (p.mode === "range") {
