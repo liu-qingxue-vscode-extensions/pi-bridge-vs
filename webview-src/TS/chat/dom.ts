@@ -49,6 +49,8 @@ export const btnReload = needEl("btn-reload");
 export const btnCompact = needEl("btn-compact");
 /** 「待插话」条容器(挂在输入框上方 不进消息流 )*/
 export const queueBarEl = needEl("queue-bar");
+/** 提案操作面板容器(同样挂在输入框上方,不进消息流) */
+export const proposalPanelEl = needEl("proposal-panel");
 /** 扩展交互请求容器(B25 回复桥)- 同 queue-bar 放在输入区内部 */
 export const uiRequestEl = needEl("ui-request");
 /** 模型按钮(B23)+ 思考深度按钮 - 左键弹列表 */

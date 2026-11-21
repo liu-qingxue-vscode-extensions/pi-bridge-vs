@@ -20,6 +20,13 @@ export type FrontendMessage =
         action: "accept" | "reject" | "acceptAll" | "rejectAll" | "setAutoContinue";
         proposalId?: string;
         value?: boolean;
+        /**
+         * 面板输入框里写的决策说明。
+         *
+         * 为什么走这里而不是讨论区:CommentThread 的 API
+         * 拿不到未提交的草稿,而且讨论区发过的话已经进过上下文了。
+         */
+        note?: string;
     }
     //  主动中断:对应发送按钮的“转圈”形态(点击转圈 = 中断 )
     | { kind: "abort" }

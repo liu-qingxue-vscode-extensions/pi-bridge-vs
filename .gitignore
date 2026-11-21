@@ -36,3 +36,4 @@ test_date
 /ai-src/
 # 讲解剧本（本地生成，不提交）
 .pi-tours/
+.pi-proposals/

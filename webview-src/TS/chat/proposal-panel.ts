@@ -8,7 +8,7 @@
  *   下一条正文必然会把上一轮提案的结果带回去(宿主在发消息前会结算),
  *   所以真正需要的只是"处理完是否自动发一条继续"这个开关.
  */
-import { messagesEl } from "./dom.js";
+import { proposalPanelEl } from "./dom.js";
 import { vscode } from "./vscode-api.js";
 
 export interface ProposalItem {
@@ -29,15 +29,21 @@ let root: HTMLElement | null = null;
 let listEl: HTMLElement | null = null;
 let countEl: HTMLElement | null = null;
 let autoEl: HTMLInputElement | null = null;
+let noteEl: HTMLTextAreaElement | null = null;
+
+/** 当前输入框里写的说明,随任何一次决策一起发出去 */
+function readNote(): string {
+    return noteEl?.value.trim() ?? "";
+}
 
 function ensure(): void {
     if (root) return;
     root = document.createElement("div");
-    root.className = "bubble-wrap proposal";
+    root.className = "pi-proposal";
     root.hidden = true;
 
     const box = document.createElement("div");
-    box.className = "bubble proposal";
+    box.className = "pi-proposal-box";
 
     const head = document.createElement("div");
     head.className = "pp-head";
@@ -56,12 +62,12 @@ function ensure(): void {
     const acceptAll = document.createElement("button");
     acceptAll.textContent = "全部接受";
     acceptAll.addEventListener("click", () =>
-        vscode.postMessage({ kind: "proposalAction", action: "acceptAll" }),
+        vscode.postMessage({ kind: "proposalAction", action: "acceptAll", note: readNote() }),
     );
     const rejectAll = document.createElement("button");
     rejectAll.textContent = "全部拒绝";
     rejectAll.addEventListener("click", () =>
-        vscode.postMessage({ kind: "proposalAction", action: "rejectAll" }),
+        vscode.postMessage({ kind: "proposalAction", action: "rejectAll", note: readNote() }),
     );
 
     const autoWrap = document.createElement("label");
@@ -80,9 +86,21 @@ function ensure(): void {
     autoWrap.append(autoEl, autoText);
 
     actions.append(acceptAll, rejectAll, autoWrap);
-    box.append(head, listEl, actions);
+
+    // 决策说明。讨论区的草稿读不到(API 不暴露未提交内容),
+    // 所以在这里单独给一个能读到的入口。
+    const noteWrap = document.createElement("div");
+    noteWrap.className = "pp-note-wrap";
+    noteEl = document.createElement("textarea");
+    noteEl.className = "pp-note";
+    noteEl.rows = 2;
+    noteEl.placeholder = "对这次决策的说明(可选,会随结果一起发给 AI)";
+    noteWrap.append(noteEl);
+
+    box.append(head, listEl, noteWrap, actions);
     root.append(box);
-    messagesEl.appendChild(root);
+    // 挂在输入框上方,不进消息流(进消息流会被历史渲染盖掉)
+    proposalPanelEl.appendChild(root);
 }
 
 const STATUS_TEXT: Record<ProposalItem["status"], string> = {
@@ -141,6 +159,7 @@ export function renderProposalList(payload: ProposalListPayload): void {
                     kind: "proposalAction",
                     action: "accept",
                     proposalId: it.proposalId,
+                    note: readNote(),
                 }),
             );
 
@@ -152,6 +171,7 @@ export function renderProposalList(payload: ProposalListPayload): void {
                     kind: "proposalAction",
                     action: "reject",
                     proposalId: it.proposalId,
+                    note: readNote(),
                 }),
             );
             row.append(ok, no);
@@ -160,9 +180,8 @@ export function renderProposalList(payload: ProposalListPayload): void {
         listEl.appendChild(row);
     }
 
-    // 没有提案就把整块收起来,不占聊天区
+    // 没有提案就把整块收起来,不占位置
     root.hidden = items.length === 0;
-
-    // 每次都挪到消息流末尾:面板要一直跟着最新内容,不能被新气泡甩在后面
-    if (!root.hidden) messagesEl.appendChild(root);
+    // 一批处理完就把说明清掉:它只对这一轮有意义
+    if (items.length === 0 && noteEl) noteEl.value = "";
 }

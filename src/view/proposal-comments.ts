@@ -15,7 +15,8 @@
  */
 import * as vscode from "vscode";
 import * as path from "node:path";
-import { logInfo } from "../logger.js";
+import * as fs from "node:fs";
+import { logInfo, logWarn } from "../logger.js";
 import { vsSettings } from "../external-data/vs-settings.js";
 import {
     buildDiff,
@@ -26,6 +27,10 @@ import {
 } from "../bridge/proposal.js";
 
 const CONTROLLER_ID = "pi-bridge-proposal";
+
+/** 未处理提案的落盘位置(工作区根下,和 .pi-tours 一个思路) */
+const STORE_DIR = ".pi-proposals";
+const STORE_FILE = "state.json";
 
 export type ProposalStatus = "pending" | "accepted" | "rejected";
 
@@ -49,18 +54,19 @@ export interface SettleResult {
     file: string;
     status: "accepted" | "rejected" | "auto-rejected";
     error?: string;
-    /**
-     * 用户在讨论栏里敲的话。
-     *
-     * 单个处理时不发消息(要等这一批全处理完),所以这些话没有即时出口,
-     * 必须在这里攒着,结算时一起交给 AI——否则"我为什么拒绝"这个信息就没了。
-     */
-    reply?: string;
 }
 
 export interface ApplyOutcome {
     ok: boolean;
     error?: string;
+}
+
+/** 存档结构:每个会话一份,键是会话文件名(不存路径,换目录不失效) */
+interface StoreShape {
+    sessions: Record<
+        string,
+        { proposals?: WriteProposal[]; discussion?: Record<string, Discussion> }
+    >;
 }
 
 export class ProposalComments implements vscode.Disposable {
@@ -71,11 +77,18 @@ export class ProposalComments implements vscode.Disposable {
     private readonly status = new Map<string, ProposalStatus>();
     private readonly invalid = new Map<string, string>();
     private readonly discussion = new Map<string, Discussion>();
-    /** 用户在各提案讨论区敲的话。thread 一 dispose 就没了,所以先存这儿 */
-    private readonly replies = new Map<string, string>();
+
     private readonly highlight: vscode.TextEditorDecorationType;
     private readonly watchSub: vscode.Disposable;
     private revalidateTimer: NodeJS.Timeout | undefined;
+    private saveTimer: NodeJS.Timeout | undefined;
+    /**
+     * 当前挂在哪份会话上(用文件名,不存绝对路径)。
+     *
+     * 提案是会话的私事:切走了就不该再显示,切回来再拿出来。
+     * 存档始终在项目根的 .pi-proposals/ 下,会话文件一个字节不动。
+     */
+    private sessionKey: string | null = null;
 
     constructor(
         private readonly root: string,
@@ -131,7 +144,7 @@ export class ProposalComments implements vscode.Disposable {
     }
 
     /** 显示(或刷新)提案 */
-    show(p: WriteProposal): void {
+    show(p: WriteProposal, silent = false): void {
         this.data.set(p.proposalId, p);
         this.status.set(p.proposalId, "pending");
 
@@ -160,10 +173,116 @@ export class ProposalComments implements vscode.Disposable {
         );
 
         this.repaintHighlights();
-        this.onChange();
+        if (!silent) this.changed();
 
         // 自动跳到提案位置,免得用户自己去翻文件(受 autoReveal 开关控制)
-        this.maybeAutoReveal(p.proposalId, uri, anchorLine);
+        if (!silent) this.maybeAutoReveal(p.proposalId, uri, anchorLine);
+    }
+
+    /**
+     * 把未处理的提案写盘 / 从盘里读回来.
+     *
+     * 为什么要落盘:提案不是对话气泡,它是有生命周期的对象。
+     * 退出 VS Code 再回来,pi 不会重放历史里的自定义条目
+     * (onOurEntry 只挂在 entry_appended 上),所以只能自己存。
+     * 只存 pending 的:已决策的没恢复价值,文件也已经变过了。
+     */
+    /**
+     * 切到另一个会话。
+     *
+     * 上一个会话还没处理的提案先存回盘里再收起来;
+     * 新会话有存档就拿出来,没有就空着。
+     */
+    setSession(file: string | null): void {
+        const key = file ? path.basename(file) : null;
+        if (this.sessionKey === key) return;
+        if (this.sessionKey) this.writeStore(this.sessionKey);
+        this.clearAll();
+        this.sessionKey = key;
+        if (key) this.restore();
+        this.changed();
+    }
+
+    /** 把内存里的提案全清掉(不碰存档) */
+    private clearAll(): void {
+        for (const id of [...this.threads.keys()]) this.threads.get(id)?.dispose();
+        this.threads.clear();
+        this.data.clear();
+        this.status.clear();
+        this.invalid.clear();
+        this.discussion.clear();
+        this.clearHighlight();
+    }
+
+    restore(): void {
+        if (!this.sessionKey) return;
+        const entry = this.readStore().sessions[this.sessionKey];
+        if (!entry) return;
+        const list = entry.proposals ?? [];
+        // 打开过程中不逐条触发 onChange:外面会在 restore() 之后统一推一次
+        for (const p of list) {
+            if (!p?.proposalId || !p.file) continue;
+            this.show(p, true);
+        }
+        // 讨论内容也要回来:否则恢复出来的提案只剩 diff,上一轮说过什么全没了
+        for (const [id, d] of Object.entries(entry.discussion ?? {})) {
+            if (this.data.has(id) && d) this.discussion.set(id, d);
+        }
+        if (list.length) logInfo(`恢复 ${list.length} 个未处理的提案(含讨论)`);
+    }
+
+    /** 状态变了:先落盘,再通知界面。所有变更点都走这里,免得漏存 */
+    private changed(): void {
+        this.persist();
+        this.onChange();
+    }
+
+    private storeFile(): string {
+        return path.join(this.root, STORE_DIR, STORE_FILE);
+    }
+
+    private readStore(): StoreShape {
+        try {
+            const raw = fs.readFileSync(this.storeFile(), "utf8");
+            const parsed = JSON.parse(raw) as StoreShape;
+            return parsed?.sessions ? parsed : { sessions: {} };
+        } catch {
+            return { sessions: {} };
+        }
+    }
+
+    private persist(): void {
+        if (this.saveTimer) clearTimeout(this.saveTimer);
+        this.saveTimer = setTimeout(() => {
+            this.saveTimer = undefined;
+            if (this.sessionKey) this.writeStore(this.sessionKey);
+        }, 120);
+    }
+
+    private writeStore(key: string): void {
+        const store = this.readStore();
+        const pending: WriteProposal[] = [];
+        const discussion: Record<string, Discussion> = {};
+        for (const [id, p] of this.data) {
+            if ((this.status.get(id) ?? "pending") !== "pending") continue;
+            pending.push(p);
+            const d = this.discussion.get(id);
+            if (d && (d.question || d.answer)) discussion[id] = d;
+        }
+        if (pending.length) store.sessions[key] = { proposals: pending, discussion };
+        else delete store.sessions[key];
+
+        const file = this.storeFile();
+        try {
+            if (!Object.keys(store.sessions).length) {
+                if (fs.existsSync(file)) fs.unlinkSync(file);
+                return;
+            }
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.writeFileSync(file, JSON.stringify(store, null, 2), "utf8");
+        } catch (err) {
+            logWarn(`提案存档写入失败:${String(err)}`);
+        }
     }
 
     private revealTimer: ReturnType<typeof setTimeout> | undefined;
@@ -249,6 +368,7 @@ export class ProposalComments implements vscode.Disposable {
         cur.answer = text;
         this.discussion.set(proposalId, cur);
         thread.comments = this.buildComments(p);
+        this.persist();
     }
 
     /** 用户提交了一条讨论回复 */
@@ -261,6 +381,7 @@ export class ProposalComments implements vscode.Disposable {
         this.discussion.set(id, cur);
         const p = this.data.get(id);
         if (p) thread.comments = this.buildComments(p);
+        this.persist();
         this.onAsk(id, text);
     }
 
@@ -277,7 +398,7 @@ export class ProposalComments implements vscode.Disposable {
         if (bad) {
             this.status.set(proposalId, "rejected");
             this.dismissThread(proposalId);
-            this.onChange();
+            this.changed();
             return { ok: false, error: `提案已失效:${bad}` };
         }
 
@@ -293,7 +414,7 @@ export class ProposalComments implements vscode.Disposable {
 
             this.status.set(proposalId, "accepted");
             this.dismissThread(proposalId);
-            this.onChange();
+            this.changed();
             this.revealNextPending();
             return { ok: true };
         }
@@ -310,7 +431,7 @@ export class ProposalComments implements vscode.Disposable {
             this.status.set(proposalId, "rejected");
             this.invalid.set(proposalId, loc.error ?? "定位失败");
             this.dismissThread(proposalId);
-            this.onChange();
+            this.changed();
             return { ok: false, error: loc.error ?? "定位失败" };
         }
 
@@ -332,7 +453,7 @@ export class ProposalComments implements vscode.Disposable {
 
         this.status.set(proposalId, "accepted");
         this.dismissThread(proposalId);
-        this.onChange();
+        this.changed();
         this.revealNextPending();
         return { ok: true };
     }
@@ -342,7 +463,7 @@ export class ProposalComments implements vscode.Disposable {
         if (!this.data.has(proposalId)) return;
         this.status.set(proposalId, "rejected");
         this.dismissThread(proposalId);
-        this.onChange();
+        this.changed();
         this.revealNextPending();
     }
 
@@ -374,10 +495,12 @@ export class ProposalComments implements vscode.Disposable {
                 file: p.file,
                 status: s === "accepted" ? "accepted" : s === "rejected" ? "rejected" : "auto-rejected",
                 error: this.invalid.get(id),
-                reply: this.replies.get(id),
             });
             this.close(id);
         }
+        // 结算会把待处理的清空,得把存档一起收掉,并让面板跟着消失
+        if (this.sessionKey) this.writeStore(this.sessionKey);
+        this.onChange();
         return out;
     }
 
@@ -388,7 +511,6 @@ export class ProposalComments implements vscode.Disposable {
         this.status.delete(proposalId);
         this.invalid.delete(proposalId);
         this.discussion.delete(proposalId);
-        this.replies.delete(proposalId);
         this.clearHighlight();
         this.repaintHighlights();
     }
@@ -399,30 +521,11 @@ export class ProposalComments implements vscode.Disposable {
      * 数据(data / status)保留,因为侧栏面板还要显示"已接受/已拒绝".
      */
     private dismissThread(proposalId: string): void {
-        this.harvestReply(proposalId);
         this.threads.get(proposalId)?.dispose();
         this.threads.delete(proposalId);
         this.discussion.delete(proposalId);
         this.clearHighlight();
         this.repaintHighlights();
-    }
-
-    /**
-     * 拓取用户在讨论区敲的话。
-     *
-     * thread.comments[0] 是我们画的内容,后面才是用户的回复。
-     * body 有两种形态(string / MarkdownString),两种都要处理。
-     */
-    private harvestReply(proposalId: string): void {
-        const thread = this.threads.get(proposalId);
-        if (!thread) return;
-        const parts: string[] = [];
-        for (const c of thread.comments.slice(1)) {
-            const text = typeof c.body === "string" ? c.body : c.body.value;
-            const trimmed = text.trim();
-            if (trimmed) parts.push(trimmed);
-        }
-        if (parts.length) this.replies.set(proposalId, parts.join("\n"));
     }
 
     private refreshThread(proposalId: string): void {
@@ -451,7 +554,7 @@ export class ProposalComments implements vscode.Disposable {
                 ? `${p.file}:${loc.startLine}-${loc.endLine}`
                 : `${p.file}(已失效)`;
             thread.comments = this.buildComments(p);
-            this.onChange();
+            this.changed();
         }
     }
 

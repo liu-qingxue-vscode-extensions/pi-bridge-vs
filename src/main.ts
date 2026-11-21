@@ -127,8 +127,21 @@ export function activate(context: vscode.ExtensionContext): void {
     //   · -e 的路径不受项目信任,也不受 --no-extensions 影响(docs/cli.md )
     const piExtPath = vscode.Uri.joinPath(context.extensionUri, "dist", "in-pi", "index.mjs").fsPath;
 
+    /**
+     * in-pi 注入开关。
+     *
+     * 用户要自己重写提案模块,先把整块停用 —— 关掉之后:
+     *   · pi 不再加载 dist/in-pi/index.mjs
+     *   · vs_write / vs_answer / vs_show 全部不存在
+     *   · 提案、讨论、讲解三条功能链一起停
+     * 模块代码保留(src/in-pi/ 原样不动),只是不注入。
+     * 恢复时把它改回 true 即可。
+     */
+    const IN_PI_ENABLED = false;
+
     const pi = new PiClient(cwd, {
-        readArgs: () => [...readLaunchArgs(), "-e", piExtPath],
+        readArgs: () =>
+            IN_PI_ENABLED ? [...readLaunchArgs(), "-e", piExtPath] : readLaunchArgs(),
         //  B42:每次启动都现读(含用户的 piCliPath 覆盖)
         //   否则"改设置 → reload / 切换会话"仍用旧路径(启动是多处共用的核心  必须现读)
         readCliPath: () => resolvePiCliPath(),
@@ -858,6 +871,9 @@ export function activate(context: vscode.ExtensionContext): void {
         ),
     );
 
+    // 上一次退出时还有没处理的提案 → 等知道是哪个会话再恢复
+    // (不靠 pi 重放历史:自定义条目不会在重放时重新触发 onOurEntry)
+
     /**
      * 处理来自我们自己的 pi 扩展的内部请求.
      *
@@ -1153,6 +1169,8 @@ export function activate(context: vscode.ExtensionContext): void {
      */
     function settlePending(): string {
         const left = proposalComments.settleAll();
+        const note = proposalNote.trim();
+        proposalNote = "";
         if (!left.length) return "";
         const lines = left.map((r) => {
             const why =
@@ -1161,15 +1179,25 @@ export function activate(context: vscode.ExtensionContext): void {
                     : r.status === "rejected"
                         ? "已拒绝,未写入"
                         : "未处理,已自动拒绝";
-            const note = r.reply ? `\n  用户补充:${r.reply}` : "";
-            return `- ${r.proposalId}(${r.file}):${why}${note}`;
+            return `- ${r.proposalId}(${r.file}):${why}`;
         });
         logInfo(`结算 ${left.length} 个提案`);
-        return `\n\n[本轮提案结算]\n${lines.join("\n")}`;
+        // 决策说明是"没说出口"的话(面板输入框里的草稿),必须随结果带走
+        const tail = note ? `\n用户说明:${note}` : "";
+        return `\n\n[本轮提案结算]\n${lines.join("\n")}${tail}`;
     }
 
     /** 防止批量操作时重复触发自动继续 */
     let settling = false;
+
+    /**
+     * 用户在提案面板输入框里写的决策说明。
+     *
+     * 共用一份而不是每个提案一份:
+     * 这个输入框的语义就是"我对这一轮决策的整体说明",
+     * 分到每条反而让用户不知道该写哪里。
+     */
+    let proposalNote = "";
 
     /** 本轮提案是不是全处理完了 */
     function allHandled(): boolean {
@@ -1203,7 +1231,12 @@ export function activate(context: vscode.ExtensionContext): void {
         action: string;
         proposalId?: string;
         value?: boolean;
+        note?: string;
     }): Promise<void> {
+        // 决策说明:只有与决策有关的动作才收,开关类的不要污染它
+        if (msg.action !== "setAutoContinue" && typeof msg.note === "string") {
+            proposalNote = msg.note.trim();
+        }
         switch (msg.action) {
             case "accept":
                 if (msg.proposalId) await proposalComments.accept(msg.proposalId);
@@ -2337,6 +2370,13 @@ export function activate(context: vscode.ExtensionContext): void {
         //  B46:记下"正在渲染哪个文件"(压缩重放要用  零子进程 )
         if (sessionPath) sessionStore.setRenderedFile(sessionPath);
 
+        // 提案跟着会话走:切会话先把旧的收起来,再把新会话的拿出来
+        try {
+            proposalComments.setSession(sessionPath ?? null);
+        } catch (err) {
+            logError(`切换提案会话失败:${String(err)}`);
+        }
+
         // ── ① 有路径 ⇒ 直接读文件(零子进程  也更快)──
         if (sessionPath && existsSync(sessionPath)) {
             const data = readSessionFile(sessionPath);
@@ -2344,7 +2384,34 @@ export function activate(context: vscode.ExtensionContext): void {
             logInfo(`重放历史(读文件):${messages.length} 条 [${compactHome(sessionPath)}]`);
         }
 
-        // ── ② 回退:问 pi(reload / 不知道路径时)──
+        // ── ② 回退:先问 pi 要当前会话文件路径,再读文件 ──
+        //   为什么不用 get_messages:那是 pi [内部上下文]的视图,
+        //   压缩之后它只给出保留的那部分,界面上就会凭空缺一大段历史
+        //   (实测:压缩点之后发的消息在文件里有,走 RPC 就看不到)。
+        //   文件才是完整的。
+        if (!messages) {
+            try {
+                const st = (await pi.sendRaw({ type: "get_state" })) as {
+                    data?: { sessionFile?: unknown };
+                };
+                const f = st?.data?.sessionFile;
+                if (typeof f === "string" && f && existsSync(f)) {
+                    const data = readSessionFile(f);
+                    messages = data.messages;
+                    // 无参数进来时 sessionStore 还不知道是哪个文件,这里补上
+                    sessionStore.setRenderedFile(f);
+                    proposalComments.setSession(f);
+                    logInfo(
+                        `重放历史(get_state 路径 + 读文件):${messages.length} 条 ` +
+                        `[${compactHome(f)}]`,
+                    );
+                }
+            } catch (err) {
+                logWarn(`取会话文件路径失败:${toErrorMessage(err)}`);
+            }
+        }
+
+        // ── ③ 最后回退:直接问 pi ──
         if (!messages) {
             const resp = (await pi.sendRaw({ type: "get_messages" })) as {
                 data?: { messages?: ReplayMessage[] };
@@ -2627,6 +2694,10 @@ export function activate(context: vscode.ExtensionContext): void {
     });
 
     chatView.onReady = () => {
+        // 恢复出来的提案要在这里推:webview 未就绪时 post() 会被静默丢弃,
+        // 在构造完之后立即推的话,重启后面板就是空的(数据在,但画不出来)
+        pushProposalList();
+
         //  B32:把自由按钮推给容器(它只读 VS Code 配置  不依赖 pi )
         pushCommands();
         if (pi.isStarted()) {
