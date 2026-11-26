@@ -18,7 +18,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolvePiAgentDir } from "./paths.js";
+import { vsSettings } from "../external-data/vs-settings.js";
 
 /** 缓存(避免每个 message_end 都读磁盘) */
 let cache: Map<string, number> | undefined;
@@ -42,7 +42,7 @@ type ModelsJson = {
 function load(): Map<string, number> {
     const map = new Map<string, number>();
     try {
-        const file = join(resolvePiAgentDir(), "models.json");
+        const file = join(vsSettings.get("pi-bridge.piAgentDir"), "models.json");
         const raw = JSON.parse(readFileSync(file, "utf8")) as ModelsJson;
         for (const [providerName, provider] of Object.entries(raw.providers ?? {})) {
             for (const m of provider?.models ?? []) {

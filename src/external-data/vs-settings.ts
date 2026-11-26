@@ -23,6 +23,7 @@ import { settingDefaults } from "../types/settings-type.js";
 import type { SettingName, SettingTypeMap, SettingValue } from "../types/settings-type.js";
 import { logWarn, createVSLogger } from "../logger.js";
 import { schema } from "../util/simple-schema.js";
+import { Any } from "typebox";
 
 const log = createVSLogger("vs-settings")
 const SECTION = "pi-bridge";
@@ -43,10 +44,11 @@ class VSSettingsManager {
     /** 多个键 对 一个函数 */
     private watchsSome = new Map<SettingName[], () => void>()
     private watchsSomeL: Set<SettingName> = new Set<SettingName>()
+    private dispose: vscode.Disposable | null = null
 
     constructor() {
         this.refresh()
-        vscode.workspace.onDidChangeConfiguration((e) => {
+        this.dispose = vscode.workspace.onDidChangeConfiguration((e) => {
             if (!e.affectsConfiguration(SECTION)) return;
             log.info("Pi的设置变化")
             log.info(`当前为${JSON.stringify([...this.watchs.keys()])}和${JSON.stringify([...this.watchsSome.keys()])}`)
@@ -64,6 +66,15 @@ class VSSettingsManager {
                 if (changeOne) h(); log.info(`回调发生在${sns}`)
             }
         })
+    }
+
+    getDispose(): vscode.Disposable {
+        if (this.dispose === null) {
+            throw new Error("不可能?vsSettings实例化晚于getDispose??")
+        }
+        const dispose = this.dispose
+        this.dispose = null
+        return dispose
     }
 
     refresh(): void {

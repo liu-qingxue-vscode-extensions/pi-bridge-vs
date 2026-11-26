@@ -24,7 +24,7 @@
  */
 import * as vscode from "vscode";
 import { loadWebviewHtml } from "../external-data/html-loader.js";
-
+import { vsSettings } from "../external-data/vs-settings.js";
 export interface UiReq {
     id: string;
     method: "select" | "confirm" | "input" | "editor";
@@ -69,13 +69,6 @@ export class InteractionPanel {
         private readonly onReply: (id: string, res: UiRes, from: "panel" | "sidebar") => void,
         /** 队列变化 → 通知 main 更新侧栏提示条 */
         private readonly onStateChange: () => void,
-        /** 读配置(实时 )*/
-        private readonly isAutoClose: () => boolean,
-        /**
-         * 关闭延迟(毫秒 0 = 立刻关 )
-         *   用来吸收串行连问的下一个请求 (见 closeByUs )
-         */
-        private readonly closeDelayMs: () => number,
         /** 面板关闭后 → 焦点回聊天输入框 */
         private readonly onClosed: () => void,
     ) { }
@@ -133,7 +126,7 @@ export class InteractionPanel {
         const n = this.pending.length;
         this.pending = this.pending.filter((r) => r.taskId !== taskId);
         if (this.pending.length === n) return; // 什么都没删 不用重绘
-        if (this.pending.length === 0 && this.panel && this.isAutoClose()) {
+        if (this.pending.length === 0 && this.panel && vsSettings.get("pi-bridge.interaction.autoClose")) {
             this.closeByUs();
         } else {
             this.sync();
@@ -145,7 +138,7 @@ export class InteractionPanel {
         const i = this.pending.findIndex((r) => r.id === id);
         if (i >= 0) this.pending.splice(i, 1);
 
-        if (this.pending.length === 0 && this.panel && this.isAutoClose()) {
+        if (this.pending.length === 0 && this.panel && vsSettings.get("pi-bridge.interaction.autoClose")) {
             this.closeByUs();
         } else {
             this.sync();
@@ -182,7 +175,7 @@ export class InteractionPanel {
             this.panel?.dispose(); // → onDidDispose 里看到 closingByUs 不取消任何东西
             this.onStateChange();
             this.onClosed();
-        }, this.closeDelayMs());
+        }, vsSettings.get("pi-bridge.interaction.closeDelay"));        //  关闭延迟(毫秒  0 = 立刻关  默认 600 ),用来[吸收串行连问]的下一个请求 (否则面板会闪 N 次 )
     }
 
     private ensure(): void {
