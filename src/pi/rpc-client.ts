@@ -24,21 +24,20 @@ import type {
     RpcResponse,
     RpcExtensionUIResponse,
     PiLocalEvent,
-    stdOutEvent
+    stdOutEvent,
+    PiAllEvent
 } from "../types/pi-type.js";
 import { createCLogger, Logger } from "../logger.js";
+import { NONAME } from "node:dns";
 
-const conLog = createCLogger("test-pi-client")
+const conLog = createCLogger("pi-client-rpc")
 
-/**
- *   日志由上层注入(PiClient 传 logger 的方法 )
- *   → 可以不启动 VS Code 就单独跑(scripts/smoke-own-rpc.mjs )
- */
-
-
-/** 等待回执的超时(与官方一致:30s ) */
+/** 等待回执的超时*/
 const REQUEST_TIMEOUT_MS = 30_000;
-/** 停止时的宽限:先 SIGTERM,这么久还没退再 SIGKILL */
+/** 停止时: 
+ * 1. 先 SIGTERM,
+ * 2. 这么久还没退再 SIGKILL
+ */
 const KILL_GRACE_MS = 1_000;
 
 interface PendingRequest {
@@ -55,7 +54,7 @@ export interface OwnRpcClientOptions {
     args?: string[];
     /** 额外环境变量 */
     env?: Record<string, string | undefined>;
-    /** 日志回调(不传则只输出 error 到 console ) */
+    /** 日志回调(不传则输出 到 console ) */
     logger?: Logger;
 }
 
@@ -68,10 +67,6 @@ export class OwnRpcClient {
     /** 请求序号(拼 id 用) */
     private seq = 0;
 
-
-    /** stderr 累积(挂监听前产生的也会留在这里,onStderr 时补发 ) */
-    private stderrText = "";
-
     /**
      * 回执 / 事件的订阅者
      *
@@ -82,10 +77,12 @@ export class OwnRpcClient {
      *     为什么?调试板需要看到它
      *     (之前只给 pending → 主动命令在调试板上“消失”了 )
      */
-    private readonly eventHandlers = new Set<(e: stdOutEvent) => void>();
+    eventHandler: ((e: PiAllEvent) => void) | null = null;
 
-    /** stderr 订阅者 */
-    private readonly stderrHandlers = new Set<(text: string) => void>();
+    /** stderr 订阅者
+     * 只能有一个: 因为它无法分流
+     */
+    private handleStderr: ((text: string) => void) | null = null;
 
     /** 进程是否已退出(退出后所有请求立即失败,不等超时 ) */
     private exitError: Error | null = null;
@@ -99,13 +96,21 @@ export class OwnRpcClient {
     //  生命周期
     // ═══════════════════════════════════════════════════════════
 
-    /** 启动 pi 子进程(不做就绪判断 - 那是上层用 getState 探针的事 ) */
+    /** stderr 累积, onStderr 时补发 */
+    private stderrText = "";
+
+    /** 1. 启动 pi 子进程
+     * (不做就绪判断 - 那是上层用的事 )
+     */
     async start(): Promise<void> {
+        // 0. 防重复启动
         if (this.proc) throw new Error("pi 已经启动");
 
+        // 1. 拼接额外前缀参数
         const args = ["--mode", "rpc", ...(this.options.args ?? [])];
-        this.log.debug(`[rpc] spawn: node ${this.options.cliPath} ${args.join(" ")}`);
+        this.log.debug(` 启动的路径:${this.options.cliPath},额外参数: ${args.join(" ")}`);
 
+        // 2. 正式启动, 拿到句柄
         const proc = spawn("node", [this.options.cliPath, ...args], {
             cwd: this.options.cwd,
             env: { ...process.env, ...this.options.env },
@@ -114,30 +119,41 @@ export class OwnRpcClient {
         this.proc = proc;
         this.exitError = null;
 
-        // ── stdout:逐行解析 ──
-        proc.stdout?.on("data", (chunk: Buffer) => this.onStdout(chunk));
+        // 3. 数据管线
+        // 3.1 stdout的数据管线:按行解析
+        proc.stdout?.on("data", (chunk: Buffer) => this.handleStdout(chunk));
 
-        // ── stderr:累积 + 事件式分发(官方没有的能力)──
+        // 3.2 stderr的数据管线:累积 + 事件式分发
         proc.stderr?.on("data", (chunk: Buffer) => {
             const text = chunk.toString();
             this.stderrText += text;
-            for (const handler of this.stderrHandlers) handler(text);
+            if (this.handleStderr) {
+                this.handleStderr(text);
+            }
         });
 
-        // ── 退出:让所有挂起的请求立即失败(而不是干等到超时 )──
+        // 4. 子进程退出
+        // 4.1. pi退出
         proc.once("exit", (code, signal) => {
-            if (this.proc !== proc) return; // 已被 stop() 换掉 → 不重复处理
-            this.exitError = new Error(`pi 进程退出 (code=${code} signal=${signal})`);
-            this.rejectAll(this.exitError);
-            // B37:退出也广播一份(调试板要看 它不是协议包 见 PiLocalEvent )
-            this.broadcastLocal({ type: "pi_exit", code, signal });
-        });
-        proc.once("error", (err) => {
+            // 4.1.1. 已被 stop() 换掉 → 不重复处理
             if (this.proc !== proc) return;
+            // 4.1.2. 退出信息
+            this.exitError = new Error(`pi 进程退出 (code=${code} signal=${signal})`);
+            // 4.1.3. 所有等待回执全部失败
+            this.rejectAllPending(this.exitError);
+            // 4.1.4. 广播[pi退出]事件
+            this.emitEvent({ type: "pi_exit", code, signal });
+        });
+        // 4.2. Node报错退出
+        proc.once("error", (err) => {
+            // 4.2.1. 已被 stop() 换掉 → 不重复处理
+            if (this.proc !== proc) return;
+            // 4.2.2. 退出信息
             this.exitError = new Error(`无法启动 pi: ${err.message}`);
-            this.rejectAll(this.exitError);
-            // B37:启动失败同理
-            this.broadcastLocal({ type: "pi_spawn_error", text: err.message });
+            // 4.2.3. 所有等待回执全部失败
+            this.rejectAllPending(this.exitError);
+            // 4.1.4. 广播[子进程崩坏]事件
+            this.emitEvent({ type: "pi_spawn_error", text: err.message });
         });
 
         // 等一小会:若进程立刻崩了,这里就报错(比等到超时更友好 )
@@ -146,7 +162,11 @@ export class OwnRpcClient {
             throw this.exitError ?? new Error(`pi 启动后立即退出 (code=${proc.exitCode})`);
         }
     }
-
+    /** 所有等待回执全部失败并清空 */
+    private rejectAllPending(error: Error): void {
+        for (const pending of this.pending.values()) pending.reject(error);
+        this.pending.clear();
+    }
     /** 停止 pi(SIGTERM → 宽限后 SIGKILL) */
     async stop(): Promise<void> {
         const proc = this.proc;
@@ -154,6 +174,7 @@ export class OwnRpcClient {
         this.proc = null; // 先摘掉:避免 exit 回调再走一遍逻辑
 
         this.log.debug("[rpc] stop");
+        this.rejectAllPending(new Error("pi 已被停止"));
         proc.kill("SIGTERM");
 
         await new Promise<void>((resolve) => {
@@ -167,7 +188,6 @@ export class OwnRpcClient {
             });
         });
 
-        this.pending.clear();
         this.stdoutBuffer = "";
     }
 
@@ -236,21 +256,12 @@ export class OwnRpcClient {
      * 订阅时会[立即补发]已累积的历史(启动期输出的扩展日志等 )
      */
     onStderr(handler: (text: string) => void): () => void {
-        this.stderrHandlers.add(handler);
+        this.handleStderr = handler;
         if (this.stderrText) handler(this.stderrText); // 补历史
         return () => {
-            this.stderrHandlers.delete(handler);
+            this.handleStderr = null;
         };
     }
-
-    /** 订阅事件 / 回执流(含主动命令的回执 ) */
-    onEvent(handler: (event: stdOutEvent) => void): () => void {
-        this.eventHandlers.add(handler);
-        return () => {
-            this.eventHandlers.delete(handler);
-        };
-    }
-
     // ═══════════════════════════════════════════════════════════
     //  具名方法(只是糖;真正的入口是 send )
     // ═══════════════════════════════════════════════════════════
@@ -260,11 +271,7 @@ export class OwnRpcClient {
      * (PiClient 用它做"启动完成"的判断)
      */
     async getState(): Promise<unknown> {
-        return this.dataOf(await this.send({ type: "get_state" }));
-    }
-
-    /** 从回执里取 data;失败则抛错(与官方 getData 行为一致 ) */
-    private dataOf(response: RpcResponse): unknown {
+        const response = await this.send({ type: "get_state" })
         if (response.success) return (response as { data?: unknown }).data;
         throw new Error((response as { error?: string }).error ?? "命令失败(无错误信息)");
     }
@@ -272,32 +279,30 @@ export class OwnRpcClient {
     // ═══════════════════════════════════════════════════════════
     //  内部:stdout 解析
     // ═══════════════════════════════════════════════════════════
-    /** stdout 行缓冲(TCP 流会截断,必须自己拼行 ) */
+    /** stdout 行缓冲 */
     private stdoutBuffer = "";
 
     /** stdout 到达:拼进缓冲,按行切 */
-    private onStdout(chunk: Buffer): void {
+    private handleStdout(chunk: Buffer): void {
         this.stdoutBuffer += chunk.toString();
         let idx: number;
+        // 将当前缓冲里所有能切出来的行切完, 一个块到来切一次 
         while ((idx = this.stdoutBuffer.indexOf("\n")) >= 0) {
             const line = this.stdoutBuffer.slice(0, idx);
             this.stdoutBuffer = this.stdoutBuffer.slice(idx + 1);
+            // 切一行消费一行
             if (line.trim()) this.handleLine(line);
         }
     }
 
     /** 处理一行:回执 → 匹配 pending;其余 → 当事件分发 */
     private handleLine(line: string): void {
-        let data: stdOutEvent;
+        let data: PiAllEvent;
         try {
             data = JSON.parse(line) as stdOutEvent;
         } catch {
-            // 不是 JSON 的行(pi 偶尔会混入非协议输出)→ 不当错误
-            // B37:但[不能静默丢掉]它也是 pi 发的东西
-            //   调试板是“防漏表”看不见 == 不存在
-            this.log.debug(`[rpc] 非 JSON 行: ${line.slice(0, 120)}`);
-            this.broadcastLocal({ type: "pi_stdout_raw", text: line });
-            return;
+            this.log.error(`[rpc] 非 JSON 行: ${line.slice(0, 120)}`);
+            data = { type: "pi_stdout_raw", text: line };
         }
 
         // ① 回执:匹配 pending 则先 resolve(让调用方拿到 )
@@ -307,26 +312,17 @@ export class OwnRpcClient {
                 const pending = this.pending.get(id)!;
                 this.pending.delete(id);
                 pending.resolve(data);
-                // 但[不 return]- 还要广播给订阅者(调试板要看 )
             }
         }
+        this.emitEvent(data)
 
-        // ② 全部当事件广播(含回执 )
-        for (const handler of this.eventHandlers) {
-            handler(data);
+    }
+
+    private emitEvent(ev: PiAllEvent): void {
+        if (this.eventHandler) {
+            this.eventHandler(ev);
         }
     }
 
-    /** B37:广播一条[非协议]的 pi 侧消息(只给调试板那类读者 )*/
-    private broadcastLocal(ev: PiLocalEvent): void {
-        for (const handler of this.eventHandlers) {
-            handler(ev as never);
-        }
-    }
 
-    /** 所有挂起请求立即失败 */
-    private rejectAll(error: Error): void {
-        for (const pending of this.pending.values()) pending.reject(error);
-        this.pending.clear();
-    }
 }

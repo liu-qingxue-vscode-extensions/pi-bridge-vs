@@ -21,9 +21,7 @@ import { createVSLogger } from "../../logger.js";
 const log = createVSLogger("debug")
 /**
  * 缓冲条目 = 数据 + [宿主记录的]时间戳
- *
- * 时间戳必须在宿主侧记录:前端渲染时刻 ≠ 事件发生时刻
- * (尤其是打开面板刷历史时,所有旧数据都会被打上“现在”的时间)
+ * 旧数据的时间戳要保真
  */
 interface DebugItem {
     ts: number;
@@ -31,6 +29,12 @@ interface DebugItem {
 }
 let rule: CollapseRule;
 
+/**
+ * Debug板子
+ * 1. show打开面板,并显示历史数据
+ * 2. log记录,并尝试推给前端
+ * 3. 监听设置,热加载数据缓存大小
+ */
 export class DebugPanel {
     // ========== 监听句柄 ==========
     private configSub: () => void | undefined;
@@ -78,10 +82,10 @@ export class DebugPanel {
     /** 后台缓冲:真实数据仓库 */
     private readonly buffer = new RingBuffer<DebugItem>(500);
 
-    /** 记录一条数据(由 main.ts 的数据流调用) */
+    /** 1. 记录一条数据(由 main.ts 的数据流调用) */
     log(payload: PiAllEvent): void {
-        const time = Date.now(); // 宿主侧记录时间(前端渲染时刻不准)
-        this.buffer.add({ ts: time, payload }); // 完整入库(无关折叠 )
+        const time = Date.now(); // 时间戳
+        this.buffer.add({ ts: time, payload }); // 入库
 
         if (!this.panel) {
             return
@@ -92,11 +96,11 @@ export class DebugPanel {
     }
 
     // ==========  折叠工具函数  =========
+    //连续折叠检验标准状态
     private foldType = "";
     private foldTs = 0;
     private foldCount = 0;
 
-    /** 连续折叠检验标准状态 */
     private resetFold(label = "", ts = 0): void {
         this.foldType = label;
         this.foldCount = label ? 1 : 0;

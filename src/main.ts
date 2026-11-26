@@ -87,7 +87,7 @@ import { readSessionFile } from "./bridge/session-file.js";
 import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
 import { toErrorMessage } from "./utils.js";
 import { compactHome, expandHome } from "./util/tilde-path.js";
-
+import { reolveWorkspace } from "./util/pi-work-space.js";
 
 export function activate(context: vscode.ExtensionContext): void {
     // 0. 日志(LogOutputChannel:VS Code 自动落盘 + 分级 + 轮转)
@@ -96,47 +96,16 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(initLogger());
     logInfo("pi-bridge-vs 激活");
 
-    // 1. 确定 pi 的工作目录
-    //    没有打开工作区时用 HOME(而不是 process.cwd(),后者不可靠)
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const cwd = workspaceFolder ?? os.homedir();
-    if (!workspaceFolder) {
-        logInfo(`未打开工作区,pi 将以 HOME 目录作为工作目录:${cwd}`);
-    } else {
-        logInfo(`pi 工作目录:${cwd}`);
-    }
+    // 1. pi的工作路径位置
+    const cwd = reolveWorkspace()
 
-    // 2. 创建零件
+    // 2. debug板子
     const debugPanel = new DebugPanel(context.extensionUri, context);
 
-    // pi 的额外启动参数(设置项 pi-bridge.launchArgs)
-    // 用途:临时禁用扩展(--no-extensions)等 - 比如守卫扩展会拦住工具执行,
-    //       而我们还没做 extension_ui_request 的响应桥时,工具会卡在审批上.
-    //
-    //  关键:用[回调]而不是“现在读一次”
-    //   启动参数只能影响 spawn 时刻 → 改完设置必须重启 pi
-    //   现读后,改完设置点一下 reload 按钮就能用新参数启动
-    //  我们自己的 pi 内线扩展(跑在 pi 进程里,见 src/in-pi/index.ts)
-    //
-    // [为什么是 dist/ 而不是 src/]
-    //   .vscodeignore 里排除了 src/** ⇒ 打包后的 vsix 里没有源码
-    //   所以它必须跟 main.cjs 一样是[构建产物](esbuild 打成单文件 .mjs )
-    //
-    // [为什么用 -e 显式指定]
-    //   · 不往用户的 ~/.pi/agent/extensions 里塞东西(不污染 )
-    //   · -e 的路径不受项目信任,也不受 --no-extensions 影响(docs/cli.md )
+    /** [注入pi的拓展]的路径 */
     const piExtPath = vscode.Uri.joinPath(context.extensionUri, "dist", "in-pi", "index.mjs").fsPath;
 
-    /**
-     * in-pi 注入开关。
-     *
-     * 用户要自己重写提案模块,先把整块停用 —— 关掉之后:
-     *   · pi 不再加载 dist/in-pi/index.mjs
-     *   · vs_write / vs_answer / vs_show 全部不存在
-     *   · 提案、讨论、讲解三条功能链一起停
-     * 模块代码保留(src/in-pi/ 原样不动),只是不注入。
-     * 恢复时把它改回 true 即可。
-     */
+    /** false: pi 不再加载 dist/in-pi/index.mjs */
     const IN_PI_ENABLED = false;
 
     const pi = new PiClient(cwd, {
@@ -430,7 +399,6 @@ export function activate(context: vscode.ExtensionContext): void {
     // [两个去处(都是必须的)]
     //   ① 调试板:收原始行(诊断用 )
     //   ②  聊天侧:转成 notice → 走通知面板
-    //     之前只喂了 ①  → stderr 的通知[永远不出现](用户报的 bug )
     pi.onStderr((text) => {
         for (const line of text.split("\n")) {
             if (!line.trim()) continue;

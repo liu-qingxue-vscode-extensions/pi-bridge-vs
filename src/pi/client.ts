@@ -52,9 +52,9 @@ export class PiClient {
     /** 我们自己维护的订阅者集合(官方 onEvent 的回调会转发到这里) */
     private readonly handlers = new Set<PiAllEventHandler>();
 
-    /** stderr 订阅者(记在这里:client 重建后要重挂 ) */
-    private readonly stderrHandlers = new Set<(text: string) => void>();
-
+    /** stderr 订阅者 */
+    private stderrHandler: ((text: string) => void) | null = null;
+    private stderrDispose: (() => any) | null = null
     /**
      * pi 的工作目录(重建时要复用 )
      *
@@ -145,16 +145,17 @@ export class PiClient {
         });
 
         // 事件多播:官方 onEvent 的回调会转发给本层所有订阅者
-        client.onEvent((event) => {
+        client.eventHandler = (event) => {
             for (const handler of this.handlers) {
                 handler(event);
             }
-        });
+        };
 
         // 重挂 stderr:订阅者记在 PiClient 上,client 重建后要重新挂钩
         //   (OwnRpcClient 自己会补发历史 → 不会漏掉启动期输出 )
-        for (const handler of this.stderrHandlers) {
-            client.onStderr(handler);
+        if (this.stderrHandler) {
+            this.stderrDispose = client.onStderr(this.stderrHandler);
+            this.stderrHandler = null
         }
 
         return client;
@@ -286,24 +287,18 @@ export class PiClient {
 
     /**
      * 订阅 pi 的 stderr(错误 / 诊断信息)
-     *
-     * [为什么必须送上前端?]
-     * stderr 是 pi 进程的第三条输出通道,包含错误和诊断.
-     * 若只转发给 process.stderr(开发者控制台),界面上看不见
-     * 用户就无法感知“用着用着突然报错”
-     *
-     * 事件式 - 由 OwnRpcClient.onStderr 提供(官方只有拉取式 )
-     *   订阅时它会[立即补发已累积的历史],所以不会漏掉启动期输出
-     *
+     * 订阅时它会[立即补发已累积的历史],不会漏掉启动期输出
      * @returns 取消订阅的函数
      */
     onStderr(handler: (text: string) => void): () => void {
-        this.stderrHandlers.add(handler);
-        // 已启动过 → 立刻挂上;否则等 doStart → buildClient 时统一挂
-        // (激活阶段进程还没起,什么也不做是正常的 )
-        this.client?.onStderr(handler);
+        // 派的进程还没有启动? 那就延后注册
+        this.client ? this.client.onStderr(handler) : this.stderrHandler = handler;
         return () => {
-            this.stderrHandlers.delete(handler);
+            if (this.stderrDispose) {
+                this.stderrDispose()
+            } else {
+                this.stderrHandler = null
+            }
         };
     }
 
