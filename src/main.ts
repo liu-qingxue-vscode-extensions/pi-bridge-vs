@@ -46,7 +46,7 @@ import { ChatState } from "./view/chat-state.js";
 import { PiClient } from "./pi/client.js";
 import { readSettings, resolveSessionRoot } from "./pi/settings.js";
 import { describeSelfCheck, runSelfCheck, type SelfCheck } from "./pi/pi-selfcheck.js";
-import { currentPiPackageDir, currentPiVersion, resolvePiAgentDir, resolvePiCliPath, } from "./pi/paths.js";
+import { currentPiPackageDir, currentPiVersion, } from "./pi/paths.js";
 import { checkPiVersion } from "./pi/version-check.js";
 import { SessionStore } from "./pi/session-store.js";
 // panel
@@ -88,6 +88,7 @@ import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
 import { toErrorMessage } from "./utils.js";
 import { compactHome, expandHome } from "./util/tilde-path.js";
 import { reolveWorkspace } from "./util/pi-work-space.js";
+import { vsSettings } from "./external-data/vs-settings.js";
 
 export function activate(context: vscode.ExtensionContext): void {
     // 0. 日志(LogOutputChannel:VS Code 自动落盘 + 分级 + 轮转)
@@ -105,16 +106,7 @@ export function activate(context: vscode.ExtensionContext): void {
     /** [注入pi的拓展]的路径 */
     const piExtPath = vscode.Uri.joinPath(context.extensionUri, "dist", "in-pi", "index.mjs").fsPath;
 
-    /** false: pi 不再加载 dist/in-pi/index.mjs */
-    const IN_PI_ENABLED = false;
-
-    const pi = new PiClient(cwd, {
-        readArgs: () =>
-            IN_PI_ENABLED ? [...readLaunchArgs(), "-e", piExtPath] : readLaunchArgs(),
-        //  B42:每次启动都现读(含用户的 piCliPath 覆盖)
-        //   否则"改设置 → reload / 切换会话"仍用旧路径(启动是多处共用的核心  必须现读)
-        readCliPath: () => resolvePiCliPath(),
-    });
+    const pi = new PiClient(cwd);
 
     //  B42:启动失败通报 - [统一入口](去重)
     //    为什么要收口:启动是[多处共用的核心](自检 / reload / 切换会话 / 发消息)
@@ -160,8 +152,8 @@ export function activate(context: vscode.ExtensionContext): void {
     let lastSelfCheck: SelfCheck | undefined;
     async function selfCheckAndReport(): Promise<void> {
         const r = await runSelfCheck({
-            cliPath: resolvePiCliPath(),
-            agentDir: resolvePiAgentDir(),
+            cliPath: vsSettings.get("pi-bridge.piCliPath"),
+            agentDir: vsSettings.get("pi-bridge.piAgentDir"),
         });
         lastSelfCheck = r;
         void context.globalState.update("pi-bridge.selfCheck", r); // 阶段 4:缓存(备查)
@@ -183,57 +175,28 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     void selfCheckAndReport();
 
-    //  B42:PiClient 的启动失败也走[同一个通报]
-    //    这样 reload / 切换会话 / 发消息 触发的启动失败,用户都能看见通知
-    context.subscriptions.push({
-        dispose: pi.onStartError((err) => {
-            notifyPiStartError(err.kind, err.cliPath, err.message);
-        }),
-    });
     context.subscriptions.push(
+        //  B42:PiClient 的启动失败也走[同一个通报]
+        //    这样 reload / 切换会话 / 发消息 触发的启动失败,用户都能看见通知
         vscode.commands.registerCommand("pi-bridge.selfCheck", () => {
             logInfo(` 上次自检结果:\n${lastSelfCheck ? describeSelfCheck(lastSelfCheck) : "(还没跑过)"}`);
             void selfCheckAndReport();
+        }), {
+        dispose: pi.onStartError((err) => {
+            notifyPiStartError(err.kind, err.cliPath, err.message);
         }),
-    );
-
-    /**  我们给 pi 的启动参数(设置项 pi-bridge.launchArgs )*/
-    function readLaunchArgs(): string[] {
-        const args = vscode.workspace.getConfiguration("pi-bridge").get<string[]>("launchArgs", []);
-        return Array.isArray(args) ? args.filter((a) => typeof a === "string") : [];
     }
+    );
     const chatState = new ChatState(); // 插件端权威聊天状态(webview 只是显示器)
     //  会话发现层(读 sessions/ 目录 + 维护 cwd 映射表 )
     const sessionStore = new SessionStore(context);
 
-    //  sessionDir 变量化(B24 用户要求的第二步 )
-    //
-    //   原来 session-store 硬编码 <agentDir>/sessions
-    //   而 pi 的 settings.json 里有 sessionDir  改了它 pi 就把会话写别处
-    //   → 我们若不变 → [会话列表全空](用户:“一定会出错” 完全正确)
-    //   优先级:CLI --session-dir > settings.sessionDir > 默认
-    //    改这个值要在[设置面板保存]和[激活时]都重新算一次
-    sessionStore.setRoot(resolveSessionRoot(readLaunchArgs()));
-    //  B42:额外的[只读探测目录](会话散落多处时用  不碰 pi 的 sessionDir)
-    const readExtraSessionDirs = (): string[] => {
-        const v = vscode.workspace
-            .getConfiguration("pi-bridge.sessions")
-            .get<string[]>("extraDirs", []);
-        return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
-    };
-    sessionStore.setExtraDirs(readExtraSessionDirs());
-    //  通知环形缓冲上限(配置可调;改设置时实时生效 )
-    const applyNoticeLimit = (): void => {
-        chatState.setNoticeLimit(
-            vscode.workspace.getConfiguration("pi-bridge.notice").get<number>("bufferSize", 50),
-        );
-    };
-    applyNoticeLimit();
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration("pi-bridge.notice")) applyNoticeLimit();
-        }),
-    );
+    sessionStore.setRoot(resolveSessionRoot(vsSettings.get("pi-bridge.launchArgs")));// pi的数据目录
+    sessionStore.setExtraDirs(vsSettings.get("pi-bridge.sessions.extraDirs"));//会话目录
+    chatState.setNoticeLimit(vsSettings.get("pi-bridge.notice.bufferSize")) //  通知环形缓冲上限
+    vsSettings.onSC("pi-bridge.notice.bufferSize", () => {
+        chatState.setNoticeLimit(vsSettings.get("pi-bridge.notice.bufferSize"));// 通知环形缓冲上限的,配置热加载
+    });
 
     // 3. 数据流 ①:pi 事件 → 两个[独立]订阅者(扇出)
     //    订阅者 1(调试板):收[原始数据]- 诊断用,保持原样不翻译
@@ -416,16 +379,6 @@ export function activate(context: vscode.ExtensionContext): void {
         context.extensionUri,
         (id, res) => handleUiResponse(id, res, "panel"),
         () => pushHint(),
-        () =>
-            vscode.workspace
-                .getConfiguration("pi-bridge")
-                .get<boolean>("interaction.autoClose", true),
-        //  关闭延迟(毫秒  0 = 立刻关  默认 600 )
-        //   用来[吸收串行连问]的下一个请求 (否则面板会闪 N 次 )
-        () =>
-            vscode.workspace
-                .getConfiguration("pi-bridge")
-                .get<number>("interaction.closeDelay", 600),
         () => chatView.focusInput(),
     );
 
@@ -1914,10 +1867,8 @@ export function activate(context: vscode.ExtensionContext): void {
         //  B37:侧栏 ⚙ 带 toggle  再点一次就关
         showPanel: () => showExclusive("settings", true),
         onSessionDirChanged: async () => {
-            //  改了 sessionDir → 我们的会话扫目录要跟着改
-            //   (否则列表全空  用户预言的"一定会出错")
-            sessionStore.setRoot(resolveSessionRoot(readLaunchArgs()));
-            sessionStore.setExtraDirs(readExtraSessionDirs());
+            sessionStore.setRoot(resolveSessionRoot(vsSettings.get("pi-bridge.launchArgs")));
+            sessionStore.setExtraDirs(vsSettings.get("pi-bridge.sessions.extraDirs"));
             await sessionActions.list();
         },
     });
@@ -2907,7 +2858,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("pi-bridge.sessions")) {
                 //  B42:extraDirs 变了 ⇒ 重新注入(下次 list 就用新目录 )
-                sessionStore.setExtraDirs(readExtraSessionDirs());
+                sessionStore.setExtraDirs(vsSettings.get("pi-bridge.sessions.extraDirs"));
                 void sessionActions.list();
             }
         }),

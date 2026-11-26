@@ -37,7 +37,7 @@ import type { ChatState } from "../view/chat-state.js";
 import { logDebug, logError, logInfo, logWarn } from "../logger.js";
 import { toErrorMessage } from "../utils.js";
 import { compactHome } from "../util/tilde-path.js";
-
+import { vsSettings } from "../external-data/vs-settings.js";
 export interface SessionActionsDeps {
     /** pi 子进程客户端(启动 / 切换 / 分叉都靠它 )*/
     pi: PiClient;
@@ -122,9 +122,7 @@ export function createSessionActions(deps: SessionActionsDeps): SessionActions {
      */
     const list = async (): Promise<void> => {
         const all = await sessionStore.listEntries();
-        const scope = vscode.workspace
-            .getConfiguration("pi-bridge.sessions")
-            .get<string>("scope", "all");
+        const scope = vsSettings.get("pi-bridge.sessions.scope")
         const cur = pi.getCwd();
         const filtered = scope === "current" ? all.filter((s) => s.cwd === cur || !s.cwd) : all;
         logInfo(

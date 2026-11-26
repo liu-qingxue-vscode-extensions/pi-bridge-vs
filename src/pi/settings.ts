@@ -107,7 +107,7 @@ export function resolveSessionRoot(launchArgs: readonly string[] = []): string {
         const v = launchArgs[i + 1];
         return v.startsWith("~") ? path.join(process.env.HOME ?? "", v.slice(1)) : path.resolve(v);
     }
-    // ② settings
+    // ② pi-settings
     const s = readSettings().sessionDir;
     if (typeof s === "string" && s.trim()) {
         const v = s.trim();

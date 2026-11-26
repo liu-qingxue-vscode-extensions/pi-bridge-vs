@@ -27,12 +27,10 @@ import type {
     RpcResponse,
 } from "../types/pi-type.js";
 import type { PiStartError } from "../types/view-event-type.js";
-import { resolvePiCliPath } from "./paths.js";
 import { OwnRpcClient } from "./rpc-client.js";
-
+import { vsSettings } from "../external-data/vs-settings.js";
 
 const log = createVSLogger("pi-client")
-
 export class PiClient {
     /**
      * 内部传输层 [每次启动重建]
@@ -80,25 +78,9 @@ export class PiClient {
      */
     constructor(
         cwd: string,
-        options: {
-            cliPath?: string;
-            readCliPath?: () => string;
-            readArgs?: () => string[];
-            extraArgs?: string[];
-        } = {},
     ) {
         this.cwd = cwd;
-        this.readCliPath =
-            options.readCliPath ?? ((): string => options.cliPath ?? resolvePiCliPath());
-        this.readArgs = options.readArgs ?? ((): string[] => options.extraArgs ?? []);
-        log.debug(`cliPath(启动时现读)= ${this.readCliPath()}`);
     }
-
-    /** 现读 cli 路径(每次启动都重新解析 ⇒ 用户改设置立刻生效)*/
-    private readonly readCliPath: () => string;
-
-    /** 现读额外启动参数(由 main.ts 提供:从设置项里拿 ) */
-    private readonly readArgs: () => string[];
 
     /**
      * B42:启动失败订阅者
@@ -131,14 +113,14 @@ export class PiClient {
      */
     private buildClient(): OwnRpcClient {
         // 现读参数(不是构造时读 )- 这就是“懒读”的关键一步
-        const extraArgs = this.readArgs();
+        const extraArgs = vsSettings.get("pi-bridge.launchArgs");
         if (extraArgs.length) {
             log.info(`[PiClient] 额外启动参数: ${extraArgs.join(" ")}`);
         }
 
         const client = new OwnRpcClient({
             cwd: this.cwd,
-            cliPath: this.readCliPath(), // 现读(用户改设置立刻生效)
+            cliPath: vsSettings.get("pi-bridge.piCliPath"), // 现读(用户改设置立刻生效)
             args: [...extraArgs],
             // 注入日志:传输层不依赖 vscode,日志由本层提供
             logger: log,
@@ -191,7 +173,7 @@ export class PiClient {
 
     /** 真正的启动流程(只被 ensureStarted 调用一次) */
     private async doStart(): Promise<void> {
-        const cliPath = this.readCliPath(); // 现读(含用户设置覆盖 )
+        const cliPath = vsSettings.get("pi-bridge.piCliPath"); // 现读(含用户设置覆盖 )
         log.info(`[PiClient] 启动 pi --mode rpc ...(cliPath=${cliPath || "(空)"})`);
 
         // B42:两个"启动前就能判定"的失败 ⇒ 立刻通报(覆盖所有启动路径 )
