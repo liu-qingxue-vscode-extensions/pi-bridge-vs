@@ -38,3 +38,11 @@ export function currentPiPackageDir(): string | undefined {
 export function currentPiVersion(): string | undefined {
     return piVersionRaw(readOverride("piCliPath"));
 }
+
+
+export function resolvePiCliPath(): string {
+    const override = readOverride("piCliPath");
+    if (override) return expandHome(override);
+    const pkgDir = piPackageDir();
+    return pkgDir ? cliPathFromPackageDir(pkgDir) : "";
+}

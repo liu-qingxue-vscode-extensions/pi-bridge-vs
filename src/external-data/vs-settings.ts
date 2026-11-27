@@ -21,9 +21,8 @@
 import * as vscode from "vscode";
 import { settingDefaults } from "../types/settings-type.js";
 import type { SettingName, SettingTypeMap, SettingValue } from "../types/settings-type.js";
-import { logWarn, createVSLogger } from "../logger.js";
+import { createVSLogger } from "../logger.js";
 import { schema } from "../util/simple-schema.js";
-import { Any } from "typebox";
 
 const log = createVSLogger("vs-settings")
 const SECTION = "pi-bridge";
@@ -51,11 +50,11 @@ class VSSettingsManager {
         this.dispose = vscode.workspace.onDidChangeConfiguration((e) => {
             if (!e.affectsConfiguration(SECTION)) return;
             log.info("Pi的设置变化")
-            log.info(`当前为${JSON.stringify([...this.watchs.keys()])}和${JSON.stringify([...this.watchsSome.keys()])}`)
+            log.debug(`当前为${JSON.stringify([...this.watchs.keys()])}和${JSON.stringify([...this.watchsSome.keys()])}`)
             this.refresh()
             for (const [sn, h] of this.watchs) {
                 if (!e.affectsConfiguration(sn)) continue;
-                log.info(`回调发生在${sn}`)
+                log.debug(`回调发生在${sn}`)
                 h()
             }
             for (const [sns, h] of this.watchsSome) {
@@ -63,7 +62,7 @@ class VSSettingsManager {
                 for (const sn of sns) {
                     if (e.affectsConfiguration(sn) && changeOne === false) changeOne = true;
                 }
-                if (changeOne) h(); log.info(`回调发生在${sns}`)
+                if (changeOne) h(); log.debug(`回调发生在${sns}`)
             }
         })
     }
@@ -96,7 +95,7 @@ class VSSettingsManager {
         }
         // 配了，且类型不对，才报错
         if (!schema(def, raw)) {
-            logWarn(`配置 ${key} 的类型不对...`);
+            log.warn(`配置 ${key} 的类型不对...`);
             this.snapshot.set(key, def);
             return;
         }

@@ -29,7 +29,9 @@ import type {
 import type { PiStartError } from "../types/view-event-type.js";
 import { OwnRpcClient } from "./rpc-client.js";
 import { vsSettings } from "../external-data/vs-settings.js";
-
+import {
+    resolvePiCliPath
+} from "./paths.js"
 const log = createVSLogger("pi-client")
 export class PiClient {
     /**
@@ -120,7 +122,7 @@ export class PiClient {
 
         const client = new OwnRpcClient({
             cwd: this.cwd,
-            cliPath: vsSettings.get("pi-bridge.piCliPath"), // 现读(用户改设置立刻生效)
+            cliPath: resolvePiCliPath(), // 现读(用户改设置立刻生效)
             args: [...extraArgs],
             // 注入日志:传输层不依赖 vscode,日志由本层提供
             logger: log,
@@ -173,7 +175,7 @@ export class PiClient {
 
     /** 真正的启动流程(只被 ensureStarted 调用一次) */
     private async doStart(): Promise<void> {
-        const cliPath = vsSettings.get("pi-bridge.piCliPath"); // 现读(含用户设置覆盖 )
+        const cliPath = resolvePiCliPath(); // 现读(含用户设置覆盖 )
         log.info(`[PiClient] 启动 pi --mode rpc ...(cliPath=${cliPath || "(空)"})`);
 
         // B42:两个"启动前就能判定"的失败 ⇒ 立刻通报(覆盖所有启动路径 )

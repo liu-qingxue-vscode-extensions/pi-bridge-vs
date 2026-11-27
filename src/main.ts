@@ -46,7 +46,7 @@ import { ChatState } from "./view/chat-state.js";
 import { PiClient } from "./pi/client.js";
 import { readSettings, resolveSessionRoot } from "./pi/settings.js";
 import { describeSelfCheck, runSelfCheck, type SelfCheck } from "./pi/pi-selfcheck.js";
-import { currentPiPackageDir, currentPiVersion, } from "./pi/paths.js";
+import { currentPiPackageDir, currentPiVersion, resolvePiCliPath } from "./pi/paths.js";
 import { checkPiVersion } from "./pi/version-check.js";
 import { SessionStore } from "./pi/session-store.js";
 // panel
@@ -88,20 +88,25 @@ import { initLogger, logInfo, logError, logDebug, logWarn } from "./logger.js";
 import { toErrorMessage } from "./utils.js";
 import { compactHome, expandHome } from "./util/tilde-path.js";
 import { reolveWorkspace } from "./util/pi-work-space.js";
+// external-data
 import { vsSettings } from "./external-data/vs-settings.js";
-
+// 顶层
+import { createVSLogger } from "./logger.js";
+const log = createVSLogger("main")
 export function activate(context: vscode.ExtensionContext): void {
     // 0. 日志(LogOutputChannel:VS Code 自动落盘 + 分级 + 轮转)
-    //  B41:虚拟文档("送去编辑器"用 - 不落盘的内容也能在编辑器里显示/做 diff)
-    context.subscriptions.push(createVirtualDocProvider());
+    context.subscriptions.push(createVirtualDocProvider()); // B41:虚拟文档("送去编辑器"用 - 不落盘的内容也能在编辑器里显示/做 diff)
     context.subscriptions.push(initLogger());
-    logInfo("pi-bridge-vs 激活");
+    log.info("pi-bridge-vs 激活");
 
     // 1. pi的工作路径位置
     const cwd = reolveWorkspace()
 
     // 2. debug板子
     const debugPanel = new DebugPanel(context.extensionUri, context);
+
+    // 3. 设置监听回收句柄
+    context.subscriptions.push(vsSettings.getDispose());
 
     /** [注入pi的拓展]的路径 */
     const piExtPath = vscode.Uri.joinPath(context.extensionUri, "dist", "in-pi", "index.mjs").fsPath;

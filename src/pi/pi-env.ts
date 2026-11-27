@@ -20,10 +20,10 @@
  *   "用户设置项"由调用方(main.ts)传进来 这里只管约定
  */
 
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, mkdirSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-
+import * as vscode from "vscode";
 import { expandHome } from "../util/tilde-path.js";
 
 /* ───────────── 环境变量名(来自 pi --help 的原文)───────────── */
@@ -32,67 +32,35 @@ export const ENV_AGENT_DIR = "PI_CODING_AGENT_DIR";
 export const ENV_SESSION_DIR = "PI_CODING_AGENT_SESSION_DIR";
 export const ENV_PACKAGE_DIR = "PI_PACKAGE_DIR";
 
+
+
 /** pi 包在 npm 全局 node_modules 里的相对路径(探测用)*/
 const PI_PKG_REL = "node_modules/@earendil-works/pi-coding-agent";
 
 /* ───────────── 路径解析 ───────────── */
-/**
- * pi 的数据目录(settings.json / models.json / auth.json / sessions 都在这之下)
- * 语义对齐 pi 的 getAgentDir():环境变量优先 否则 ~/.pi/agent
- */
+/** pi 的数据目录(settings.json / models.json / auth.json / sessions 都在这之下)*/
 export function resolveAgentDir(env: NodeJS.ProcessEnv = process.env): string {
+    // 1. 配置
+    const fromCfg = vscode.workspace.getConfiguration("pi-bridge-vs").get<string>("piAgentDir")?.trim()
     const fromEnv = env[ENV_AGENT_DIR]?.trim();
-    if (fromEnv) return path.resolve(expandHome(fromEnv));
-    return path.join(os.homedir(), ".pi", "agent");
+    const last = path.join(os.homedir(), ".pi", "agent");
+    if (fromCfg) {
+        const dir = path.resolve(expandHome(fromCfg))
+        mkdirSync(dir)
+        return dir;
+    };
+    // 2. 环境变量
+    if (fromEnv) {
+        const dir = path.resolve(expandHome(fromEnv))
+        mkdirSync(dir)
+        return dir;
+    };
+    // 3. 默认
+    const dir = path.resolve(expandHome(last))
+    mkdirSync(dir)
+    return dir;
 }
 
-
-/**
- * 从 pi CLI 的可执行文件位置,反推"pi 包根目录"
- *
- * 分两步:
- *   ① 解析真实路径(`pi` 常常是软链 realpath 才能拿到包里的真实文件)
- *   ② 从该文件往上找第一个含 package.json 的目录
- *      (注意:pi 的 cli 在 <pkg>/dist/cli.js ⇒ 往上第 2 层才是包根
- *        但中间 dist/ 下也可能有 package.json ⇒ 所以"看到 dist 就再上一层")
- */
-export function packageDirFromCli(cliPath: string): string | undefined {
-    let real: string;
-    try {
-        real = realpathSync(cliPath);   // 递归软链接
-    } catch {
-        return undefined;
-    }
-    let dir = path.dirname(real);
-    while (dir !== path.dirname(dir)) {
-        if (existsSync(path.join(dir, "package.json"))) {
-            // 与 pi 自己的 findNodePackageDir 同样处理:若这一层叫 dist 且父层也有
-            // package.json ⇒ 包根在父层(否则 assets 路径会变成 dist/dist/)
-            const parent = path.dirname(dir);
-            if (path.basename(dir) === "dist" && existsSync(path.join(parent, "package.json"))) {
-                return parent;
-            }
-            return dir;
-        }
-        dir = path.dirname(dir);
-    }
-    return undefined;
-}
-
-/** 常见全局安装位置(探测兜底 顺序即优先级)*/
-export function candidateGlobalPaths(env: NodeJS.ProcessEnv = process.env): string[] {
-    const home = os.homedir();
-    const out = [
-        path.join(home, ".npm-global", "lib", PI_PKG_REL),
-        path.join(home, ".bun", "install", "global", PI_PKG_REL),
-        path.join("/usr", "lib", PI_PKG_REL),
-        path.join("/usr", "local", "lib", PI_PKG_REL),
-    ];
-    // npm 的全局前缀(若用户配过)
-    const prefix = env.npm_config_prefix;
-    if (prefix) out.unshift(path.join(expandHome(prefix), "lib", PI_PKG_REL));
-    return out.map((p) => path.join(p, "dist", "cli.js"));
-}
 
 /** pi 包目录(环境变量 → 用户指定 → 常见路径探测)*/
 export function resolvePackageDir(
@@ -106,12 +74,12 @@ export function resolvePackageDir(
     if (override && override.trim()) {
         // 用户明确指定了路径 ⇒ 找不到就是找不到[不回退探测]
         //   否则"填错了也能跑"会让用户以为设置生效了(而实际用的是别处的 pi 极难排查)
-        const d = packageDirFromCli(expandHome(override));
+        const d = getPackageDir(expandHome(override));
         return d ? { dir: d, source: "setting" } : undefined;
     }
     for (const cli of candidateGlobalPaths(env)) {
         if (existsSync(cli)) {
-            const d = packageDirFromCli(cli);
+            const d = getPackageDir(cli);
             if (d) return { dir: d, source: "probe" };
         }
     }
@@ -192,4 +160,56 @@ export function piPackageDir(override?: string): string | undefined {
 export function piVersion(override?: string): string | undefined {
     const dir = piPackageDir(override);
     return dir ? versionFromPackageDir(dir) : undefined;
+}
+
+
+
+/* ───────────── tool ───────────── */
+
+/**
+ * 从 pi CLI 的可执行文件位置,反推"pi 包根目录"
+ *
+ * 分两步:
+ *   ① 解析真实路径(`pi` 常常是软链 realpath 才能拿到包里的真实文件)
+ *   ② 从该文件往上找第一个含 package.json 的目录
+ *      (注意:pi 的 cli 在 <pkg>/dist/cli.js ⇒ 往上第 2 层才是包根
+ *        但中间 dist/ 下也可能有 package.json ⇒ 所以"看到 dist 就再上一层")
+ */
+function getPackageDir(cliPath: string): string | undefined {
+    let real: string;
+    try {
+        real = realpathSync(cliPath);   // 递归软链接
+    } catch {
+        return undefined;
+    }
+    let dir = path.dirname(real);
+    while (dir !== path.dirname(dir)) {
+        if (existsSync(path.join(dir, "package.json"))) {
+            // 与 pi 自己的 findNodePackageDir 同样处理:若这一层叫 dist 且父层也有
+            // package.json ⇒ 包根在父层(否则 assets 路径会变成 dist/dist/)
+            const parent = path.dirname(dir);
+            if (path.basename(dir) === "dist" && existsSync(path.join(parent, "package.json"))) {
+                return parent;
+            }
+            return dir;
+        }
+        dir = path.dirname(dir);
+    }
+    return undefined;
+}
+/** 常见全局安装位置(探测兜底 顺序即优先级)*/
+function candidateGlobalPaths(env: NodeJS.ProcessEnv = process.env): string[] {
+    const home = os.homedir();
+    const out = [
+        path.join(home, ".npm-global", "lib", PI_PKG_REL),
+        path.join(home, ".bun", "install", "global", PI_PKG_REL),
+        path.join("/usr", "lib", PI_PKG_REL),
+        path.join("/usr", "local", "lib", PI_PKG_REL),
+    ];
+    // npm 的全局前缀(若用户配过)
+    const prefix = env.npm_config_prefix;
+    if (prefix) out.unshift(path.join(expandHome(prefix), "lib", PI_PKG_REL));
+    return out.map((p) => path.join(p, "dist", "cli.js"));
+}
+function resolveAny(kind:) {
 }
